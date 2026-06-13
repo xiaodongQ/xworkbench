@@ -479,9 +479,9 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if cleanup != nil {
-		defer cleanup() // 注：当前 handleTaskRun 是同步写 response，cleanup 放到 goroutine 里更稳；先放这里
-	}
+	// 注:cleanup 不能在这里 defer — handler 写完 response 就返回,defer 立即执行,
+	// 会把临时脚本文件在 goroutine 跑命令前删除,导致 exit_code=127。
+	// 真正的 cleanup 放在下面 goroutine 的开头。
 
 	// 写 executions 行
 	exec := &backend.Execution{
