@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>个人工作台 · Workbench</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<link rel="stylesheet" href="/static/css/base.css">
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar" id="sidebar">
+  <div class="logo">
+    <span class="logo-icon">⚡</span>
+    <div>
+      <div class="logo-main">个人工作台</div>
+      <div class="logo-sub">Workbench</div>
+    </div>
+  </div>
+  <div class="toggle-sidebar" onclick="toggleSidebar()" title="收起/展开">☰ <span class="toggle-label">收起</span></div>
+  <nav class="nav">
+    <div class="nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')" data-tooltip="总览&#10;任务统计 / 7天柱图 / 最近任务&#10;调度器状态 / 最近执行">
+      <span class="nav-icon">📊</span><span class="nav-text">总览</span>
+    </div>
+    <div class="nav-item" data-tab="tasks" onclick="switchTab('tasks')" data-tooltip="任务&#10;手动创建的工作项（待认领/进行中/已完成）&#10;可查看 / 认领 / 归档">
+      <span class="nav-icon">📋</span><span class="nav-text">任务</span>
+    </div>
+    <div class="nav-item" data-tab="experiences" onclick="switchTab('experiences')" data-tooltip="经验库&#10;模块化最佳实践&#10;关键词/日志路径/工具命令/适用场景">
+      <span class="nav-icon">📚</span><span class="nav-text">经验库</span>
+    </div>
+    <div class="nav-item" data-tab="automation" onclick="switchTab('automation')" data-tooltip="自动化&#10;定时任务（cron）+ 调度器启停&#10;AI CLI（claude/cbc/shell）定时执行">
+      <span class="nav-icon">⚡</span><span class="nav-text">自动化</span>
+    </div>
+    <div class="nav-item" data-tab="aichat" onclick="switchTab('aichat')" data-tooltip="AI 对话&#10;终端式 Claude Code 交互（PTY）&#10;macOS / Linux 实时">
+      <span class="nav-icon">🤖</span><span class="nav-text">AI 对话</span>
+    </div>
+    <!-- 目录区（紧邻 AI 对话，带抬头 + 轻框区分） -->
+    <div class="dir-section">
+      <div class="dir-section-head">
+        <span>📂 快捷目录</span>
+        <button class="btn btn-small" onclick="showDirModal()" title="添加目录">+</button>
+      </div>
+      <div id="dir-list" class="dir-list"></div>
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="nav-item theme-btn" id="theme-btn" onclick="toggleTheme()">
+      <span class="nav-icon">🌙</span><span class="nav-text theme-btn-text">主题</span>
+    </div>
+  </div>
+</aside>
+
+<!-- Widget Sidebar：链接 + 待办 上下排列 -->
+<aside class="widget-sidebar" id="widget-sidebar">
+  <div class="widget">
+    <div class="widget-title">
+      <span>🔗 快捷链接</span>
+      <button class="btn btn-small" onclick="showLinkModal()">+ 添加</button>
+    </div>
+    <div id="links-grid" class="link-list"></div>
+  </div>
+  <div class="widget">
+    <div class="widget-title">
+      <span>☑️ 待办</span>
+      <span>
+        <button class="btn btn-small" onclick="showTodoAddModal()">+ 添加</button>
+        <button class="btn btn-small" onclick="showTodoPathModal()">设置</button>
+        <span id="todo-show-all-icon" style="font-size:13px;cursor:pointer;opacity:0.5" onclick="toggleTodoShowAll()" title="显示全部">☐</span>
+      </span>
+    </div>
+    <div id="todo-list" class="todo-list"><div style="color:var(--text-secondary);font-size:12px;padding:4px">未配置 todo.md 路径</div></div>
+  </div>
+</aside>
+
+<!-- 列宽拖拽 handle（widget-sidebar 与 main 之间） -->
+<div class="resize-handle" id="resize-handle" title="拖拽调宽"></div>
+
+<!-- Main Content -->
+<main class="main">
+  <!-- Dashboard -->
+  <div id="page-dashboard">
+    <h1 class="page-title">总览</h1>
+    <div class="stat-grid">
+      <div class="stat-card stat-pending">
+        <div class="stat-label">待认领</div>
+        <div class="stat-value" id="stat-pending">-</div>
+      </div>
+      <div class="stat-card stat-in_progress">
+        <div class="stat-label">进行中</div>
+        <div class="stat-value" id="stat-in_progress">-</div>
+      </div>
+      <div class="stat-card stat-archived">
+        <div class="stat-label">已完成</div>
+        <div class="stat-value" id="stat-archived">-</div>
+      </div>
+      <div class="stat-card stat-exception">
+        <div class="stat-label">异常</div>
+        <div class="stat-value" id="stat-exception">-</div>
+      </div>
+    </div>
+
+    <!-- 总览 Tab 顶部 2 列：调度器 + 最近执行（关键 widget 提前到 stats 之后） -->
+    <div class="dashboard-row">
+      <div class="widget" id="dash-sched-widget">
+        <div class="widget-title">
+          <span>⏰ 调度器</span>
+          <span id="scheduler-badge"></span>
+        </div>
+        <div id="scheduled-summary" class="scheduled-list" style="max-height:200px;overflow-y:auto"></div>
+      </div>
+      <div class="widget" id="dash-execs-widget" style="flex: 2">
+        <div class="widget-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span>⚡ 最近执行</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span id="dashboard-refresh-status" style="font-size:12px"></span>
+            <button class="btn btn-small" onclick="loadRecentExecutions()">手动刷新</button>
+          </div>
+        </div>
+        <div id="recent-execs" style="max-height:280px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">最新任务</div>
+    </div>
+    <div id="recent-list" style="max-height:320px;overflow-y:auto"></div>
+
+    <div class="chart-section">
+      <div class="chart-title">任务趋势（近7日）</div>
+      <div class="chart-bars" id="chart-bars"></div>
+    </div>
+  </div>
+
+  <!-- Tasks -->
+  <div id="page-tasks" class="hidden">
+    <h1 class="page-title">任务</h1>
+    <div class="toolbar">
+      <select id="filter-status">
+        <option value="">全部状态</option>
+        <option value="pending">待认领</option>
+        <option value="in_progress">进行中</option>
+        <option value="archived">已完成</option>
+        <option value="exception">异常</option>
+      </select>
+      <button class="btn btn-primary" onclick="showTaskModal()">+ 新建任务</button>
+      <div class="spacer"></div>
+      <span class="count" id="task-count"></span>
+    </div>
+    <div id="task-list"></div>
+  </div>
+
+  <!-- Experiences -->
+  <div id="page-experiences" class="hidden">
+    <h1 class="page-title">经验库</h1>
+    <div class="toolbar">
+      <input id="exp-search" type="text" placeholder="搜索模块..." style="width: 200px;">
+      <button class="btn btn-primary" onclick="showExpModal()">+ 添加经验</button>
+      <div class="spacer"></div>
+      <span class="count" id="exp-count"></span>
+    </div>
+    <div id="exp-list"></div>
+  </div>
+
+  <!-- Automation -->
+  <div id="page-automation" class="hidden">
+    <h1 class="page-title">自动化</h1>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:13px;font-weight:500;color:var(--text)">调度器</span>
+        <span id="scheduler-badge-2"></span>
+        <button class="btn" data-sched-action="start" onclick="schedulerStart()">▶ 启动</button>
+        <button class="btn" data-sched-action="stop" onclick="schedulerStop()">⏸ 停止</button>
+        <button class="btn btn-small" data-sched-action="reload" onclick="schedulerReload()" title="从数据库重新加载定时任务列表">🔄 重载</button>
+      </div>
+      <button class="btn btn-primary" onclick="showScheduledModal()">+ 新建定时任务</button>
+    </div>
+    <div id="scheduled-list"></div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 12px">
+      <h2 class="page-title" style="margin:0">最近执行</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="auto-refresh-status" style="font-size:12px"></span>
+        <span id="auto-refresh-freq-wrap" style="display:none">
+          <select id="auto-refresh-secs" onchange="changeRefreshSeconds(this.value)" style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--archived)">
+            <option value="1">1s</option>
+            <option value="3" selected>3s</option>
+            <option value="5">5s</option>
+            <option value="10">10s</option>
+            <option value="30">30s</option>
+            <option value="60">60s</option>
+          </select>
+        </span>
+        <button class="btn btn-small" id="auto-refresh-toggle-btn" onclick="toggleAutoRefresh()">暂停</button>
+        <button class="btn btn-small" onclick="manualRefresh()">手动刷新</button>
+      </div>
+    </div>
+    <div id="exec-list" style="max-height:400px;overflow-y:auto"></div>
+  </div>
+
+  <!-- AI Chat -->
+  <div id="page-aichat" class="hidden">
+    <h1 class="page-title">🤖 AI 对话</h1>
+    <div class="terminal-wrap">
+      <div class="terminal-header">
+        <div class="terminal-dot red"></div>
+        <div class="terminal-dot yellow"></div>
+        <div class="terminal-dot green"></div>
+        <div class="terminal-title">个人工作台 · AI Terminal</div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:6px;position:relative">
+          <span style="font-size:11px;color:var(--text-secondary)">CLI:</span>
+          <div id="cli-display"
+               style="font-size:12px;padding:3px 8px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;min-width:80px;text-align:center;user-select:none;pointer-events:none">-</div>
+          <select id="cli-selector" onchange="onCliChange(this.value)"
+                  style="position:absolute;opacity:0;width:100%;height:100%;left:0;top:0;cursor:pointer">
+            <option value="claude">claude</option>
+            <option value="cbc">cbc / codebuddy</option>
+            <option value="codex">codex</option>
+            <option value="shell">shell</option>
+          </select>
+        </div>
+      </div>
+      <div id="terminal"></div>
+    </div>
+    <div style="font-size:12px;color:var(--text-secondary);text-align:center">
+      直接输入命令，如"帮我添加一条 redis-cluster 经验"或"查看待认领任务"
+    </div>
+  </div>
+</main>
+
+<!-- Task Modal -->
+<div id="task-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeTaskModal()">
+  <div class="modal">
+    <h2 id="task-modal-title">新建任务</h2>
+    <input type="hidden" id="task-id">
+    <div class="form-group"><label>标题 <span class="field-hint">必填</span></label><input id="task-title" placeholder="任务标题"></div>
+    <div class="form-group"><label>描述 <span class="field-hint">详细描述问题和背景</span></label><textarea id="task-desc" placeholder="详细描述..."></textarea></div>
+    <div class="form-group">
+      <label>关联经验库 <span class="field-hint">点击右侧按钮多选</span></label>
+      <div style="display:flex;gap:8px;align-items:flex-start">
+        <div id="task-exps-list" style="flex:1;display:flex;flex-wrap:wrap;gap:6px;min-height:32px;padding:6px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg)"></div>
+        <button class="btn btn-small" type="button" onclick="openExpPicker()">📚 选择</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>模块<span class="field-hint">如 redis-cluster</span></label><input id="task-module" placeholder="如 redis-cluster"></div>
+      <div class="form-group"><label>资源链接 <span class="field-hint">仓库或文档</span></label><input id="task-resources" placeholder="仓库地址或文档链接"></div>
+    </div>
+    <div class="form-group"><label>验收标准 <span class="field-hint">正向+反向用例</span></label><textarea id="task-acceptance" class="code" placeholder="正向用例:\n输入... → 输出...\n\n反向用例:\n输入... → 预期行为..."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeTaskModal()">取消</button>
+      <button id="task-submit-btn" class="btn btn-primary" onclick="submitTask()">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- Experience Picker Modal -->
+<div id="exp-picker-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeExpPicker()">
+  <div class="modal" style="max-width:700px">
+    <h2>选择经验库 <span style="font-size:12px;color:var(--text-secondary);font-weight:400">（可多选）</span></h2>
+    <div class="form-group">
+      <input id="exp-picker-search" placeholder="搜索 module / scene / keywords..." style="width:100%">
+    </div>
+    <div id="exp-picker-list" style="max-height:50vh;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:8px"></div>
+    <div class="modal-actions">
+      <span id="exp-picker-count" style="margin-right:auto;color:var(--text-secondary);font-size:12px">已选 0 条</span>
+      <button class="btn btn-secondary" onclick="closeExpPicker()">取消</button>
+      <button class="btn btn-primary" onclick="confirmExpPicker()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- Exp Modal -->
+<div id="exp-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeExpModal()">
+  <div class="modal">
+    <h2 id="exp-modal-title">添加经验</h2>
+    <input type="hidden" id="exp-id">
+    <div class="form-group"><label>模块 <span class="field-hint">必填 · 分类标识</span></label><input id="exp-module" placeholder="如 redis-cluster"></div>
+    <div class="form-group">
+      <label>关键词 <span class="field-hint">用于程序化匹配问题特征</span></label>
+      <textarea id="exp-keywords" placeholder="CLUSTERDOWN, MOVED redirect, READONLY..."></textarea>
+    </div>
+    <div class="form-group"><label>日志路径 <span class="field-hint">日志文件路径</span></label><input id="exp-log-paths" placeholder="/var/log/redis/redis-server.log"></div>
+    <div class="form-group"><label>工具命令 <span class="field-hint">常用 CLI 命令</span></label><textarea id="exp-tool-usage" placeholder="redis-cli cluster nodes\nredis-cli slowlog get 10"></textarea></div>
+    <div class="form-group"><label>适用场景 <span class="field-hint">该经验适用的业务场景</span></label><textarea id="exp-scene" placeholder="集群节点失联定位\n内存异常增长分析"></textarea></div>
+    <div class="form-group"><label>日志样例 <span class="field-hint">典型日志片段供人工比对</span></label><textarea id="exp-log-samples" class="code" placeholder="# CLUSTERDOWN\nThe cluster is gone"></textarea></div>
+    <div class="form-group"><label>代码片段 <span class="field-hint">配置或解决代码示例</span></label><textarea id="exp-code-snippets" class="code" placeholder="配置文件调整示例..."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeExpModal()">取消</button>
+      <button id="exp-submit-btn" class="btn btn-primary" onclick="submitExp()">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- Link Modal -->
+<div id="link-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeLinkModal()">
+  <div class="modal">
+    <h2>添加链接</h2>
+    <div class="form-group"><label>名称 <span class="field-hint">必填</span></label><input id="link-name" placeholder="如 GitHub"></div>
+    <div class="form-group"><label>URL <span class="field-hint">必填</span></label><input id="link-url" placeholder="https://..."></div>
+    <div class="form-group"><label>图标 URL <span class="field-hint">可选，留空用首字母占位</span></label><input id="link-icon" placeholder="https://.../favicon.ico"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeLinkModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitLink()">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dir Modal -->
+<div id="dir-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeDirModal()">
+  <div class="modal">
+    <h2>添加目录</h2>
+    <div class="form-group"><label>名称 <span class="field-hint">必填</span></label><input id="dir-name" placeholder="如 代码"></div>
+    <div class="form-group"><label>路径 <span class="field-hint">必填 · 本地绝对路径</span></label><input id="dir-path" placeholder="/Users/me/code"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeDirModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitDir()">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- Todo Path Modal -->
+<div id="todo-path-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeTodoPathModal()">
+  <div class="modal">
+    <h2>设置 todo.md 路径</h2>
+    <div class="form-group"><label>路径 <span class="field-hint">本地绝对路径</span></label><input id="todo-path-input" placeholder="/Users/me/notes/todo.md"></div>
+    <div style="font-size:11px;color:var(--text-secondary);margin-top:8px">支持 <code>- [ ]</code> 和 <code>- [x]</code> 格式，点击勾选框会自动写回文件（先 .bak 再原子 rename）。</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeTodoPathModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitTodoPath()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Todo Add Modal -->
+<div id="todo-add-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeTodoAddModal()">
+  <div class="modal">
+    <h2>添加待办</h2>
+    <div class="form-group"><label>内容 <span class="field-hint">必填</span></label><input id="todo-add-input" placeholder="如 写周报"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeTodoAddModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitTodoAdd()">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- Scheduled Modal -->
+<div id="scheduled-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeScheduledModal()">
+  <div class="modal">
+    <h2 id="sched-modal-title">新建定时任务</h2>
+    <input type="hidden" id="sched-id">
+    <div class="form-group"><label>名称 <span class="field-hint">必填</span></label><input id="sched-name" placeholder="如 每分钟心跳"></div>
+    <div class="form-group">
+      <label>Cron 表达式 <span class="field-hint">必填</span></label>
+      <input id="sched-cron" placeholder="@every 30s  或  */5 * * * *">
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+        支持标准 5 字段 cron (分 时 日 月 周) 或 @every Ns / @hourly / @daily 等预设
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>命令类型</label>
+        <select id="sched-type">
+          <option value="shell">shell · 直接执行命令</option>
+          <option value="claude">claude · Claude Code</option>
+          <option value="cbc">cbc · Codebuddy (cbc/codebuddy)</option>
+        </select>
+      </div>
+      <div class="form-group"><label>模型 <span class="field-hint">可选 · claude/cbc 用</span></label><input id="sched-model" placeholder="sonnet / opus / ..."></div>
+    </div>
+    <div class="form-group">
+      <label>Prompt <span class="field-hint">必填 · shell 时为命令，claude/cbc 时为 prompt</span></label>
+      <textarea id="sched-prompt" rows="4" placeholder='claude/cbc: "请检查项目状态并提交周报"&#10;shell: "echo hello && date"'></textarea>
+    </div>
+    <div class="form-group">
+      <label>超时时间 <span class="field-hint">可选 · 秒为单位，0=默认（AI任务1小时，shell任务5分钟）</span></label>
+      <input id="sched-timeout" type="number" min="0" placeholder="0" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:120px">
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px;padding:6px 0;margin-bottom:8px">
+      <input type="checkbox" id="sched-enabled" checked style="width:16px;height:16px;cursor:pointer;margin:0">
+      <label for="sched-enabled" style="margin:0;cursor:pointer;font-size:13px;color:var(--text);font-weight:500">启用此定时任务</label>
+      <span class="field-hint" style="margin-left:4px">勾选后会被 cron 调度</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeScheduledModal()">取消</button>
+      <button class="btn btn-primary" id="sched-submit-btn" onclick="submitScheduled()">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- Execution Detail Modal -->
+<div id="exec-detail-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeExecDetailModal()">
+  <div class="modal" style="max-width:800px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;padding:22px">
+    <h2 style="flex:0 0 auto;margin:0 0 6px 0;font-size:16px">执行详情</h2>
+    <div id="exec-detail-meta" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;flex:0 0 auto"></div>
+    <div style="flex:1 1 auto;overflow-y:auto;min-height:0">
+      <div class="form-group" style="margin-bottom:8px">
+        <label style="margin-bottom:4px;font-size:12px">命令 <span class="field-hint">Command</span></label>
+        <textarea id="exec-detail-cmd" readonly class="code" rows="6" style="font-size:12px;padding:6px 8px;min-height:120px;line-height:1.5;resize:vertical"></textarea>
+      </div>
+      <div class="form-group" style="margin-bottom:8px">
+        <label style="margin-bottom:4px;font-size:12px">输出 <span class="field-hint">stdout</span></label>
+        <textarea id="exec-detail-output" readonly class="code" rows="8" style="font-size:12px;white-space:pre-wrap;word-break:break-all;padding:6px 8px;line-height:1.5"></textarea>
+      </div>
+      <div class="form-group" style="margin-bottom:8px">
+        <label style="margin-bottom:4px;font-size:12px">错误 <span class="field-hint">stderr</span></label>
+        <textarea id="exec-detail-error" readonly class="code" rows="2" style="font-size:12px;white-space:pre-wrap;word-break:break-all;padding:6px 8px;min-height:0;line-height:1.5"></textarea>
+      </div>
+      <div id="exec-detail-eval" style="background:var(--hover);padding:10px 12px;border-radius:6px;margin-top:4px;font-size:12px;line-height:1.5"></div>
+    </div>
+    <div class="modal-actions" style="flex:0 0 auto;background:var(--card);padding-top:10px;margin-top:10px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:12px;color:var(--text-secondary)">评估模型:</label>
+      <select id="eval-model-select" style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text)">
+        <option value="haiku">haiku（快+便宜）</option>
+        <option value="sonnet" selected>sonnet（推荐 · 准确）</option>
+        <option value="opus">opus（最强 · 贵）</option>
+      </select>
+      <button id="exec-detail-eval-btn" class="btn" onclick="runEvaluation()">📊 AI 评估</button>
+      <button class="btn btn-secondary" onclick="closeExecDetailModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 立即运行 modal:任务执行用,选 command_type + model -->
+<div id="run-task-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeRunTaskModal()">
+  <div class="modal" style="max-width:480px">
+    <h2 style="margin:0 0 12px 0;font-size:16px">立即运行任务</h2>
+    <div class="form-group" style="margin-bottom:10px">
+      <label style="font-size:12px">任务 <span class="field-hint">Title</span></label>
+      <div id="run-task-title" style="font-size:13px;color:var(--text-secondary);padding:6px 8px;background:var(--hover);border-radius:4px"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:10px">
+      <label style="font-size:12px">执行方式 <span class="field-hint">Command Type</span></label>
+      <select id="run-task-type" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
+        <option value="claude" selected>claude（AI CLI 解释执行 · 推荐）</option>
+        <option value="shell">shell（直接 sh -c 执行）</option>
+        <option value="cbc">cbc（codebuddy CLI · 需 PATH）</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:10px" id="run-task-model-group">
+      <label style="font-size:12px">执行模型 <span class="field-hint">Model（仅 claude / cbc 生效）</span></label>
+      <select id="run-task-model" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
+        <option value="haiku">haiku（快+便宜）</option>
+        <option value="sonnet" selected>sonnet（推荐 · 准确）</option>
+        <option value="opus">opus（最强 · 贵）</option>
+      </select>
+    </div>
+    <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="closeRunTaskModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitRunTask()">▶ 启动</button>
+    </div>
+  </div>
+</div>
+
+<!-- 共享 + widgets + 5 view JS（顺序：api → widgets → 5 view） -->
+<script src="/static/js/api.js"></script>
+<script src="/static/js/widgets.js"></script>
+<script src="/static/js/views/dashboard.js"></script>
+<script src="/static/js/views/tasks.js"></script>
+<script src="/static/js/views/experiences.js"></script>
+<script src="/static/js/views/automation.js"></script>
+<script src="/static/js/views/aichat.js"></script>
+
+<!-- Init: 全局事件 + 首次加载 dashboard + widget 侧栏 -->
+<script>
+// 事件绑定（filter / search）
+document.getElementById('filter-status').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
+document.getElementById('exp-search').addEventListener('input', debounce(() => { if (typeof loadExps === 'function') loadExps(); }, 300));
+
+// 首次加载：dashboard 主体 + widget 侧栏（链接/目录/todo 常驻）
+loadLinks();
+loadDirs();
+loadTodo();
+loadDashboard();
+
+// 恢复上次停留的 tab（必须在所有 view JS 加载完之后，否则 switchTab 内的 loadTasks/loadExps 等都是 undefined）
+(function restoreTab() {
+  const saved = localStorage.getItem('sf-current-tab');
+  if (saved && saved !== 'dashboard' && document.getElementById('page-' + saved)) {
+    switchTab(saved);
+  }
+})();
+
+// 列宽拖拽：拖 widget-sidebar 与 main 之间的 4px 把手
+(function initResize() {
+  const handle = document.getElementById('resize-handle');
+  const sidebar = document.getElementById('widget-sidebar');
+  if (!handle || !sidebar) return;
+  const saved = parseInt(localStorage.getItem('sf-widget-sidebar-w'), 10);
+  if (saved && saved >= 150 && saved <= 700) sidebar.style.width = saved + 'px';
+  let startX = null, startW = 0;
+  handle.addEventListener('mousedown', e => {
+    startX = e.clientX;
+    startW = sidebar.offsetWidth;
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (startX == null) return;
+    const dx = e.clientX - startX;
+    const newW = Math.max(150, Math.min(700, startW + dx));
+    sidebar.style.width = newW + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (startX == null) return;
+    startX = null;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    localStorage.setItem('sf-widget-sidebar-w', sidebar.offsetWidth);
+  });
+})();
+</script>
+</body>
+</html>
