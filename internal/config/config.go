@@ -158,10 +158,20 @@ func configPath() string {
 func DefaultConfig() *Config {
 	return &Config{
 		Terminal: TerminalConfig{
-			DefaultType:  "wezterm",
-			DetectPaths:  map[string][]string{"wezterm": {"/Applications/WezTerm.app/Contents/MacOS/WezTerm"}},
-			Types:        map[string]TerminalTypeDef{
-				"wezterm": {Bin: "wezterm", Args: []string{"start", "--cwd", "{dir}", "--always-new-process"}, Name: "WezTerm", Plate: "all", Path: ""},
+			DefaultType: "wezterm",
+			DetectPaths: map[string][]string{
+				"wezterm": {"/Applications/WezTerm.app/Contents/MacOS/WezTerm"},
+			},
+			Types: map[string]TerminalTypeDef{
+				"wezterm":    {Bin: "wezterm", Args: []string{"start", "--cwd", "{dir}", "--always-new-process"}, Name: "WezTerm", Plate: "all", Path: ""},
+				"wt":         {Bin: "wt.exe", Args: []string{"-d", "{dir}"}, Name: "Windows Terminal", Plate: "windows", Path: ""},
+				"powershell": {Bin: "powershell.exe", Args: []string{"-NoExit", "-Command", "cd \"{dir}\""}, Name: "PowerShell", Plate: "windows", Path: ""},
+				"pwsh":       {Bin: "pwsh.exe", Args: []string{"-NoExit", "-Command", "cd \"{dir}\""}, Name: "PowerShell Core", Plate: "windows", Path: ""},
+				"pwsh7":      {Bin: "pwsh", Args: []string{"-NoExit", "-c", "cd '{dir}'"}, Name: "PowerShell 7", Plate: "all", Path: ""},
+				"terminal":   {Bin: "osascript", Args: []string{"-e", `tell application "Terminal" to do script "cd {dir}"`}, Name: "Terminal.app", Plate: "darwin", Path: ""},
+				"gnome":      {Bin: "gnome-terminal", Args: []string{"--", "--working-directory={dir}"}, Name: "GNOME Terminal", Plate: "linux", Path: ""},
+				"xterm":      {Bin: "xterm", Args: []string{"-e", "bash -c 'cd {dir}; exec bash'"}, Name: "xterm", Plate: "linux", Path: ""},
+				"cmd":        {Bin: "cmd.exe", Args: []string{"/K", "cd /d {dir}"}, Name: "cmd.exe", Plate: "windows", Path: ""},
 			},
 		},
 		Models: ModelsConfig{

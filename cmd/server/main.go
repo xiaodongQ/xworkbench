@@ -963,7 +963,15 @@ func (s *APIServer) handleDirShortcutOpenTerminal(w http.ResponseWriter, r *http
 	if termType == "" {
 		termType = shortcuts.DefaultTerminal()
 	}
-	typeDef := config.AppConfig.Terminal.Types[strings.ToLower(termType)]
+	cfg := config.AppConfig
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+	typeDef, ok := cfg.Terminal.Types[strings.ToLower(termType)]
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "unsupported terminal type: "+termType)
+		return
+	}
 	slog.Info("[handleDirShortcutOpenTerminal] opening",
 		slog.String("dir", path),
 		slog.String("termType", termType),
