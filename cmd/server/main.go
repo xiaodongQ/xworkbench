@@ -25,6 +25,7 @@ import (
 	taskpkg "github.com/xiaodongQ/xworkbench/internal/task"
 	"github.com/xiaodongQ/xworkbench/internal/todo"
 	"github.com/xiaodongQ/xworkbench/internal/httplog"
+	"github.com/xiaodongQ/xworkbench/internal/relay"
 	"github.com/xiaodongQ/xworkbench/internal/wsmsg"
 )
 
@@ -130,6 +131,9 @@ func (s *APIServer) routes() {
 
 	mux.HandleFunc("GET /api/settings", s.handleSettingsList)
 	mux.HandleFunc("PUT /api/settings/{key}", s.handleSettingsSet)
+
+	// relay 代理功能
+	mux.HandleFunc("POST /api/exec", relay.HandleExec)
 }
 
 func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
