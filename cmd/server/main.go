@@ -92,6 +92,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/experiences/{id}", s.handleExpGet)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/pty", s.handlePty)
+	mux.HandleFunc("POST /api/pty/{tab_id}/submit-input", s.handlePtyInput)
 	mux.HandleFunc("GET /ws", s.handleWS)
 	// /static/* 用 embed.FS serve 拆分 CSS/JS 文件
 	mux.Handle("GET /static/", http.FileServer(http.FS(FS)))

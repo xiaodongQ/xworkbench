@@ -176,3 +176,18 @@ func determineAICmd(cliType, ctxDir string) string {
 	return "claude"
 }
 
+
+// FindPTY stub for Windows — PTY sessions not yet implemented.
+
+// PTYSession stub for Windows build.
+type PTYSession struct {}
+
+// WriteInput stub for Windows.
+func (s *PTYSession) WriteInput(input string) error { return nil }
+
+func FindPTY(tabID string) *PTYSession { return nil }
+
+// handlePtyInput stub for Windows — returns 404.
+func (s *APIServer) handlePtyInput(w http.ResponseWriter, r *http.Request) {
+	writeErr(w, http.StatusNotFound, "PTY submit-input not supported on Windows")
+}

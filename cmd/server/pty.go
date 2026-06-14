@@ -27,31 +27,79 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-// PTYSession holds a single PTY session state
+// PTYSession holds a single PTY session state, registered globally by tab_id.
 type PTYSession struct {
-	ptmx   *os.File
-	cmd    *exec.Cmd
-	tabID  string
-	notify func([]byte) // called when a notification message should be sent
+	ptmx  *os.File
+	cmd   *exec.Cmd
+	tabID string
+	mu    sync.Mutex
 }
 
-// authRequiredPatterns 检测需要授权的输出模式
+// ptySessions 全局 PTY session 注册表，按 tab_id 索引。
+// 用于 REST API submit-input 绕过 WebSocket 直接写 PTY stdin。
+var (
+	ptySessions = make(map[string]*PTYSession)
+	ptyMu       sync.RWMutex
+)
+
+// registerPTY 将 session 注册到全局表，goroutine 结束时自动注销。
+func registerPTY(tabID string, sess *PTYSession) {
+	ptyMu.Lock()
+	ptySessions[tabID] = sess
+	ptyMu.Unlock()
+	go func() {
+		// 等待 cmd 结束
+		sess.cmd.Wait()
+		ptyMu.Lock()
+		delete(ptySessions, tabID)
+		ptyMu.Unlock()
+	}()
+}
+
+// FindPTY 查找活跃 PTY session。
+func FindPTY(tabID string) *PTYSession {
+	ptyMu.RLock()
+	defer ptyMu.RUnlock()
+	return ptySessions[tabID]
+}
+
+// WriteInput 向 PTY stdin 写入字符串（自动加换行）。
+func (s *PTYSession) WriteInput(input string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.ptmx.WriteString(input + "\n")
+	return err
+}
+
+// authRequiredPatterns 检测需要授权的输出模式（中英文）。
 var authRequiredPatterns = []string{
 	"Approve",
 	"y/N",
+	"[Y/n]",
+	"[y/N]",
 	"Yes/No",
 	"yes/no",
 	"CONFIRM",
 	"confirm",
 	"permission",
 	"continue anyway",
+	"是否确认",
+	"请确认",
+	"是否需要",
+	"按 Y 确认",
+	"请按",
 }
 
+// authRequiredAntiPatterns 排除项（permission denied 等误报）。
 var authRequiredAntiPatterns = []string{
 	"Permission denied",
 	"permission denied",
 	"read permission",
 	"write permission",
+	"no confirmation",
+	"No confirmation",
+	"不需要确认",
+	"无需确认",
 }
 
 // detectAuthRequired 检查一行是否包含授权提示
@@ -85,7 +133,6 @@ func sendNotify(conn *websocket.Conn, tabID, notifyType, extra string) {
 }
 
 // handlePty 启动一个 PTY + WebSocket 终端会话。
-// 支持：claude / cbc / codex / shell。
 // query param: tab_id 用于多 Tab 区分
 func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	tabID := r.URL.Query().Get("tab_id")
@@ -125,8 +172,14 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 			[]byte("\r\n\x1b[31m[xworkbench] PTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
 		return
 	}
-	defer ptmx.Close()
-	defer cmd.Process.Kill()
+
+	sess := &PTYSession{ptmx: ptmx, cmd: cmd, tabID: tabID}
+	registerPTY(tabID, sess)
+
+	defer func() {
+		ptmx.Close()
+		cmd.Process.Kill()
+	}()
 
 	banner := fmt.Sprintf("\x1b[36m[xworkbench] PTY 启动 (shell=%s, cli=%s)\x1b[0m\r\n", shell, cliType)
 	conn.WriteMessage(websocket.TextMessage, []byte(banner))
@@ -169,6 +222,33 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(ptmx, &wsReader{conn: conn, ptmx: ptmx})
 
 	wg.Wait()
+}
+
+// handlePtyInput 处理 POST /api/pty/{tab_id}/submit-input
+// 向指定 tab_id 的 PTY stdin 写入用户输入（用于授权确认）。
+func (s *APIServer) handlePtyInput(w http.ResponseWriter, r *http.Request) {
+	tabID := r.PathValue("tab_id")
+	if tabID == "" {
+		writeErr(w, http.StatusBadRequest, "tab_id is required")
+		return
+	}
+	var req struct {
+		Input string `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sess := FindPTY(tabID)
+	if sess == nil {
+		writeErr(w, http.StatusNotFound, "no active PTY session for this tab")
+		return
+	}
+	if err := sess.WriteInput(req.Input); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok", "tab_id": tabID})
 }
 
 // wsReader 将 WebSocket 消息转发到 PTY，同时拦截 resize 消息。
