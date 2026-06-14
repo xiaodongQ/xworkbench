@@ -45,7 +45,7 @@ function switchTab(tab) {
     try { loadTasks(); } catch(e) { console.error('[loadTasks error]', e); }
   }
   if (tab === 'experiences' && typeof loadExps === 'function') loadExps();
-  if (tab === 'automation' && typeof loadAutomation === 'function') loadAutomation();
+  if (tab === 'automation' && typeof loadAutomation === 'function') { loadAutomation(); if (typeof loadTerminalSetting === 'function') loadTerminalSetting(); }
   if (tab === 'aichat' && typeof initTerminal === 'function') initTerminal();
 }
 

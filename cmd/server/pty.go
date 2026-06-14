@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
@@ -19,20 +21,122 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for local development
+		return true
 	},
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
 
+// PTYSession holds a single PTY session state, registered globally by tab_id.
 type PTYSession struct {
-	ptmx *os.File
+	ptmx  *os.File
+	cmd   *exec.Cmd
+	tabID string
+	mu    sync.Mutex
+}
+
+// ptySessions 全局 PTY session 注册表，按 tab_id 索引。
+// 用于 REST API submit-input 绕过 WebSocket 直接写 PTY stdin。
+var (
+	ptySessions = make(map[string]*PTYSession)
+	ptyMu       sync.RWMutex
+)
+
+// registerPTY 将 session 注册到全局表，goroutine 结束时自动注销。
+func registerPTY(tabID string, sess *PTYSession) {
+	ptyMu.Lock()
+	ptySessions[tabID] = sess
+	ptyMu.Unlock()
+	go func() {
+		// 等待 cmd 结束
+		sess.cmd.Wait()
+		ptyMu.Lock()
+		delete(ptySessions, tabID)
+		ptyMu.Unlock()
+	}()
+}
+
+// FindPTY 查找活跃 PTY session。
+func FindPTY(tabID string) *PTYSession {
+	ptyMu.RLock()
+	defer ptyMu.RUnlock()
+	return ptySessions[tabID]
+}
+
+// WriteInput 向 PTY stdin 写入字符串（自动加换行）。
+func (s *PTYSession) WriteInput(input string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.ptmx.WriteString(input + "\n")
+	return err
+}
+
+// authRequiredPatterns 检测需要授权的输出模式（中英文）。
+var authRequiredPatterns = []string{
+	"Approve",
+	"y/N",
+	"[Y/n]",
+	"[y/N]",
+	"Yes/No",
+	"yes/no",
+	"CONFIRM",
+	"confirm",
+	"permission",
+	"continue anyway",
+	"是否确认",
+	"请确认",
+	"是否需要",
+	"按 Y 确认",
+	"请按",
+}
+
+// authRequiredAntiPatterns 排除项（permission denied 等误报）。
+var authRequiredAntiPatterns = []string{
+	"Permission denied",
+	"permission denied",
+	"read permission",
+	"write permission",
+	"no confirmation",
+	"No confirmation",
+	"不需要确认",
+	"无需确认",
+}
+
+// detectAuthRequired 检查一行是否包含授权提示
+func detectAuthRequired(line string) bool {
+	for _, p := range authRequiredAntiPatterns {
+		if strings.Contains(line, p) {
+			return false
+		}
+	}
+	for _, p := range authRequiredPatterns {
+		if strings.Contains(line, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// wsNotifyMsg 构造一个 JSON 通知消息发给前端
+type wsNotifyMsg struct {
+	Type  string `json:"type"`
+	TabID string `json:"tab_id"`
+	Extra string `json:"extra,omitempty"`
+}
+
+func sendNotify(conn *websocket.Conn, tabID, notifyType, extra string) {
+	if conn == nil {
+		return
+	}
+	data, _ := json.Marshal(wsNotifyMsg{Type: notifyType, TabID: tabID, Extra: extra})
+	conn.WriteMessage(websocket.TextMessage, data)
 }
 
 // handlePty 启动一个 PTY + WebSocket 终端会话。
-// AI CLI 类型从 aichat_default_cli 设置读取，默认为 claude。
-// 支持：claude / cbc / codex / shell。
+// query param: tab_id 用于多 Tab 区分
 func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
+	tabID := r.URL.Query().Get("tab_id")
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("websocket upgrade error: %v", err)
@@ -40,7 +144,6 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// 读取用户偏好的 CLI 类型
 	cliType, _ := s.setDB.Get("aichat_default_cli")
 	if cliType == "" {
 		cliType = "claude"
@@ -55,7 +158,6 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	cmdStr := determineAICmd(cliType, ctxDir)
 	var cmd *exec.Cmd
 	if cmdStr == "" {
-		// shell 类型：进入系统默认 shell 的交互模式
 		cmd = exec.Command(shell, "-i")
 	} else {
 		cmd = exec.Command(shell, "-c", cmdStr)
@@ -70,37 +172,86 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 			[]byte("\r\n\x1b[31m[xworkbench] PTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
 		return
 	}
-	defer ptmx.Close()
-	defer cmd.Process.Kill()
+
+	sess := &PTYSession{ptmx: ptmx, cmd: cmd, tabID: tabID}
+	registerPTY(tabID, sess)
+
+	defer func() {
+		ptmx.Close()
+		cmd.Process.Kill()
+	}()
 
 	banner := fmt.Sprintf("\x1b[36m[xworkbench] PTY 启动 (shell=%s, cli=%s)\x1b[0m\r\n", shell, cliType)
 	conn.WriteMessage(websocket.TextMessage, []byte(banner))
 
-	// PTY 输出 → WebSocket（单独 goroutine）
 	var wg sync.WaitGroup
+
+	// PTY 输出 → WebSocket + auth 检测
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		var lineBuf strings.Builder
+		authNotified := false
 		buf := make([]byte, 1024)
 		for {
 			n, err := ptmx.Read(buf)
-			if err != nil {
-				break
+			if n > 0 {
+				conn.WriteMessage(websocket.BinaryMessage, buf[:n])
+				if !authNotified {
+					for _, b := range buf[:n] {
+						if b == '\n' || b == '\r' {
+							line := strings.TrimRight(lineBuf.String(), "\r\n")
+							if detectAuthRequired(line) {
+								sendNotify(conn, tabID, "auth_required", line)
+								authNotified = true
+							}
+							lineBuf.Reset()
+						} else if unicode.IsPrint(rune(b)) || b == '\t' {
+							lineBuf.WriteByte(b)
+						}
+					}
+				}
 			}
-			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+			if err != nil {
 				break
 			}
 		}
 	}()
 
-	// WebSocket 输入 → PTY（含 resize 检测，不开独立 goroutine 避免并发读 WS）
-	_, err = io.Copy(ptmx, &wsReader{conn: conn, ptmx: ptmx})
+	// WebSocket 输入 → PTY（含 resize 检测）
+	_, _ = io.Copy(ptmx, &wsReader{conn: conn, ptmx: ptmx})
 
 	wg.Wait()
 }
 
+// handlePtyInput 处理 POST /api/pty/{tab_id}/submit-input
+// 向指定 tab_id 的 PTY stdin 写入用户输入（用于授权确认）。
+func (s *APIServer) handlePtyInput(w http.ResponseWriter, r *http.Request) {
+	tabID := r.PathValue("tab_id")
+	if tabID == "" {
+		writeErr(w, http.StatusBadRequest, "tab_id is required")
+		return
+	}
+	var req struct {
+		Input string `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sess := FindPTY(tabID)
+	if sess == nil {
+		writeErr(w, http.StatusNotFound, "no active PTY session for this tab")
+		return
+	}
+	if err := sess.WriteInput(req.Input); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok", "tab_id": tabID})
+}
+
 // wsReader 将 WebSocket 消息转发到 PTY，同时拦截 resize 消息。
-// 不开独立 goroutine 读 WS，避免与 io.Copy 并发读导致死锁。
 type wsReader struct {
 	conn *websocket.Conn
 	ptmx *os.File
@@ -111,7 +262,6 @@ func (r *wsReader) Read(p []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	// 拦截 resize 消息："resize,<cols>,<rows>"
 	if msgType == websocket.TextMessage && strings.HasPrefix(string(data), "resize,") {
 		parts := strings.Split(string(data), ",")
 		if len(parts) == 3 {
@@ -120,7 +270,7 @@ func (r *wsReader) Read(p []byte) (int, error) {
 			ws.Rows = uint16(parseInt(parts[2], 24))
 			pty.Setsize(r.ptmx, &ws)
 		}
-		return 0, nil // 不透传 resize 消息给 PTY
+		return 0, nil
 	}
 	if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
 		return copy(p, data), nil
@@ -149,7 +299,6 @@ func getContextDir() string {
 }
 
 // determineAICmd 根据 CLI 类型构造 AI 命令。
-// ctxDir 存在时读取 .xworkbench/context/*.md 作为 prompt-file。
 func determineAICmd(cliType, ctxDir string) string {
 	if cmd := os.Getenv("CLAUDE_CMD"); cmd != "" {
 		return cmd

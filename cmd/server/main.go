@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,6 +92,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/experiences/{id}", s.handleExpGet)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/pty", s.handlePty)
+	mux.HandleFunc("POST /api/pty/{tab_id}/submit-input", s.handlePtyInput)
 	mux.HandleFunc("GET /ws", s.handleWS)
 	// /static/* 用 embed.FS serve 拆分 CSS/JS 文件
 	mux.Handle("GET /static/", http.FileServer(http.FS(FS)))
@@ -107,6 +109,10 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("PUT /api/dir-shortcuts/{id}", s.handleDirShortcutUpdate)
 	mux.HandleFunc("DELETE /api/dir-shortcuts/{id}", s.handleDirShortcutDelete)
 	mux.HandleFunc("POST /api/dir-shortcuts/{id}/open", s.handleDirShortcutOpen)
+	mux.HandleFunc("POST /api/dir-shortcuts/{id}/open-terminal", s.handleDirShortcutOpenTerminal)
+	mux.HandleFunc("GET /api/terminals", s.handleTerminalList)
+	mux.HandleFunc("GET /api/settings/default_terminal", s.handleGetDefaultTerminal)
+	mux.HandleFunc("PUT /api/settings/default_terminal", s.handleSetDefaultTerminal)
 
 	mux.HandleFunc("GET /api/scheduled", s.handleScheduledList)
 	mux.HandleFunc("POST /api/scheduled", s.handleScheduledCreate)
@@ -897,6 +903,99 @@ func (s *APIServer) handleDirShortcutOpen(w http.ResponseWriter, r *http.Request
 	}
 	_ = s.dirDB.Touch(id)
 	writeJSON(w, map[string]string{"id": id, "status": "opened", "path": path})
+}
+
+// handleDirShortcutOpenTerminal 打开指定终端类型的工作目录
+func (s *APIServer) handleDirShortcutOpenTerminal(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	termType := r.URL.Query().Get("type") // 可选，默认用设置值
+	if termType == "" {
+		termType, _ = s.setDB.Get("default_terminal")
+	}
+
+	list, err := s.dirDB.List()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var entry *backend.DirShortcut
+	for _, d := range list {
+		if d.ID == id {
+			entry = d
+			break
+		}
+	}
+	if entry == nil {
+		writeErr(w, http.StatusNotFound, "shortcut not found")
+		return
+	}
+
+	// 判断是远程还是本地路径
+	path := entry.Path
+	var openErr error
+	if strings.HasPrefix(path, "ssh://") || strings.Contains(path, "@:") {
+		openErr = shortcuts.OpenRemoteTerminal(termType, path)
+	} else {
+		openErr = shortcuts.OpenTerminal(termType, path)
+	}
+
+	if openErr != nil {
+		writeErr(w, http.StatusBadRequest, openErr.Error())
+		return
+	}
+	_ = s.dirDB.Touch(id)
+	writeJSON(w, map[string]interface{}{"id": id, "status": "opened", "path": path, "terminal": termType})
+}
+
+// handleTerminalList 返回支持的终端类型列表
+func (s *APIServer) handleTerminalList(w http.ResponseWriter, r *http.Request) {
+	supported := []map[string]string{
+		{"type": "wezterm", "name": "WezTerm", "platform": "macOS/Linux/Windows"},
+		{"type": "wt", "name": "Windows Terminal", "platform": "Windows"},
+		{"type": "powershell", "name": "PowerShell", "platform": "Windows"},
+		{"type": "pwsh", "name": "PowerShell Core", "platform": "Windows/macOS/Linux"},
+		{"type": "terminal", "name": "Terminal.app", "platform": "macOS"},
+		{"type": "gnome", "name": "GNOME Terminal", "platform": "Linux"},
+		{"type": "xterm", "name": "xterm", "platform": "Linux"},
+		{"type": "cmd", "name": "CMD", "platform": "Windows"},
+	}
+	defaultType, _ := s.setDB.Get("default_terminal")
+	if defaultType == "" {
+		defaultType = string(shortcuts.DefaultTerminal())
+	}
+	writeJSON(w, map[string]interface{}{
+		"supported": supported,
+		"default":   defaultType,
+	})
+}
+
+// handleGetDefaultTerminal 读取默认终端类型
+func (s *APIServer) handleGetDefaultTerminal(w http.ResponseWriter, r *http.Request) {
+	val, _ := s.setDB.Get("default_terminal")
+	if val == "" {
+		val = string(shortcuts.DefaultTerminal())
+	}
+	writeJSON(w, map[string]string{"value": val})
+}
+
+// handleSetDefaultTerminal 设置默认终端类型
+func (s *APIServer) handleSetDefaultTerminal(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !shortcuts.IsSupportedTerminal(req.Value) {
+		writeErr(w, http.StatusBadRequest, "unsupported terminal type: "+req.Value)
+		return
+	}
+	if err := s.setDB.Set("default_terminal", req.Value); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"value": req.Value})
 }
 
 // --- Scheduled Tasks ---

@@ -513,3 +513,35 @@ function renderExecOutput(raw) {
   }
   return raw;
 }
+
+// ===== 终端类型设置 =====
+async function onTerminalChange(value) {
+  localStorage.setItem('default_terminal_type', value);
+  // 同步到后端持久化
+  try {
+    await fetchJSON('/api/settings/default_terminal', {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    });
+  } catch (e) {
+    console.warn('保存默认终端失败:', e);
+  }
+}
+
+// 页面加载时恢复终端类型设置
+async function loadTerminalSetting() {
+  try {
+    const r = await fetch('/api/settings/default_terminal');
+    if (r.ok) {
+      const body = await r.json();
+      const val = body.value || 'wezterm';
+      localStorage.setItem('default_terminal_type', val);
+      const sel = document.getElementById('default-terminal-select');
+      if (sel) sel.value = val;
+    }
+  } catch (e) {
+    // 使用本地默认值
+    const sel = document.getElementById('default-terminal-select');
+    if (sel) sel.value = localStorage.getItem('default_terminal_type') || 'wezterm';
+  }
+}
