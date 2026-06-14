@@ -7,3 +7,7 @@ bin/
 # server 二进制（避免误忽略 cmd/server/static/ 等前端资源）
 cmd/server/server
 cmd/server/*.exe
+# 本地编译产物
+/server
+/xworkbench
+/xworkbench.exe

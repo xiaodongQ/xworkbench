@@ -20,18 +20,19 @@ function renderExpTable(list) {
     return;
   }
   document.getElementById('exp-count').textContent = list.length + ' 条经验';
-  el.innerHTML = `<table>
-    <thead><tr><th>模块</th><th>关键词</th><th>适用场景</th><th>操作</th></tr></thead>
+  el.innerHTML = `<table class="exp-table">
+    <thead><tr><th class="col-module" style="text-align:left">模块</th><th class="col-kw">关键词</th><th class="col-scene">适用场景</th><th class="col-ops">操作</th></tr></thead>
     <tbody>${list.map(e => `
       <tr>
-        <td style="font-weight:500;display:flex;align-items:center;gap:6px">
-          <span class="edit-icon" onclick="editExp('${e.id}')" title="编辑" style="cursor:pointer;color:var(--text-secondary);font-size:14px">✏️</span>
-          ${esc(e.module)}
+        <td class="col-module">
+          <span class="edit-icon" onclick="editExp('${e.id}')" title="编辑" style="cursor:pointer;color:var(--text-secondary);font-size:14px;margin-right:4px">✏️</span>
+          <span style="font-weight:500">${esc(e.module)}</span>
         </td>
-        <td style="font-size:12px;color:var(--text-secondary)">${esc(e.keywords || '-')}</td>
-        <td style="font-size:12px;color:var(--text-secondary)">${esc(e.scene || '-')}</td>
-        <td>
-          <button class="btn btn-danger btn-small" onclick="deleteExp('${e.id}')" style="background:#dc2626">🗑 删除</button>
+        <td class="col-kw" style="font-size:12px;color:var(--text-secondary)">${esc(e.keywords || '-')}</td>
+        <td class="col-scene" style="font-size:12px;color:var(--text-secondary)">${esc(e.scene || '-')}</td>
+        <td class="col-ops" style="display:flex;align-items:center;gap:4px;justify-content:flex-start">
+          <button class="btn btn-secondary btn-small" style="flex-shrink:0" onclick="viewExp('${e.id}')">查看</button>
+          <button class="btn btn-danger btn-small" style="flex-shrink:0" onclick="deleteExp('${e.id}')">删除</button>
         </td>
       </tr>`).join('')}</tbody>
   </table>`;

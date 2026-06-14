@@ -8,6 +8,13 @@ let _autoRefreshEnabled = true;
 
 // 暴露全局状态供其他页面使用（如总览页）
 window._autoRefreshEnabled = true;
+
+function onEvalCliChange() {
+  const cli = document.getElementById('eval-cli-select').value;
+  const modelSel = document.getElementById('eval-model-select');
+  modelSel.innerHTML = buildModelOptions(cli);
+}
+
 window.getRefreshSeconds = function() {
   const v = parseInt(localStorage.getItem(REFRESH_KEY) || '3', 10);
   return isNaN(v) || v < 1 ? 3 : v;
@@ -142,7 +149,7 @@ async function loadScheduledSummary() {
     const status = s.last_status || 'pending';
     const enabledBadge = s.enabled
       ? ''
-      : ' <span style="color:var(--text-secondary);font-size:10px">(已禁用)</span>';
+      : ' <span style="color:#f59e0b;font-size:10px;font-weight:600">(已禁用)</span>';
     return `<div class="scheduled-item">
       <span class="s-name">${esc(s.name)}${enabledBadge}</span>
       <span class="s-cron">${esc(s.cron_expr)}</span>
@@ -170,7 +177,7 @@ async function loadScheduled() {
     if (s.last_execution_id && execMap[s.last_execution_id] && !execMap[s.last_execution_id].completed_at) {
       statusBadge = '<span class="s-status" style="background:var(--info,#3b82f6);color:#fff">运行中</span>';
     }
-    const enabledBadge = s.enabled ? '' : ' <span style="color:var(--text-secondary);font-size:11px">(已禁用)</span>';
+    const enabledBadge = s.enabled ? '' : ' <span style="color:#f59e0b;font-size:11px;font-weight:600">(已禁用)</span>';
     const toggleLabel = s.enabled ? '⏸ 停用' : '▶ 启用';
     const toggleBtnClass = s.enabled ? 'btn btn-small' : 'btn btn-small btn-primary';
     return `<tr>
@@ -210,9 +217,22 @@ function showScheduledModal() {
   document.getElementById('sched-enabled').checked = true;
   document.getElementById('sched-submit-btn').textContent = '创建';
   document.getElementById('scheduled-modal').classList.remove('hidden');
+  onSchedTypeChange();
   setTimeout(() => document.getElementById('sched-name').focus(), 50);
 }
 function closeScheduledModal() { document.getElementById('scheduled-modal').classList.add('hidden'); }
+function onSchedTypeChange() {
+  const type = document.getElementById('sched-type').value;
+  const modelSel = document.getElementById('sched-model');
+  if (type === 'shell') {
+    modelSel.disabled = true;
+    modelSel.style.opacity = '0.4';
+  } else {
+    modelSel.disabled = false;
+    modelSel.style.opacity = '1';
+    modelSel.innerHTML = buildModelOptions(type);
+  }
+}
 async function editScheduled(id) {
   const s = await fetchJSON('/api/scheduled/' + id);
   document.getElementById('sched-id').value = s.id;
@@ -226,6 +246,7 @@ async function editScheduled(id) {
   document.getElementById('sched-enabled').checked = s.enabled;
   document.getElementById('sched-submit-btn').textContent = '保存';
   document.getElementById('scheduled-modal').classList.remove('hidden');
+  onSchedTypeChange();
 }
 function submitScheduled() {
   const id = document.getElementById('sched-id').value;
@@ -238,23 +259,22 @@ function submitScheduled() {
   const enabled = document.getElementById('sched-enabled').checked;
   if (!name || !cron || !promptText) { alert('名称、Cron、Prompt 必填'); return; }
   const body = {name, cron_expr:cron, command_type:type, prompt:promptText, model, timeout_sec:timeoutSec, enabled};
-  if (id) {
-    // 更新
-    fetch('/api/scheduled/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
-      .then(() => { closeScheduledModal(); loadScheduled(); loadScheduledSummary(); loadScheduler(); });
-  } else {
-    // 新建
-    fetch('/api/scheduled', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
-      .then(() => { closeScheduledModal(); loadScheduled(); loadScheduledSummary(); loadScheduler(); });
-  }
+  const method = id ? 'PUT' : 'POST';
+  const url = id ? '/api/scheduled/' + id : '/api/scheduled';
+  fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(r => { if (!r.ok) throw new Error('创建/更新失败'); closeScheduledModal(); loadScheduled(); loadScheduledSummary(); loadScheduler(); })
+    .catch(e => { alert('操作失败：' + e.message); console.error(e); });
 }
 function runScheduled(id) {
   fetch('/api/scheduled/' + id + '/run-now', {method:'POST'})
-    .then(() => { setTimeout(() => { loadScheduled(); loadRecentExecutions(); }, 500); });
+    .then(r => { if (!r.ok) throw new Error('立即执行失败'); setTimeout(() => { loadScheduled(); loadRecentExecutions(); }, 500); })
+    .catch(e => { alert('执行失败：' + e.message); console.error(e); });
 }
 function deleteScheduled(id) {
   if (!confirm('删除该定时任务？')) return;
-  fetch('/api/scheduled/' + id, {method:'DELETE'}).then(() => { loadScheduled(); loadScheduledSummary(); });
+  fetch('/api/scheduled/' + id, {method:'DELETE'})
+    .then(r => { if (!r.ok) throw new Error('删除失败'); loadScheduled(); loadScheduledSummary(); })
+    .catch(e => { alert('删除失败：' + e.message); console.error(e); });
 }
 
 let recentExecLimit = 10;
@@ -302,7 +322,7 @@ async function loadRecentExecutions() {
       return `<div style="${rowStyle}">
         <span title="${e.source}">${src}</span>
         <span style="color:var(--text-secondary);font-family:monospace">${dt}</span>
-        <span style="flex:1;font-family:monospace;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;text-decoration:underline dotted;max-width:500px" onclick="viewExecutionDetail('${e.id}')" title="${esc(e.command)}">${esc(e.command)}</span>
+        <span style="flex:1;max-width:500px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${esc(e.task_title || e.scheduled_task_title || e.command || "(无标题)")}</span><span title="命令: ${esc(e.command.slice(0, 200))}" style="margin-left:4px;font-size:11px;color:#60a5fa">ⓘ</span>
         <span style="font-size:11px;color:${statusColor}" title="${statusTitle}">${statusIcon}</span>
         ${evalBadge}
         <button class="btn btn-small" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
@@ -355,10 +375,29 @@ async function viewExecutionDetail(id) {
     const exitDisplay = isRunning
       ? '<b style="color:var(--info,#3b82f6)">运行中</b>'
       : `<b style="color:${ok?'var(--archived)':'var(--exception)'}">${exec.exit_code}</b>`;
+    const execTitle = exec.task_title || exec.scheduled_task_title || '(无标题)';
+    const isScheduled = exec.source === 'scheduled';
+    const srcColor = isScheduled ? 'color:#3b82f6' : 'color:#16a34a';
+    const srcText = isScheduled ? '计划任务' : '手动任务';
+    const assocId = exec.task_id || exec.scheduled_task_id || '-';
+    const detailLines = [];
+    detailLines.push('来源: ' + (isScheduled ? '计划任务' : '手动任务'));
+    detailLines.push('ID: ' + assocId);
+    if (exec.task_title) detailLines.push('任务: ' + exec.task_title);
+    if (exec.scheduled_task_title) detailLines.push('定时: ' + exec.scheduled_task_title);
+    if (exec.model) detailLines.push('模型: ' + exec.model);
+    if (exec.command) detailLines.push('命令: ' + exec.command.slice(0, 300));
+    const detailTip = detailLines.join('\n').replace(/"/g, '&quot;');
+    const nameDisplay = execTitle.length > 40 ? execTitle.slice(0, 40) + '...' : execTitle;
+    document.getElementById('exec-detail-title').innerHTML = '';
     document.getElementById('exec-detail-meta').innerHTML =
-      `<b>${esc(exec.source)}</b> · exit_code=${exitDisplay} · ${esc(new Date(exec.started_at).toLocaleString())} · 耗时 ${dur}`;
-    // 根据当前 execution 是否在评估中来显示状态和按钮
-    const isEvalNow = _evaluatingIds.has(id);
+      '<span style="font-size:11px;font-weight:600;' + srcColor + '">' + srcText + '</span>' +
+      ' <span style="margin-left:8px;color:var(--text-secondary)">|</span>' +
+      ' <span style="cursor:help" title="' + detailTip + '"><b>' + esc(nameDisplay) + '</b> ⓘ</span>' +
+      ' <span style="margin-left:8px;color:var(--text-secondary)">|</span>' +
+      ' exit_code=' + exitDisplay + ' · ' + new Date(exec.started_at).toLocaleString() + ' · 耗时 ' + dur;
+
+    const isEvalNow = _evaluatingIds.has(currentExecId);
     const evalBtn = document.getElementById('exec-detail-eval-btn');
     const evalSel = document.getElementById('eval-model-select');
     if (isEvalNow) {
@@ -432,7 +471,7 @@ async function runEvaluation(id) {
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   _markEvaluating(execId, true);
   try {
-    await fetchJSON('/api/executions/' + execId + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model: getEvalModel()})});
+    await fetchJSON('/api/executions/' + execId + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cli_type: getEvalCliType(), model: getEvalModel()})});
     // 评估中状态：弹窗 + 列表徽章（_markEvaluating 已刷列表）
     if (currentExecId === execId) {
       const card = document.getElementById('exec-detail-eval');
@@ -474,6 +513,10 @@ async function runEvaluation(id) {
 function getEvalModel() {
   const sel = document.getElementById('eval-model-select');
   return sel ? sel.value : 'sonnet';
+}
+function getEvalCliType() {
+  const sel = document.getElementById('eval-cli-select');
+  return sel ? sel.value : 'claude';
 }
 
 // 正在评估的 execution id 集合（前端局部状态，刷新后清空）

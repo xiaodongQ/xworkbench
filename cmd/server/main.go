@@ -661,9 +661,13 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req struct {
-		Model string `json:"model"`
+		CliType string `json:"cli_type"`
+		Model   string `json:"model"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.CliType == "" {
+		req.CliType = "claude"
+	}
 	if req.Model == "" {
 		req.Model = "sonnet"
 	}
@@ -678,12 +682,12 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		_, err := evaluator.RunAndSave(ctx, s.evalDB, s.execDB, exec, prompt, req.Model)
+		_, err := evaluator.RunAndSave(ctx, s.evalDB, s.execDB, exec, prompt, req.CliType, req.Model)
 		if err != nil {
 			log.Printf("evaluator: %v", err)
 		}
 	}()
-	writeJSON(w, map[string]string{"execution_id": id, "status": "evaluating", "model": req.Model})
+	writeJSON(w, map[string]string{"execution_id": id, "status": "evaluating", "cli_type": req.CliType, "model": req.Model})
 }
 
 func (s *APIServer) handleExecutionEvaluations(w http.ResponseWriter, r *http.Request) {
@@ -1064,6 +1068,7 @@ func (s *APIServer) handleScheduledCreate(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	slog.Info("handler: scheduled task created", "id", t.ID, "name", t.Name, "cron", t.CronExpr)
 	_ = s.sch.Reload() // 热加载
 	writeJSON(w, t)
 }
@@ -1107,6 +1112,7 @@ func (s *APIServer) handleScheduledDelete(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	slog.Info("handler: scheduled task deleted", "id", id)
 	_ = s.sch.Reload()
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
 }
@@ -1134,6 +1140,7 @@ func (s *APIServer) handleScheduledRunNow(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	slog.Info("handler: scheduled task run-now triggered", "id", id)
 	writeJSON(w, map[string]string{"id": id, "status": "triggered"})
 }
 
@@ -1144,11 +1151,13 @@ func (s *APIServer) handleSchedulerStart(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	slog.Info("handler: scheduler started")
 	writeJSON(w, map[string]string{"status": "running"})
 }
 
 func (s *APIServer) handleSchedulerStop(w http.ResponseWriter, r *http.Request) {
 	s.sch.Stop()
+	slog.Info("handler: scheduler stopped")
 	writeJSON(w, map[string]string{"status": "stopped"})
 }
 
@@ -1321,6 +1330,16 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
+	slog.LogAttrs(nil,
+		func() slog.Level {
+			if code >= 500 { return slog.LevelError }
+			if code >= 400 { return slog.LevelWarn }
+			return slog.LevelInfo
+		}(),
+		"http error",
+		slog.Int("status", code),
+		slog.String("msg", msg),
+	)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})

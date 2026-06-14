@@ -458,13 +458,13 @@
     <div class="form-row">
       <div class="form-group">
         <label>命令类型</label>
-        <select id="sched-type">
+        <select id="sched-type" onchange="onSchedTypeChange()" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
           <option value="shell">shell · 直接执行命令</option>
           <option value="claude">claude · Claude Code</option>
           <option value="cbc">cbc · Codebuddy (cbc/codebuddy)</option>
         </select>
       </div>
-      <div class="form-group"><label>模型 <span class="field-hint">可选 · claude/cbc 用</span></label><input id="sched-model" placeholder="sonnet / opus / ..."></div>
+      <div class="form-group"><label>模型 <span class="field-hint">可选 · claude/cbc 用</span></label><select id="sched-model" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%"><option value="haiku">haiku（快+便宜）</option><option value="sonnet" selected>sonnet（推荐 · 准确）</option><option value="opus">opus（最强 · 贵）</option></select></div>
     </div>
     <div class="form-group">
       <label>Prompt <span class="field-hint">必填 · shell 时为命令，claude/cbc 时为 prompt</span></label>
@@ -490,6 +490,7 @@
 <div id="exec-detail-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeExecDetailModal()">
   <div class="modal" style="max-width:800px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;padding:22px">
     <h2 style="flex:0 0 auto;margin:0 0 6px 0;font-size:16px">执行详情</h2>
+    <div id="exec-detail-title" style="font-size:14px;font-weight:600;margin-bottom:4px;flex:0 0 auto"></div>
     <div id="exec-detail-meta" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;flex:0 0 auto"></div>
     <div style="flex:1 1 auto;overflow-y:auto;min-height:0">
       <div class="form-group" style="margin-bottom:8px">
@@ -507,7 +508,11 @@
       <div id="exec-detail-eval" style="background:var(--hover);padding:10px 12px;border-radius:6px;margin-top:4px;font-size:12px;line-height:1.5"></div>
     </div>
     <div class="modal-actions" style="flex:0 0 auto;background:var(--card);padding-top:10px;margin-top:10px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <label style="font-size:12px;color:var(--text-secondary)">评估模型:</label>
+      <label style="font-size:12px;color:var(--text-secondary)">评估:</label>
+      <select id="eval-cli-select" style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text)" onchange="onEvalCliChange()">
+        <option value="claude">claude</option>
+        <option value="cbc">codebuddy</option>
+      </select>
       <select id="eval-model-select" style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text)">
         <option value="haiku">haiku（快+便宜）</option>
         <option value="sonnet" selected>sonnet（推荐 · 准确）</option>
@@ -542,6 +547,7 @@
         <option value="sonnet" selected>sonnet（推荐 · 准确）</option>
         <option value="opus">opus（最强 · 贵）</option>
       </select>
+      <script>document.getElementById('run-task-model').innerHTML = buildModelOptions('claude');</script>
     </div>
     <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-secondary" onclick="closeRunTaskModal()">取消</button>

@@ -3,7 +3,7 @@ package scheduler
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -66,12 +66,14 @@ func (s *Scheduler) Start() error {
 	}
 	s.mu.Unlock()
 	if err := s.Reload(); err != nil {
+		slog.Error("scheduler: reload failed on start", "err", err)
 		return err
 	}
 	s.cron.Start()
 	s.mu.Lock()
 	s.running = true
 	s.mu.Unlock()
+	slog.Info("scheduler: started")
 	// 持久化状态
 	if s.settings != nil {
 		_ = s.settings.Set(schedulerEnabledKey, "true")
@@ -90,6 +92,7 @@ func (s *Scheduler) Stop() {
 	ctx := s.cron.Stop()
 	<-ctx.Done()
 	s.running = false
+	slog.Info("scheduler: stopped")
 	// 持久化状态
 	if s.settings != nil {
 		_ = s.settings.Set(schedulerEnabledKey, "false")
@@ -101,6 +104,7 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) Reload() error {
 	tasks, err := s.repo.ListEnabled()
 	if err != nil {
+		slog.Error("scheduler: list enabled tasks failed", "err", err)
 		return err
 	}
 	// robfig/cron 没有 RemoveAll 公开方法；重建
@@ -112,10 +116,10 @@ func (s *Scheduler) Reload() error {
 	for _, t := range tasks {
 		id, err := s.cron.AddFunc(t.CronExpr, s.makeHandler(t))
 		if err != nil {
-			log.Printf("[scheduler] parse %s (%q): %v", t.Name, t.CronExpr, err)
+			slog.Warn("scheduler: parse cron expr failed", "task", t.Name, "cron", t.CronExpr, "err", err)
 			continue
 		}
-		log.Printf("[scheduler] loaded %s cron=%q next=%v id=%d", t.Name, t.CronExpr, s.cron.Entry(id).Next, id)
+		slog.Info("scheduler: task loaded", "task", t.Name, "cron", t.CronExpr, "next", s.cron.Entry(id).Next)
 	}
 	wasRunning := s.running
 	if wasRunning {
@@ -150,7 +154,7 @@ func (s *Scheduler) makeHandler(t *backend.ScheduledTask) func() {
 func (s *Scheduler) execute(t *backend.ScheduledTask) {
 	cmd, cleanup, err := runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt, runner.WithActionReport())
 	if err != nil {
-		log.Printf("[scheduler] build cmd for %s: %v", t.Name, err)
+		slog.Error("scheduler: build command failed", "task", t.Name, "err", err)
 		_ = s.repo.UpdateAfterRun(t.ID, "build_error", "")
 		return
 	}
@@ -166,7 +170,7 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 		StartedAt: time.Now(),
 	}
 	if err := s.execDB.Create(exec); err != nil {
-		log.Printf("[scheduler] create execution: %v", err)
+		slog.Error("scheduler: create execution record failed", "task", t.Name, "exec_id", exec.ID, "err", err)
 		return
 	}
 	s.hub.Broadcast(wsmsg.ChannelScheduled, map[string]any{
@@ -184,6 +188,8 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 			timeout = 60 * 60 // 1小时
 		}
 	}
+	slog.Info("scheduler: task execution started", "task", t.Name, "exec_id", exec.ID, "timeout_sec", timeout)
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
 	res, _ := executor.Run(ctx, cmd, t.WorkingDir, func(chunk string) {
@@ -208,6 +214,7 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 	}
 	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode)
 	_ = s.repo.UpdateAfterRun(t.ID, status, exec.ID)
+	slog.Info("scheduler: task finished", "task", t.Name, "exec_id", exec.ID, "status", status, "exit_code", exitCode)
 	s.hub.Broadcast(wsmsg.ChannelScheduled, map[string]any{
 		"scheduled_task_id": t.ID,
 		"execution_id":      exec.ID,

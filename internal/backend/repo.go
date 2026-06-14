@@ -138,6 +138,9 @@ func InitSchema(db *sql.DB) error {
 	if err := migrateTasksColumns(db); err != nil {
 		return err
 	}
+	if err := migrateScheduledTasksColumns(db); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`PRAGMA user_version = 3`); err != nil {
 		return err
 	}
@@ -176,6 +179,37 @@ func migrateTasksColumns(db *sql.DB) error {
 		{"improvement_threshold", "improvement_threshold REAL"},
 		{"last_heartbeat", "last_heartbeat DATETIME"},
 		{"last_error", "last_error TEXT"},
+	}
+	for _, a := range add {
+		if err := addCol(a.n, a.d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateScheduledTasksColumns(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(scheduled_tasks)`)
+	if err != nil {
+		// 表可能还没建好，正常情况（schema 刚建好）
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	addCol := func(name, decl string) error {
+		if cols[name] { return nil }
+		_, err := db.Exec(`ALTER TABLE scheduled_tasks ADD COLUMN ` + decl)
+		return err
+	}
+	add := []struct{ n, d string }{
+		{"timeout_sec", "timeout_sec INTEGER DEFAULT 0"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
@@ -454,15 +488,20 @@ func (r *ExecutionRepo) Finish(id string, output, errOut string, exitCode int) e
 		now, output, errOut, exitCode, id)
 	return err
 }
-
 func (r *ExecutionRepo) Get(id string) (*Execution, error) {
-	q := `SELECT id,task_id,scheduled_task_id,source,command,model,started_at,completed_at,output,error,exit_code
-	        FROM executions WHERE id=?`
+	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.model,
+	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,
+	             t.title, s.name
+	        FROM executions e
+	        LEFT JOIN tasks t ON e.task_id = t.id
+	        LEFT JOIN scheduled_tasks s ON e.scheduled_task_id = s.id
+	        WHERE e.id=?`
 	var e Execution
-	var taskID, schedID, model, output, errOut sql.NullString
+	var taskID, schedID, model, output, errOut, taskTitle, schedTitle sql.NullString
 	var completedAt sql.NullTime
 	err := r.db.QueryRow(q, id).Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &model,
-		&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode)
+		&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode,
+		&taskTitle, &schedTitle)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("execution %s not found", id)
 	}
@@ -471,6 +510,8 @@ func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	}
 	e.TaskID = taskID.String
 	e.ScheduledTaskID = schedID.String
+	e.TaskTitle = taskTitle.String
+	e.ScheduledTaskTitle = schedTitle.String
 	e.Model = model.String
 	e.Output = output.String
 	e.Error = errOut.String
@@ -479,6 +520,7 @@ func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	}
 	return &e, nil
 }
+
 
 // ListByTask 返回某任务的最近 N 次执行。
 func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, error) {
@@ -520,12 +562,17 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 		limit = 50
 	}
 	// LEFT JOIN evaluations 取最近一次分数（每 exec 只关联最新一条）
+	// LEFT JOIN tasks / scheduled_tasks 取标题
 	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.model,
 	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,
 	             (SELECT ev.score FROM evaluations ev
 	                WHERE ev.execution_id = e.id
-	                ORDER BY ev.created_at DESC LIMIT 1) AS eval_score
-	        FROM executions e ORDER BY e.started_at DESC LIMIT ?`
+	                ORDER BY ev.created_at DESC LIMIT 1) AS eval_score,
+	             t.title, s.name
+	        FROM executions e
+	        LEFT JOIN tasks t ON e.task_id = t.id
+	        LEFT JOIN scheduled_tasks s ON e.scheduled_task_id = s.id
+	        ORDER BY e.started_at DESC LIMIT ?`
 	rows, err := r.db.Query(q, limit)
 	if err != nil {
 		return nil, err
@@ -534,11 +581,12 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	var out []*Execution
 	for rows.Next() {
 		var e Execution
-		var taskID, schedID, model, output, errOut sql.NullString
+		var taskID, schedID, model, output, errOut, taskTitle, schedTitle sql.NullString
 		var completedAt sql.NullTime
 		var evalScore sql.NullFloat64
 		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &model,
-			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &evalScore); err != nil {
+			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &evalScore,
+			&taskTitle, &schedTitle); err != nil {
 			return nil, err
 		}
 		if evalScore.Valid {
@@ -547,6 +595,8 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 		}
 		e.TaskID = taskID.String
 		e.ScheduledTaskID = schedID.String
+		e.TaskTitle = taskTitle.String
+		e.ScheduledTaskTitle = schedTitle.String
 		e.Model = model.String
 		e.Output = output.String
 		e.Error = errOut.String

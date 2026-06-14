@@ -143,24 +143,27 @@ function renderTaskTable(list) {
     return 0;
   });
   document.getElementById('task-count').textContent = list.length + ' 条任务';
-  el.innerHTML = `<table>
-    <thead><tr><th>标题</th><th style="cursor:pointer" onclick="setTaskSort('status')">状态${sortIcon('status')}</th><th>版本</th><th style="cursor:pointer" onclick="setTaskSort('created_at')">创建时间${sortIcon('created_at')}</th><th>操作</th></tr></thead>
+  el.innerHTML = `<table class="task-table">
+    <thead><tr>
+      <th class="col-title" style="text-align:left">标题</th>
+      <th class="col-status" style="cursor:pointer" onclick="setTaskSort('status')">状态${sortIcon('status')}</th>
+      <th class="col-time" style="cursor:pointer" onclick="setTaskSort('created_at')">创建时间${sortIcon('created_at')}</th>
+      <th class="col-ops" style="text-align:left">操作</th>
+    </tr></thead>
     <tbody>${sorted.map(t => {
-      // 按状态分按钮
       const ops = taskOpsByStatus(t);
       return `
       <tr>
-        <td style="display:flex;align-items:center;gap:6px">
-          <span class="edit-icon" onclick="editTask('${t.id}')" title="编辑" style="cursor:pointer;color:var(--text-secondary);font-size:14px">✏️</span>
-          <div class="task-title-cell">
-            <div class="title">${esc(t.title)}</div>
-            ${t.description ? `<div class="desc" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.description)}">${esc(t.description)}</div>` : ''}
-          </div>
+        <td class="col-title" style="display:flex;align-items:center;gap:4px">
+          <span class="title" onclick="editTask('${t.id}')" title="编辑：${esc(t.title)}" style="cursor:pointer;color:var(--text-secondary);font-size:13px;white-space:nowrap">✏️</span>
+          <span class="task-title-cell">
+            <span class="title">${esc(t.title)}</span>
+            ${t.description ? `<span class="desc" title="${esc(t.description)}">${esc(t.description)}</span>` : ''}
+          </span>
         </td>
-        <td>${statusTag(t.status)}</td>
-        <td style="color:var(--text-secondary);font-size:12px">${esc(t.version || '-')}</td>
-        <td style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
-        <td>
+        <td class="col-status">${statusTag(t.status)}</td>
+        <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
+        <td class="col-ops" style="display:flex;align-items:center;gap:4px">
           <button class="btn btn-secondary btn-small" onclick="viewTask('${t.id}')">查看</button>
           ${ops}
         </td>
@@ -169,36 +172,28 @@ function renderTaskTable(list) {
   </table>`;
 }
 
-// 按状态返回操作按钮 HTML
+// 按状态返回操作按钮 HTML（返回按钮列表，td 本身已是 flex 容器）
 function taskOpsByStatus(t) {
   const id = t.id;
   switch (t.status) {
     case 'pending':
-      return `
-        <button class="btn btn-warning btn-small" onclick="claimTask('${id}')" title="认领后：状态→in_progress，maintainer 标记为你，可以▶运行">🟡 认领</button>
-        <button class="btn btn-small" onclick="archiveTask('${id}')" title="直接归档（不需执行）" style="background:#f59e0b;color:#fff">归档</button>
-        <button class="btn btn-danger btn-small" onclick="deleteTask('${id}', '${esc(t.title)}')" title="硬删任务及其所有 executions / evaluations（不可恢复）" style="background:#dc2626">🗑 删除</button>
-      `;
+      return `<button class="btn btn-small btn-warning" style="flex-shrink:0" onclick="claimTask('${id}')" title="认领后：状态→in_progress，maintainer 标记为你，可以▶运行">🟡 认领</button>` +
+             `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="直接归档（不需执行）">归档</button>` +
+             `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'in_progress':
-      return `
-        <button class="btn btn-primary btn-small" onclick="runTask('${id}')" title="立即用 AI CLI 跑这个任务（流式输出在 /api/tasks/{id}/run）">▶ 运行</button>
-        <button class="btn btn-small" onclick="unclaimTask('${id}')" title="退回 pending（清空 maintainer/started_at）" style="background:#94a3b8;color:#fff">↩ 取消认领</button>
-        <button class="btn btn-small" onclick="archiveTask('${id}')" title="归档" style="background:#f59e0b;color:#fff">归档</button>
-        <button class="btn btn-danger btn-small" onclick="deleteTask('${id}', '${esc(t.title)}')" title="硬删任务及其所有 executions / evaluations（不可恢复）" style="background:#dc2626">🗑 删除</button>
-      `;
+      return `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI CLI 跑这个任务（流式输出在 /api/tasks/{id}/run）">▶ 运行</button>` +
+             `<button class="btn btn-small" style="flex-shrink:0;background:#94a3b8;color:#fff" onclick="unclaimTask('${id}')" title="退回 pending（清空 maintainer/started_at）">↩ 取消认领</button>` +
+             `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="归档">归档</button>` +
+             `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'archived':
-      return `
-        <button class="btn btn-small" onclick="reopenTask('${id}')" title="归档→重新打开回到 pending">↻ 重新打开</button>
-        <button class="btn btn-danger btn-small" onclick="deleteTask('${id}', '${esc(t.title)}')" title="硬删任务及其所有 executions / evaluations（不可恢复）" style="background:#dc2626">🗑 删除</button>
-      `;
+      return `<button class="btn btn-small" style="flex-shrink:0" onclick="reopenTask('${id}')" title="归档→重新打开回到 pending">↻ 重新打开</button>` +
+             `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'exception':
-      return `
-        <button class="btn btn-warning btn-small" onclick="reopenTask('${id}')" title="异常→重新打开回到 pending">↻ 重新打开</button>
-        <button class="btn btn-small" onclick="archiveTask('${id}')" title="归档" style="background:#f59e0b;color:#fff">归档</button>
-        <button class="btn btn-danger btn-small" onclick="deleteTask('${id}', '${esc(t.title)}')" title="硬删任务及其所有 executions / evaluations（不可恢复）" style="background:#dc2626">🗑 删除</button>
-      `;
+      return `<button class="btn btn-small btn-warning" style="flex-shrink:0" onclick="reopenTask('${id}')" title="异常→重新打开回到 pending">↻ 重新打开</button>` +
+             `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="归档">归档</button>` +
+             `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     default:
-      return `<button class="btn btn-secondary btn-small" onclick="viewTask('${id}')">详情</button>`;
+      return `<button class="btn btn-small btn-secondary" style="flex-shrink:0" onclick="viewTask('${id}')">详情</button>`;
   }
 }
 
@@ -252,16 +247,18 @@ function closeRunTaskModal() {
   document.getElementById('run-task-modal').classList.add('hidden');
 }
 
-// type=shell 时 model 无效，灰显 model 下拉
+// type=shell 时 model 无效，灰显 model 下拉；claude/cbc 时切换模型列表
 function toggleRunTaskModelGroup() {
   const type = document.getElementById('run-task-type').value;
   const grp = document.getElementById('run-task-model-group');
+  const modelSel = document.getElementById('run-task-model');
   if (type === 'shell') {
     grp.style.opacity = '0.4';
     grp.style.pointerEvents = 'none';
   } else {
     grp.style.opacity = '1';
     grp.style.pointerEvents = 'auto';
+    modelSel.innerHTML = buildModelOptions(type);
   }
 }
 

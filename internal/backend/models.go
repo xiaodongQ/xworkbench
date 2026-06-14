@@ -97,8 +97,11 @@ type Execution struct {
 	Output         string     `json:"output,omitempty"`
 	Error          string     `json:"error,omitempty"`
 	ExitCode       int        `json:"exit_code"`
+	// JOIN 填充的标题（非数据库字段）
+	TaskTitle         string `json:"task_title,omitempty"`
+	ScheduledTaskTitle string `json:"scheduled_task_title,omitempty"`
 	// 最近一次评估分数（NULL = 未评估）。list 接口 JOIN 填，单 exec 接口也填。
-	EvaluationScore *float64   `json:"evaluation_score,omitempty"`
+	EvaluationScore *float64 `json:"evaluation_score,omitempty"`
 }
 
 type Evaluation struct {

@@ -1,7 +1,7 @@
 // Package httplog 提供一个记录 HTTP handler 进出日志的中间件。
 //
 // 字段：method、path、status、dur_ms。
-// 等级：5xx → Error；4xx → Warn；其余 → Info。
+// 等级：GET → Debug；5xx → Error；4xx → Warn；其余 → Info。
 package httplog
 
 import (
@@ -30,6 +30,8 @@ func Middleware(next http.Handler) http.Handler {
 			lvl = slog.LevelError
 		case rw.status >= 400:
 			lvl = slog.LevelWarn
+		case r.Method == http.MethodGet:
+			lvl = slog.LevelDebug
 		}
 		slog.LogAttrs(r.Context(), lvl, "http",
 			slog.String("method", r.Method),

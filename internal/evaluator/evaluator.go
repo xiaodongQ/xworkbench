@@ -73,7 +73,7 @@ type EvalResult struct {
 // Evaluate 调 claude -p --output-format json 给 execution 打分。
 // 注意：execution 必须有 output；model 留空用默认 claude。
 // 评估员不传 WithActionReport()，避免自指（评估员不该自报清单）。
-func Evaluate(ctx context.Context, exec *backend.Execution, taskPrompt string, model string) (*EvalResult, error) {
+func Evaluate(ctx context.Context, exec *backend.Execution, taskPrompt, cliType, model string) (*EvalResult, error) {
 	if exec == nil {
 		return nil, fmt.Errorf("execution is nil")
 	}
@@ -128,7 +128,7 @@ func Evaluate(ctx context.Context, exec *backend.Execution, taskPrompt string, m
 		exec.ExitCode,
 	))
 
-	cmd, cleanup, err := runner.BuildCommand("claude", model, "", prompt)
+	cmd, cleanup, err := runner.BuildCommand(cliType, model, "", prompt)
 	if err != nil {
 		return nil, fmt.Errorf("build cmd: %w", err)
 	}
@@ -180,8 +180,8 @@ func truncate(s string, n int) string {
 }
 
 // RunAndSave 评估并把结果存 evaluations 表。返回 evaluation id。
-func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *backend.ExecutionRepo, exec *backend.Execution, taskPrompt, model string) (string, error) {
-	res, err := Evaluate(ctx, exec, taskPrompt, model)
+func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *backend.ExecutionRepo, exec *backend.Execution, taskPrompt, cliType, model string) (string, error) {
+	res, err := Evaluate(ctx, exec, taskPrompt, cliType, model)
 	if err != nil {
 		return "", err
 	}
@@ -189,7 +189,7 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		ID:             uuid.New().String(),
 		TaskID:         exec.TaskID,
 		ExecutionID:    exec.ID,
-		EvaluatorModel: model,
+		EvaluatorModel: cliType + "/" + model,
 		Score:          float64(res.Score),
 		Comments:       res.Comments,
 		CreatedAt:      time.Now(),

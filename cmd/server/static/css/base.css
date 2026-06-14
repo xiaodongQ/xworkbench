@@ -196,12 +196,69 @@ body {
 .section-title { font-size: 16px; font-weight: 500; }
 table { width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 4px; overflow: hidden; }
 th { text-align: left; padding: 12px 16px; font-size: 11px; font-weight: 500; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
-td { padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+td { padding: 5px 12px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 tr:hover td { background: var(--hover); }
 tr:last-child td { border-bottom: none; }
-.task-title-cell { max-width: 300px; }
-.task-title-cell .title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.task-title-cell .desc { font-size: 11px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
+.task-title-cell { display: block; vertical-align: middle; width: 100%; }
+.task-title-cell .title { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-title-cell .desc { display: block; font-size: 11px; color: var(--text-secondary); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 表格：固定列宽，防止溢出 */
+.task-table { table-layout: fixed; width: 100%; border-collapse: collapse; overflow: hidden; }
+.task-table td { vertical-align: middle; white-space: nowrap; overflow: hidden; }
+.task-table .col-title { width: auto; }
+.task-table .col-status { width: 70px; }
+.task-table .col-time { width: 150px; }
+.task-table .col-ops { width: auto; white-space: nowrap; padding-left: 8px; }
+
+/* 经验库表格 */
+.exp-table { table-layout: fixed; width: 100%; border-collapse: collapse; overflow: hidden; }
+.exp-table td { vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.exp-table .col-module { width: 160px; }
+.exp-table .col-kw { width: 220px; }
+.exp-table .col-scene { width: auto; }
+.exp-table .col-ops { width: 80px; white-space: nowrap; text-align: left; padding-left: 8px; }
+
+/* ops 列按钮填满行高 */
+.task-table .col-ops td:first-child,
+.exp-table .col-ops td:first-child { height: 100%; }
+.task-table .col-ops .btn,
+.exp-table .col-ops .btn { height: 100%; min-height: 32px; }
+
+
+/* ===== 自定义 tooltip：出现在图标上方 ===== */
+.tooltip-wrap { position: relative; display: inline-block; cursor: help; }
+.tooltip-wrap .tip-box {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e1e1e;
+  color: #ddd;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-width: 420px;
+  z-index: 999;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  text-align: left;
+  font-family: monospace;
+}
+/* 小三角 */
+.tooltip-wrap .tip-box::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #444;
+}
+.tooltip-wrap:hover .tip-box { display: block; }
 
 /* ===== 状态 pill ===== */
 .status-pill { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 500; }
@@ -226,7 +283,7 @@ tr:last-child td { border-bottom: none; }
 .btn:hover { opacity: 0.85; }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-secondary { background: var(--text-secondary); color: #fff; }
-.btn-small { padding: 4px 10px; font-size: 12px; }
+.btn-small { padding: 1px 5px; font-size: 11px; line-height: 1.4; height: auto; }
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-warning { background: var(--warning); color: #fff; }
 
