@@ -47,8 +47,20 @@ var authRequiredPatterns = []string{
 	"continue anyway",
 }
 
+var authRequiredAntiPatterns = []string{
+	"Permission denied",
+	"permission denied",
+	"read permission",
+	"write permission",
+}
+
 // detectAuthRequired 检查一行是否包含授权提示
 func detectAuthRequired(line string) bool {
+	for _, p := range authRequiredAntiPatterns {
+		if strings.Contains(line, p) {
+			return false
+		}
+	}
 	for _, p := range authRequiredPatterns {
 		if strings.Contains(line, p) {
 			return true
@@ -65,7 +77,7 @@ type wsNotifyMsg struct {
 }
 
 func sendNotify(conn *websocket.Conn, tabID, notifyType, extra string) {
-	if conn == nil || conn.WriteMessage == nil {
+	if conn == nil {
 		return
 	}
 	data, _ := json.Marshal(wsNotifyMsg{Type: notifyType, TabID: tabID, Extra: extra})

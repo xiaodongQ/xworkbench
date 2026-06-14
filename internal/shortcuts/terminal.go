@@ -50,7 +50,7 @@ func ParseTerminalType(name string) (TerminalType, bool) {
 		return TerminalWindows, true
 	case "powershell", "ps":
 		return TerminalPowerShell, true
-	case "pwsh", "powershell7", "ps7":
+	case "pwsh", "powershell7", "ps7", "pwsh7":
 		return TerminalSystemPS, true
 	case "terminal", "terminal.app", "macos":
 		return TerminalMacOS, true
@@ -164,6 +164,16 @@ func openCmd(dir string) error {
 	return cmd.Start()
 }
 
+// isAllDigits 检查字符串是否全为数字
+func isAllDigits(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
 // shellEscape 对字符串做基本转义（用于 osascript 字符串嵌入）
 func shellEscape(s string) string {
 	s = strings.ReplaceAll(s, "\\", "\\\\")
@@ -208,6 +218,10 @@ func ParseSSHURL(raw string) (*SSHInfo, error) {
 	colon := strings.LastIndexByte(raw, ':')
 	slash := strings.IndexByte(raw, '/')
 	if at == -1 {
+		// 无 @：可能是 host 或 host/path
+		if slash > 0 {
+			return &SSHInfo{Host: raw[:slash], Path: raw[slash:]}, nil
+		}
 		return &SSHInfo{Host: raw}, nil
 	}
 	info := &SSHInfo{
@@ -215,13 +229,22 @@ func ParseSSHURL(raw string) (*SSHInfo, error) {
 		Host: raw[at+1:],
 	}
 	// user@host:2222 或 user@host:/path
+	// : 后面跟 / 是路径分隔符；纯数字才是端口
 	if colon > at {
-		portOrPath := raw[colon+1:]
-		if slash > colon {
-			info.Port = portOrPath[:slash-colon-1]
+		afterColon := raw[colon+1:]
+		if strings.HasPrefix(afterColon, "/") {
+			// : /path 格式，: 是路径分隔符，host 截断到这里
+			info.Host = raw[at+1 : colon]
+			info.Path = afterColon
+		} else if slash > colon {
+			// 有 / 在 : 之后，说明 : 是端口，后面是路径
+			info.Host = raw[at+1 : colon]
+			info.Port = strings.TrimSpace(afterColon[:slash-colon-1])
 			info.Path = raw[slash:]
-		} else {
-			info.Port = portOrPath
+		} else if isAllDigits(strings.TrimSpace(afterColon)) {
+			// 纯数字 = 端口
+			info.Host = raw[at+1 : colon]
+			info.Port = strings.TrimSpace(afterColon)
 		}
 	} else if slash > at {
 		info.Path = raw[slash:]
