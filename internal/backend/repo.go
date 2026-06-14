@@ -130,6 +130,17 @@ func InitSchema(db *sql.DB) error {
 		PRIMARY KEY (task_id, experience_id)
 	);
 	CREATE INDEX IF NOT EXISTS idx_task_exp_exp ON task_experiences(experience_id);
+	CREATE TABLE IF NOT EXISTS agents (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		token_hash TEXT NOT NULL,
+		capabilities TEXT,
+		version TEXT,
+		last_heartbeat DATETIME,
+		status TEXT DEFAULT 'online',
+		created_at DATETIME
+	);
+	CREATE INDEX IF NOT EXISTS idx_agents_token ON agents(token_hash);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		return err
@@ -141,7 +152,10 @@ func InitSchema(db *sql.DB) error {
 	if err := migrateScheduledTasksColumns(db); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`PRAGMA user_version = 3`); err != nil {
+	if err := migrateAgentsTable(db); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 4`); err != nil {
 		return err
 	}
 	return nil
@@ -223,6 +237,26 @@ func migrateScheduledTasksColumns(db *sql.DB) error {
 	return nil
 }
 
+// migrateAgentsTable 建 agents 表（如果是全新 schema，CREATE TABLE 会自动创建；如果是历史 db，尝试 ALTER）。
+// agents 表比较特殊：历史 db 没有这个表，需要用 ALTER TABLE ADD COLUMN 但 SQLite 对新表无效，
+// 所以这里用 CREATE TABLE IF NOT EXISTS 直接兼容（新旧 db 均安全）。
+func migrateAgentsTable(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS agents (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		token_hash TEXT NOT NULL,
+		capabilities TEXT,
+		version TEXT,
+		last_heartbeat DATETIME,
+		status TEXT DEFAULT 'online',
+		created_at DATETIME
+	)`)
+	if err != nil {
+		return fmt.Errorf("migrateAgentsTable: %w", err)
+	}
+	return nil
+}
+
 type TaskRepo struct{ db *sql.DB }
 
 func NewTaskRepo(db *sql.DB) *TaskRepo { return &TaskRepo{db: db} }
@@ -236,19 +270,41 @@ func (r *TaskRepo) Create(t *Task) error {
 }
 
 func (r *TaskRepo) Get(id string) (*Task, error) {
-	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,claimed_at,maintainer,repo_address,archived_at,result FROM tasks WHERE id=?`
+	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
+		claimed_at,maintainer,repo_address,archived_at,result,
+		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
+		task_type,claimer_agent_id,result_output,evaluation_score
+		FROM tasks WHERE id=?`
 	var t Task
 	var claimedAt, archivedAt sql.NullTime
 	var acc, res, maintainer, repoAddr sql.NullString
+	var execModel, cbcMdl sql.NullString
+	var iterCount, maxIter int
+	var improvThresh, evalScore sql.NullFloat64
+	var lastHeartbeat sql.NullTime
+	var lastErr, taskType, claimerAgentID, resultOutput sql.NullString
 	err := r.db.QueryRow(q, id).Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 		&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
-		&claimedAt, &maintainer, &repoAddr, &archivedAt, &res)
+		&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
+		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
+		&taskType, &claimerAgentID, &resultOutput, &evalScore)
 	t.Acceptance = acc.String
 	t.Result = res.String
 	t.Maintainer = maintainer.String
 	t.RepoAddress = repoAddr.String
+	t.ExecutorModel = execModel.String
+	t.CbcModel = cbcMdl.String
+	t.IterationCount = iterCount
+	t.MaxIterations = maxIter
+	t.LastError = lastErr.String
+	t.TaskType = taskType.String
+	t.ClaimerAgentID = claimerAgentID.String
+	t.ResultOutput = resultOutput.String
 	if claimedAt.Valid { t.ClaimedAt = &claimedAt.Time }
 	if archivedAt.Valid { t.ArchivedAt = &archivedAt.Time }
+	if improvThresh.Valid { t.ImprovementThreshold = improvThresh.Float64 }
+	if lastHeartbeat.Valid { t.LastHeartbeat = &lastHeartbeat.Time }
+	if evalScore.Valid { t.EvaluationScore = &evalScore.Float64 }
 	if err == sql.ErrNoRows { return nil, fmt.Errorf("task %s not found", id) }
 	if ids, err := r.ListExperienceIDsForTask(id); err == nil && len(ids) > 0 {
 		t.ExperienceIDs = ids
@@ -257,8 +313,10 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 }
 
 func (r *TaskRepo) Update(t *Task) error {
-	q := `UPDATE tasks SET title=?,description=?,experience_id=?,resources=?,acceptance=? WHERE id=?`
-	_, err := r.db.Exec(q, t.Title, t.Description, t.ExperienceID, t.Resources, t.Acceptance, t.ID)
+	q := `UPDATE tasks SET title=?,description=?,experience_id=?,resources=?,acceptance=?,
+		task_type=?,claimer_agent_id=?,result_output=?,evaluation_score=? WHERE id=?`
+	_, err := r.db.Exec(q, t.Title, t.Description, t.ExperienceID, t.Resources, t.Acceptance,
+		t.TaskType, t.ClaimerAgentID, t.ResultOutput, t.EvaluationScore, t.ID)
 	return err
 }
 
@@ -980,4 +1038,119 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 		out = append(out, &e)
 	}
 	return out, rows.Err()
+}
+
+// ---- Agent（远程 Agent 注册/心跳）----
+
+type Agent struct {
+	ID            string     `json:"id"`
+	Name          string     `json:"name"`
+	TokenHash     string     `json:"-"` // 不暴露给前端
+	Capabilities  string    `json:"capabilities,omitempty"`
+	Version       string    `json:"version,omitempty"`
+	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
+	Status        string     `json:"status"` // online | offline
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
+type AgentRepo struct{ db *sql.DB }
+
+func NewAgentRepo(db *sql.DB) *AgentRepo { return &AgentRepo{db: db} }
+
+// Register 新建 Agent（id/token 由调用方生成）。
+func (r *AgentRepo) Register(a *Agent) error {
+	q := `INSERT INTO agents (id,name,token_hash,capabilities,version,last_heartbeat,status,created_at)
+		VALUES (?,?,?,?,?,?,?,?)`
+	_, err := r.db.Exec(q, a.ID, a.Name, a.TokenHash, a.Capabilities, a.Version, a.LastHeartbeat, a.Status, a.CreatedAt)
+	return err
+}
+
+// GetByID 根据 ID 查 Agent。
+func (r *AgentRepo) GetByID(id string) (*Agent, error) {
+	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,created_at FROM agents WHERE id=?`
+	var a Agent
+	var hb sql.NullTime
+	err := r.db.QueryRow(q, id).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.CreatedAt)
+	if hb.Valid { a.LastHeartbeat = &hb.Time }
+	if err == sql.ErrNoRows { return nil, fmt.Errorf("agent %s not found", id) }
+	return &a, err
+}
+
+// GetByTokenHash 根据 token hash 查 Agent（用于登录验证）。
+func (r *AgentRepo) GetByTokenHash(hash string) (*Agent, error) {
+	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,created_at FROM agents WHERE token_hash=?`
+	var a Agent
+	var hb sql.NullTime
+	err := r.db.QueryRow(q, hash).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.CreatedAt)
+	if hb.Valid { a.LastHeartbeat = &hb.Time }
+	if err == sql.ErrNoRows { return nil, fmt.Errorf("agent not found") }
+	return &a, err
+}
+
+// UpdateHeartbeat 更新心跳时间并返回更新后的 Agent。
+func (r *AgentRepo) UpdateHeartbeat(id string) (*Agent, error) {
+	now := time.Now()
+	_, err := r.db.Exec(`UPDATE agents SET last_heartbeat=?, status='online' WHERE id=?`, now, id)
+	if err != nil {
+		return nil, err
+	}
+	return r.GetByID(id)
+}
+
+// ListStaleAgents 返回超过 maxAge 秒未心跳的 Agent ID 列表（供后台回收任务用）。
+func (r *AgentRepo) ListStaleAgents(maxAgeSec int) ([]string, error) {
+	q := `SELECT id FROM agents WHERE status='online' AND last_heartbeat < datetime('now', '-' || ? || ' seconds')`
+	rows, err := r.db.Query(q, maxAgeSec)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// SetStatusOffline 将 Agent 标记为离线（心跳超时后调用）。
+func (r *AgentRepo) SetStatusOffline(id string) error {
+	_, err := r.db.Exec(`UPDATE agents SET status='offline' WHERE id=?`, id)
+	return err
+}
+
+// ClaimTask 原子 claim：只有在 task 状态为 pending 且类型为 remote 且无人认领时才能 claim。
+// 成功返回 nil，失败返回 error（并发抢或状态不对）。
+func (r *TaskRepo) ClaimTask(taskID, agentID string) error {
+	result, err := r.db.Exec(`UPDATE tasks SET status=?, claimer_agent_id=?, claimed_at=COALESCE(claimed_at, ?)
+		WHERE id=? AND status='pending' AND task_type='remote' AND (claimer_agent_id='' OR claimer_agent_id IS NULL)`,
+		TaskStatusInProgress, agentID, time.Now(), taskID)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("task %s cannot be claimed (not pending/remote or already claimed)", taskID)
+	}
+	return nil
+}
+
+// ReportTask 远程 Agent 上报执行结果。验证 claimer 匹配后更新。
+func (r *TaskRepo) ReportTask(taskID, agentID, status, resultOutput string, evalScore *float64, lastErr string) error {
+	t, err := r.Get(taskID)
+	if err != nil {
+		return err
+	}
+	if t.ClaimerAgentID != agentID {
+		return fmt.Errorf("task %s is not claimed by agent %s", taskID, agentID)
+	}
+	q := `UPDATE tasks SET status=?, result_output=?, evaluation_score=?, last_error=?,
+		completed_at=CASE WHEN ? IN ('archived','exception') THEN COALESCE(completed_at, ?) END
+		WHERE id=?`
+	now := time.Now()
+	_, err = r.db.Exec(q, status, resultOutput, evalScore, lastErr, status, now, taskID)
+	return err
 }

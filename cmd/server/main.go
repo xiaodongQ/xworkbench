@@ -45,6 +45,7 @@ type APIServer struct {
 	schedDB *backend.ScheduledTaskRepo
 	setDB  *backend.AppSettingsRepo
 	evalDB *backend.EvaluationRepo
+	agentDB *backend.AgentRepo
 	sch    *scheduler.Scheduler
 	hub    *hub.Hub
 	relayHandler *relay.RelayHandler
@@ -60,12 +61,14 @@ func NewAPIServer(
 	db *backend.TaskRepo, expDB *backend.ExperienceRepo, execDB *backend.ExecutionRepo,
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
 	schedDB *backend.ScheduledTaskRepo, setDB *backend.AppSettingsRepo,
-	evalDB *backend.EvaluationRepo, sch *scheduler.Scheduler, h *hub.Hub,
+	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
+	sch *scheduler.Scheduler, h *hub.Hub,
 	relayRepo relay.Repo,
 ) *APIServer {
 	s := &APIServer{
 		db: db, expDB: expDB, execDB: execDB,
 		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, setDB: setDB, evalDB: evalDB,
+		agentDB: agentDB,
 		sch: sch, hub: h,
 		relayHandler: relay.NewRelayHandler(relayRepo),
 		mux: http.NewServeMux(), running: map[string]context.CancelFunc{},
@@ -156,6 +159,12 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/exec", relay.HandleExec)
 	mux.HandleFunc("POST /api/relay/proxy", s.relayHandler.HandleRelayProxy)
 	mux.HandleFunc("GET /api/relay/stats", s.relayHandler.HandleRelayStats)
+
+	// 远程 Agent API
+	mux.HandleFunc("POST /api/agents/register", s.handleAgentRegister)
+	mux.HandleFunc("POST /api/agents/{id}/heartbeat", s.handleAgentHeartbeat)
+	mux.HandleFunc("POST /api/tasks/{id}/claim", s.handleTaskClaim)
+	mux.HandleFunc("POST /api/tasks/{id}/report", s.handleTaskReport)
 }
 
 func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -1548,8 +1557,9 @@ func main() {
 		log.Fatalf("init relay schema: %v", err)
 	}
 
+	agentRepo := backend.NewAgentRepo(db)
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
-		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, sch, h, relayRepo)
+		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, agentRepo, sch, h, relayRepo)
 
 	addr := os.Getenv("ADDR")
 	if addr == "" {
@@ -1789,4 +1799,155 @@ func parseLearnOutput(output string, task *backend.Task, exec *backend.Execution
 		LogSamples:   exec.Command,
 		CodeSnippets: f.CodeSnippet,
 	}
+}
+
+// ---- Remote Agent Handlers ----
+
+// handleAgentRegister Agent 注册。生成 agent_id 和一个随机 token（存 hash）。
+func (s *APIServer) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name         string `json:"name"`
+		Capabilities string `json:"capabilities"`
+		Version      string `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	// 生成 agent id 和 token
+	agentID := uuid.New().String()
+	token := uuid.New().String() // 简单 UUID token，够用即可（生产环境换 JWT）
+	tokenHash := token           // 简化：直接存 UUID 明文 hash（实际应用换 bcrypt）
+
+	a := &backend.Agent{
+		ID:           agentID,
+		Name:         req.Name,
+		TokenHash:    tokenHash,
+		Capabilities: req.Capabilities,
+		Version:      req.Version,
+		Status:       "online",
+		CreatedAt:    time.Now(),
+	}
+	if err := s.agentDB.Register(a); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	slog.Info("agent registered", "agent_id", agentID, "name", req.Name)
+	writeJSON(w, map[string]any{
+		"agent_id":  agentID,
+		"token":    token, // 仅此时返回，之后不再暴露
+		"name":     req.Name,
+		"status":   "online",
+		"registered_at": a.CreatedAt,
+	})
+}
+
+// handleAgentHeartbeat Agent 心跳。Header: Authorization: Bearer <token>
+func (s *APIServer) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
+	agentID := r.PathValue("id")
+	token := extractBearerToken(r)
+	if token == "" {
+		writeErr(w, http.StatusUnauthorized, "missing token")
+		return
+	}
+	// 验证 token
+	a, err := s.agentDB.GetByTokenHash(token)
+	if err != nil || a.ID != agentID {
+		writeErr(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	var req struct {
+		Status        string `json:"status"`
+		CurrentTaskID string `json:"current_task_id"`
+	}
+	json.NewDecoder(r.Body).Decode(&req) // body 可选
+
+	updated, err := s.agentDB.UpdateHeartbeat(agentID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{
+		"ok":         true,
+		"server_time": time.Now(),
+		"agent":       updated,
+	})
+}
+
+// handleTaskClaim 远程 Agent claim 任务。
+func (s *APIServer) handleTaskClaim(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("id")
+	token := extractBearerToken(r)
+	if token == "" {
+		writeErr(w, http.StatusUnauthorized, "missing token")
+		return
+	}
+	var req struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 验证 token 对应 agent
+	a, err := s.agentDB.GetByTokenHash(token)
+	if err != nil || a.ID != req.AgentID {
+		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
+		return
+	}
+	if err := s.db.ClaimTask(taskID, req.AgentID); err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	task, _ := s.db.Get(taskID)
+	writeJSON(w, map[string]any{"status": "claimed", "task": task})
+}
+
+// handleTaskReport 远程 Agent 上报执行结果。
+func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("id")
+	token := extractBearerToken(r)
+	if token == "" {
+		writeErr(w, http.StatusUnauthorized, "missing token")
+		return
+	}
+	var req struct {
+		AgentID       string   `json:"agent_id"`
+		Status        string   `json:"status"`
+		ResultOutput  string   `json:"result_output"`
+		EvaluationScore *float64 `json:"evaluation_score"`
+		LastError     string   `json:"last_error"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 验证 token
+	a, err := s.agentDB.GetByTokenHash(token)
+	if err != nil || a.ID != req.AgentID {
+		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
+		return
+	}
+	if req.Status == "" {
+		req.Status = backend.TaskStatusArchived
+	}
+	if err := s.db.ReportTask(taskID, req.AgentID, req.Status, req.ResultOutput, req.EvaluationScore, req.LastError); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	slog.Info("task report received", "task_id", taskID, "agent_id", req.AgentID, "status", req.Status)
+	writeJSON(w, map[string]any{"ok": true, "task_id": taskID})
+}
+
+// extractBearerToken 从 Authorization header 提取 Bearer token。
+func extractBearerToken(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if !strings.HasPrefix(h, "Bearer ") {
+		return ""
+	}
+	return strings.TrimPrefix(h, "Bearer ")
 }

@@ -12,6 +12,13 @@ const (
 	TaskStatusException  = "exception"
 )
 
+// TaskType values
+const (
+	TaskTypeManual     = "manual"
+	TaskTypeScheduled  = "scheduled"
+	TaskTypeRemote     = "remote"
+)
+
 type Task struct {
 	ID           string     `json:"id"`
 	Title        string     `json:"title"`
@@ -39,7 +46,12 @@ type Task struct {
 	MaxIterations       int     `json:"max_iterations,omitempty"`
 	ImprovementThreshold float64 `json:"improvement_threshold,omitempty"`
 	LastHeartbeat       *time.Time `json:"last_heartbeat,omitempty"`
-	LastError           string  `json:"last_error,omitempty"`
+	LastError           string     `json:"last_error,omitempty"`
+	// 远程 Agent 相关
+	TaskType         string   `json:"task_type,omitempty"`
+	ClaimerAgentID   string   `json:"claimer_agent_id,omitempty"`
+	ResultOutput     string   `json:"result_output,omitempty"`
+	EvaluationScore *float64 `json:"evaluation_score,omitempty"`
 }
 
 type Experience struct {
