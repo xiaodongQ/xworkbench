@@ -129,6 +129,80 @@ function showDirModal() {
   setTimeout(() => document.getElementById('dir-name').focus(), 50);
 }
 function closeDirModal() { document.getElementById('dir-modal').classList.add('hidden'); }
+function showDirSettingsModal() {
+  fetchJSON('/api/config').then(data => {
+    const term = data.terminal;
+    const sel = document.getElementById('dir-settings-terminal-select');
+    sel.value = term.default_type || 'wezterm';
+    // 显示当前选中类型的 path
+    const typeKey = sel.value.toLowerCase();
+    const typeDef = term.types[typeKey];
+    document.getElementById('dir-settings-terminal-path').value = typeDef?.path || '';
+    if (typeDef?.path) {
+      document.getElementById('dir-term-detected-path').textContent = '已保存: ' + typeDef.path;
+      document.getElementById('dir-term-detected-path').style.color = 'var(--archived)';
+    } else {
+      document.getElementById('dir-term-detected-path').textContent = '点击"检测"查找可用路径';
+      document.getElementById('dir-term-detected-path').style.color = 'var(--text-secondary)';
+    }
+  }).catch(() => {
+    document.getElementById('dir-settings-terminal-select').value = 'wezterm';
+    document.getElementById('dir-settings-terminal-path').value = '';
+  });
+  document.getElementById('dir-settings-modal').classList.remove('hidden');
+}
+function closeDirSettingsModal() { document.getElementById('dir-settings-modal').classList.add('hidden'); }
+function onDirTermTypeChange() {
+  // 切换类型时显示该类型已保存的路径
+  const type = document.getElementById('dir-settings-terminal-select').value.toLowerCase();
+  fetchJSON('/api/config').then(data => {
+    const typeDef = data.terminal.types[type];
+    const pathInput = document.getElementById('dir-settings-terminal-path');
+    if (typeDef?.path) {
+      pathInput.value = typeDef.path;
+      document.getElementById('dir-term-detected-path').textContent = '已保存: ' + typeDef.path;
+      document.getElementById('dir-term-detected-path').style.color = 'var(--archived)';
+    } else {
+      pathInput.value = '';
+      document.getElementById('dir-term-detected-path').textContent = '点击"检测"查找可用路径';
+      document.getElementById('dir-term-detected-path').style.color = 'var(--text-secondary)';
+    }
+  });
+  detectDirTerminalPath();
+}
+async function detectDirTerminalPath() {
+  const type = document.getElementById('dir-settings-terminal-select').value;
+  const pathDiv = document.getElementById('dir-term-detected-path');
+  pathDiv.textContent = '检测中...';
+  pathDiv.style.color = 'var(--text-secondary)';
+  try {
+    const r = await fetch('/api/terminals/detect?type=' + encodeURIComponent(type));
+    const data = await r.json();
+    if (data.path) {
+      pathDiv.textContent = data.path;
+      pathDiv.style.color = 'var(--archived)';
+      document.getElementById('dir-settings-terminal-path').value = data.path;
+    } else {
+      pathDiv.textContent = '未找到 ' + type + '，请手动填写路径';
+      pathDiv.style.color = 'var(--exception)';
+    }
+  } catch (e) {
+    pathDiv.textContent = '检测失败：' + e.message;
+    pathDiv.style.color = 'var(--exception)';
+  }
+}
+function submitDirSettings() {
+  const term = document.getElementById('dir-settings-terminal-select').value;
+  const path = document.getElementById('dir-settings-terminal-path').value.trim();
+  fetch('/api/config', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({terminal_type: term, terminal_path: path})
+  }).then(() => closeDirSettingsModal()).catch(e => {
+    alert('保存失败：' + e.message);
+    closeDirSettingsModal();
+  });
+}
 async function editDir(id) {
   const list = sortByOrder(await fetchJSON('/api/dir-shortcuts'));
   const d = list.find(x => x.id === id);
@@ -173,11 +247,11 @@ async function openDir(id) {
   }
 }
 
-// openDirTerminal 打开终端到指定目录，优先用当前选中的终端类型
+// openDirTerminal 打开终端到指定目录，使用配置的默认终端类型
 async function openDirTerminal(id) {
-  // 获取当前默认终端类型
-  let termType = localStorage.getItem('default_terminal_type') || 'wezterm';
   try {
+    const data = await fetchJSON('/api/config');
+    const termType = data.terminal?.default_type || 'wezterm';
     const r = await fetch('/api/dir-shortcuts/' + id + '/open-terminal?type=' + encodeURIComponent(termType), {method:'POST'});
     if (!r.ok) {
       const body = await r.json().catch(() => ({}));

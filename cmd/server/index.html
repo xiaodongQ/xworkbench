@@ -43,7 +43,10 @@
     <div class="dir-section">
       <div class="dir-section-head">
         <span>📂 快捷目录</span>
-        <button class="btn btn-small" onclick="showDirModal()" title="添加目录">+</button>
+        <span style="display:flex;gap:4px">
+          <button class="btn btn-small" onclick="showDirSettingsModal()" title="设置">⚙️</button>
+          <button class="btn btn-small" onclick="showDirModal()" title="添加目录">+</button>
+        </span>
       </div>
       <div id="dir-list" class="dir-list"></div>
     </div>
@@ -56,33 +59,38 @@
   </div>
 </aside>
 
-<!-- Widget Sidebar：链接 + 待办 上下排列 -->
-<aside class="widget-sidebar" id="widget-sidebar">
-  <div class="widget">
-    <div class="widget-title">
-      <span>🔗 快捷链接</span>
-      <button class="btn btn-small" onclick="showLinkModal()">+ 添加</button>
-    </div>
-    <div id="links-grid" class="link-list"></div>
-  </div>
-  <div class="widget">
-    <div class="widget-title">
-      <span>☑️ 待办</span>
-      <span>
-        <button class="btn btn-small" onclick="showTodoAddModal()">+ 添加</button>
-        <button class="btn btn-small" onclick="showTodoPathModal()">设置</button>
-        <span id="todo-show-all-icon" style="font-size:13px;cursor:pointer;opacity:0.5" onclick="toggleTodoShowAll()" title="显示全部">☐</span>
-      </span>
-    </div>
-    <div id="todo-list" class="todo-list"><div style="color:var(--text-secondary);font-size:12px;padding:4px">未配置 todo.md 路径</div></div>
-  </div>
-</aside>
+<!-- 三列布局 wrapper（sidebar + handle + widget-sidebar + handle + main） -->
+<div style="display:flex;flex:1;min-width:0;overflow:hidden">
+  <!-- 列宽拖拽 handle（sidebar 与 widget-sidebar 之间） -->
+  <div class="resize-handle" id="resize-handle-sidebar" title="拖拽调宽"></div>
 
-<!-- 列宽拖拽 handle（widget-sidebar 与 main 之间） -->
-<div class="resize-handle" id="resize-handle" title="拖拽调宽"></div>
+  <!-- Widget Sidebar：链接 + 待办 上下排列 -->
+  <aside class="widget-sidebar" id="widget-sidebar">
+    <div class="widget">
+      <div class="widget-title">
+        <span>🔗 快捷链接</span>
+        <button class="btn btn-small" onclick="showLinkModal()">+ 添加</button>
+      </div>
+      <div id="links-grid" class="link-list"></div>
+    </div>
+    <div class="widget">
+      <div class="widget-title">
+        <span>☑️ 待办</span>
+        <span>
+          <button class="btn btn-small" onclick="showTodoAddModal()">+ 添加</button>
+          <button class="btn btn-small" onclick="showTodoPathModal()">设置</button>
+          <span id="todo-show-all-icon" style="font-size:13px;cursor:pointer;opacity:0.5" onclick="toggleTodoShowAll()" title="显示全部">☐</span>
+        </span>
+      </div>
+      <div id="todo-list" class="todo-list"><div style="color:var(--text-secondary);font-size:12px;padding:4px">未配置 todo.md 路径</div></div>
+    </div>
+  </aside>
 
-<!-- Main Content -->
-<main class="main">
+  <!-- 列宽拖拽 handle（widget-sidebar 与 main 之间） -->
+  <div class="resize-handle" id="resize-handle" title="拖拽调宽"></div>
+
+  <!-- Main Content -->
+  <main class="main">
   <!-- Dashboard -->
   <div id="page-dashboard">
     <h1 class="page-title">总览</h1>
@@ -177,19 +185,6 @@
         <button class="btn" data-sched-action="start" onclick="schedulerStart()">▶ 启动</button>
         <button class="btn" data-sched-action="stop" onclick="schedulerStop()">⏸ 停止</button>
         <button class="btn btn-small" data-sched-action="reload" onclick="schedulerReload()" title="从数据库重新加载定时任务列表">🔄 重载</button>
-        <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
-        <span style="font-size:12px;color:var(--text-secondary)">终端:</span>
-        <select id="default-terminal-select" onchange="onTerminalChange(this.value)"
-                style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text)">
-          <option value="wezterm">WezTerm</option>
-          <option value="wt">Windows Terminal</option>
-          <option value="powershell">PowerShell</option>
-          <option value="pwsh">PowerShell Core</option>
-          <option value="terminal">Terminal.app</option>
-          <option value="gnome">GNOME Terminal</option>
-          <option value="xterm">xterm</option>
-          <option value="cmd">CMD</option>
-        </select>
       </div>
       <button class="btn btn-primary" onclick="showScheduledModal()">+ 新建定时任务</button>
     </div>
@@ -325,6 +320,7 @@
     </div>
   </div>
 </main>
+</div>
 
 <!-- Task Modal -->
 <div id="task-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeTaskModal()">
@@ -556,6 +552,41 @@
   </div>
 </div>
 
+<!-- 快捷目录设置弹窗 -->
+<div id="dir-settings-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeDirSettingsModal()">
+  <div class="modal" style="max-width:400px">
+    <h2 style="margin:0 0 12px 0;font-size:16px">快捷目录设置</h2>
+    <div class="form-group">
+      <label style="font-size:12px">终端类型</label>
+      <select id="dir-settings-terminal-select" onchange="onDirTermTypeChange()" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
+        <option value="wezterm">WezTerm</option>
+        <option value="wt">Windows Terminal</option>
+        <option value="powershell">PowerShell</option>
+        <option value="pwsh">PowerShell Core</option>
+        <option value="terminal">Terminal.app</option>
+        <option value="gnome">GNOME Terminal</option>
+        <option value="xterm">xterm</option>
+        <option value="cmd">CMD</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label style="font-size:12px;display:flex;justify-content:space-between;align-items:center">
+        <span>检测到的路径</span>
+        <button class="btn btn-small" onclick="detectDirTerminalPath()" style="font-size:11px;padding:2px 8px">🔍 检测</button>
+      </label>
+      <div id="dir-term-detected-path" style="font-size:12px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--hover);color:var(--text-secondary);word-break:break-all">点击"检测"查找可用路径</div>
+    </div>
+    <div class="form-group">
+      <label style="font-size:12px">自定义路径 <span class="field-hint">可覆盖检测结果，留空用检测值</span></label>
+      <input id="dir-settings-terminal-path" placeholder="留空自动使用检测到的路径" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeDirSettingsModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitDirSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- 共享 + widgets + 5 view JS（顺序：api → widgets → 5 view） -->
 <script src="/static/js/api.js"></script>
 <script src="/static/js/widgets.js"></script>
@@ -577,6 +608,7 @@ loadLinks();
 loadDirs();
 loadTodo();
 loadDashboard();
+loadCLIModels(); // 提前加载模型列表，供各处下拉使用
 
 // 恢复上次停留的 tab（必须在所有 view JS 加载完之后，否则 switchTab 内的 loadTasks/loadExps 等都是 undefined）
 (function restoreTab() {
@@ -613,6 +645,36 @@ loadDashboard();
     handle.classList.remove('dragging');
     document.body.style.cursor = '';
     localStorage.setItem('sf-widget-sidebar-w', sidebar.offsetWidth);
+  });
+})();
+
+// 列宽拖拽：拖 sidebar 与 widget-sidebar 之间的把手
+(function initSidebarResize() {
+  const handle = document.getElementById('resize-handle-sidebar');
+  const sidebar = document.getElementById('sidebar');
+  if (!handle || !sidebar) return;
+  const saved = parseInt(localStorage.getItem('sf-sidebar-w'), 10);
+  if (saved && saved >= 100 && saved <= 400) sidebar.style.width = saved + 'px';
+  let startX = null, startW = 0;
+  handle.addEventListener('mousedown', e => {
+    startX = e.clientX;
+    startW = sidebar.offsetWidth;
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (startX == null) return;
+    const dx = e.clientX - startX;
+    const newW = Math.max(100, Math.min(400, startW + dx));
+    sidebar.style.width = newW + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (startX == null) return;
+    startX = null;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    localStorage.setItem('sf-sidebar-w', sidebar.offsetWidth);
   });
 })();
 </script>

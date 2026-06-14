@@ -4,33 +4,47 @@
 const API = '';
 let currentTab = 'dashboard';
 
-// ===== 全局 CLI + 模型列表 =====
-const CLI_MODELS = {
-  claude: [
-    {value: 'haiku', label: 'haiku（快+便宜）'},
-    {value: 'sonnet', label: 'sonnet（推荐 · 准确）'},
-    {value: 'opus', label: 'opus（最强 · 贵）'},
-  ],
-  cbc: [
-    {value: 'glm-5.1', label: 'GLM-5.1（x1.06）'},
-    {value: 'glm-5.0', label: 'GLM-5.0（x0.80）'},
-    {value: 'glm-5.0-turbo', label: 'GLM-5.0-Turbo（x0.95）'},
-    {value: 'glm-5v-turbo', label: 'GLM-5v-Turbo（x0.95）'},
-    {value: 'glm-4.7', label: 'GLM-4.7（x0.23）'},
-    {value: 'minimax-m3', label: 'MiniMax-M3（x0.25）'},
-    {value: 'minimax-m2.7', label: 'MiniMax-M2.7（x0.26）'},
-    {value: 'kimi-k2.6', label: 'Kimi-K2.6（x0.59）'},
-    {value: 'kimi-k2.5', label: 'Kimi-K2.5（x0.45）'},
-    {value: 'hy3-preview', label: 'Hy3 preview（x0.37）'},
-    {value: 'deepseek-v4-pro', label: 'Deepseek-V4-Pro（x0.25）'},
-    {value: 'deepseek-v4-flash', label: 'Deepseek-V4-Flash（x0.13）'},
-    {value: 'deepseek-v3-2-volc', label: 'DeepSeek-V3.2（x0.29）'},
-  ]
-};
+// ===== 全局 CLI + 模型列表（从后端加载） =====
+let CLI_MODELS = null;
+
+async function loadCLIModels() {
+  if (CLI_MODELS) return CLI_MODELS;
+  try {
+    const data = await fetchJSON('/api/models');
+    CLI_MODELS = data.cli_type_models || {claude: [], cbc: []};
+  } catch (e) {
+    console.error('loadCLIModels failed:', e);
+    CLI_MODELS = {claude: [], cbc: []};
+  }
+  return CLI_MODELS;
+}
 
 function buildModelOptions(cliType) {
-  const models = CLI_MODELS[cliType] || CLI_MODELS.claude;
+  if (!CLI_MODELS) return '';
+  const group = CLI_MODELS[cliType] || CLI_MODELS.claude;
+  const models = (group && group.options) ? group.options : [];
   return models.map(m => '<option value="' + m.value + '">' + m.label + '</option>').join('');
+}
+
+function getDefaultModel(cliType) {
+  if (!CLI_MODELS) return '';
+  const group = CLI_MODELS[cliType] || CLI_MODELS.claude;
+  return (group && group.default) ? group.default : '';
+}
+
+async function saveDefaultModel(cliType, model) {
+  try {
+    await fetchJSON('/api/config', {
+      method: 'PUT',
+      body: JSON.stringify({ model_defaults: { [cliType]: model } }),
+    });
+    // 更新本地缓存
+    if (CLI_MODELS && CLI_MODELS[cliType]) {
+      CLI_MODELS[cliType].default = model;
+    }
+  } catch (e) {
+    console.warn('保存默认模型失败:', e);
+  }
 }
 
 async function fetchJSON(url, opts) {

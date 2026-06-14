@@ -231,7 +231,15 @@ function onSchedTypeChange() {
     modelSel.disabled = false;
     modelSel.style.opacity = '1';
     modelSel.innerHTML = buildModelOptions(type);
+    const defaultModel = getDefaultModel(type);
+    if (defaultModel && modelSel.querySelector('option[value="' + defaultModel + '"]')) {
+      modelSel.value = defaultModel;
+    }
   }
+  // model 切换时保存为默认
+  modelSel.onchange = () => {
+    if (type !== 'shell') saveDefaultModel(type, modelSel.value);
+  };
 }
 async function editScheduled(id) {
   const s = await fetchJSON('/api/scheduled/' + id);
@@ -559,32 +567,25 @@ function renderExecOutput(raw) {
 
 // ===== 终端类型设置 =====
 async function onTerminalChange(value) {
-  localStorage.setItem('default_terminal_type', value);
-  // 同步到后端持久化
   try {
-    await fetchJSON('/api/settings/default_terminal', {
+    await fetchJSON('/api/config', {
       method: 'PUT',
-      body: JSON.stringify({ value }),
+      body: JSON.stringify({ terminal_type: value }),
     });
   } catch (e) {
     console.warn('保存默认终端失败:', e);
   }
 }
 
-// 页面加载时恢复终端类型设置
+// 页面加载时从 /api/config 读取终端类型设置
 async function loadTerminalSetting() {
   try {
-    const r = await fetch('/api/settings/default_terminal');
-    if (r.ok) {
-      const body = await r.json();
-      const val = body.value || 'wezterm';
-      localStorage.setItem('default_terminal_type', val);
-      const sel = document.getElementById('default-terminal-select');
-      if (sel) sel.value = val;
-    }
-  } catch (e) {
-    // 使用本地默认值
+    const data = await fetchJSON('/api/config');
+    const val = data.terminal?.default_type || 'wezterm';
     const sel = document.getElementById('default-terminal-select');
-    if (sel) sel.value = localStorage.getItem('default_terminal_type') || 'wezterm';
+    if (sel) sel.value = val;
+  } catch (e) {
+    const sel = document.getElementById('default-terminal-select');
+    if (sel) sel.value = 'wezterm';
   }
 }

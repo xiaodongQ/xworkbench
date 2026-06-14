@@ -233,14 +233,22 @@ async function runTask(id) {
 function showRunTaskModal(task) {
   document.getElementById('run-task-title').textContent = task.title + (task.description ? ' — ' + task.description.slice(0, 60) : '');
   document.getElementById('run-task-type').value = 'claude';
-  document.getElementById('run-task-model').value = 'sonnet';
   toggleRunTaskModelGroup();
+  // 使用配置的默认模型
+  const defaultModel = getDefaultModel('claude') || 'sonnet';
+  document.getElementById('run-task-model').value = defaultModel;
   document.getElementById('run-task-modal').classList.remove('hidden');
   // 存当前 taskId 供 submit 用
   document.getElementById('run-task-modal').dataset.taskId = task.id;
   // type 切换时联动 model 是否可选
   const typeSel = document.getElementById('run-task-type');
   typeSel.onchange = toggleRunTaskModelGroup;
+  // model 切换时保存为默认
+  const modelSel = document.getElementById('run-task-model');
+  modelSel.onchange = () => {
+    const type = typeSel.value;
+    if (type !== 'shell') saveDefaultModel(type, modelSel.value);
+  };
 }
 
 function closeRunTaskModal() {
@@ -259,6 +267,11 @@ function toggleRunTaskModelGroup() {
     grp.style.opacity = '1';
     grp.style.pointerEvents = 'auto';
     modelSel.innerHTML = buildModelOptions(type);
+    // 切换后默认选中配置的默认模型
+    const defaultModel = getDefaultModel(type);
+    if (defaultModel && modelSel.querySelector('option[value="' + defaultModel + '"]')) {
+      modelSel.value = defaultModel;
+    }
   }
 }
 

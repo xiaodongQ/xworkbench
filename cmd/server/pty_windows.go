@@ -129,7 +129,7 @@ func getContextDir() string {
 	if err != nil {
 		return ""
 	}
-	ctxDir := filepath.Join(filepath.Dir(exe), ".xworkbench", "context")
+	ctxDir := filepath.Join(filepath.Dir(exe), "context")
 	if _, err := os.Stat(ctxDir); err == nil {
 		return ctxDir
 	}
@@ -137,7 +137,7 @@ func getContextDir() string {
 	if err != nil {
 		return ""
 	}
-	ctxDir = filepath.Join(cwd, ".xworkbench", "context")
+	ctxDir = filepath.Join(cwd, "context")
 	if _, err := os.Stat(ctxDir); err == nil {
 		return ctxDir
 	}

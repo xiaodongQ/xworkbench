@@ -21,6 +21,7 @@ PID_FILE="./bin/xworkbench.pid"
 LOG_FILE="./bin/xworkbench.log"
 DB_PATH="${DB_PATH:-./data/xworkbench.db}"
 ADDR="${ADDR:-:8901}"
+CONFIG_PATH="${CONFIG_PATH:-./config.json}"
 
 usage() {
   cat <<EOF
@@ -64,8 +65,8 @@ start() {
   fi
   ensure_built
   mkdir -p "$(dirname "$PID_FILE")"
-  echo "==> 启动  DB_PATH=$DB_PATH  ADDR=$ADDR"
-  DB_PATH="$DB_PATH" ADDR="$ADDR" nohup "$BIN" > "$LOG_FILE" 2>&1 &
+  echo "==> 启动  DB_PATH=$DB_PATH  ADDR=$ADDR  CONFIG=$CONFIG_PATH"
+  DB_PATH="$DB_PATH" ADDR="$ADDR" nohup "$BIN" -config "$CONFIG_PATH" > "$LOG_FILE" 2>&1 &
   PID=$!
   echo "$PID" > "$PID_FILE"
   sleep 1

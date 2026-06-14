@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"flag"
 	"log"
 	"log/slog"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/xiaodongQ/xworkbench/internal/backend"
+	"github.com/xiaodongQ/xworkbench/internal/config"
 	"github.com/xiaodongQ/xworkbench/internal/evaluator"
 	"github.com/xiaodongQ/xworkbench/internal/executor"
 	"github.com/xiaodongQ/xworkbench/internal/executor/runner"
@@ -115,6 +117,10 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/dir-shortcuts/{id}/open", s.handleDirShortcutOpen)
 	mux.HandleFunc("POST /api/dir-shortcuts/{id}/open-terminal", s.handleDirShortcutOpenTerminal)
 	mux.HandleFunc("GET /api/terminals", s.handleTerminalList)
+	mux.HandleFunc("GET /api/terminals/detect", s.handleTerminalDetect)
+	mux.HandleFunc("GET /api/models", s.handleModelList)
+	mux.HandleFunc("GET /api/config", s.handleGetConfig)
+	mux.HandleFunc("PUT /api/config", s.handleSetConfig)
 	mux.HandleFunc("GET /api/settings/default_terminal", s.handleGetDefaultTerminal)
 	mux.HandleFunc("PUT /api/settings/default_terminal", s.handleSetDefaultTerminal)
 
@@ -921,10 +927,14 @@ func (s *APIServer) handleDirShortcutOpen(w http.ResponseWriter, r *http.Request
 // handleDirShortcutOpenTerminal 打开指定终端类型的工作目录
 func (s *APIServer) handleDirShortcutOpenTerminal(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	termType := r.URL.Query().Get("type") // 可选，默认用设置值
+	termType := r.URL.Query().Get("type") // 可选，默认用 config.json 的 default_type
 	if termType == "" {
-		termType, _ = s.setDB.Get("default_terminal")
+		termType = shortcuts.DefaultTerminal()
 	}
+	slog.Info("[handleDirShortcutOpenTerminal]",
+		slog.String("id", id),
+		slog.String("termType", termType),
+		slog.String("at", "main.go:928"))
 
 	list, err := s.dirDB.List()
 	if err != nil {
@@ -945,11 +955,27 @@ func (s *APIServer) handleDirShortcutOpenTerminal(w http.ResponseWriter, r *http
 
 	// 判断是远程还是本地路径
 	path := entry.Path
+	if termType == "" {
+		termType = shortcuts.DefaultTerminal()
+	}
+	typeDef := config.AppConfig.Terminal.Types[strings.ToLower(termType)]
+	slog.Info("[handleDirShortcutOpenTerminal] opening",
+		slog.String("dir", path),
+		slog.String("termType", termType),
+		slog.String("binPath", typeDef.Path),
+		slog.String("bin", typeDef.Bin),
+		slog.String("at", "main.go:964"))
+		binPath := typeDef.Path
 	var openErr error
 	if strings.HasPrefix(path, "ssh://") || strings.Contains(path, "@:") {
 		openErr = shortcuts.OpenRemoteTerminal(termType, path)
 	} else {
-		openErr = shortcuts.OpenTerminal(termType, path)
+		// 本地路径先检查目录是否存在
+		if _, err := os.Stat(path); err != nil {
+			writeErr(w, http.StatusBadRequest, "目录不存在或不可访问："+path)
+			return
+		}
+		openErr = shortcuts.OpenTerminal(termType, path, binPath)
 	}
 
 	if openErr != nil {
@@ -991,6 +1017,21 @@ func (s *APIServer) handleGetDefaultTerminal(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, map[string]string{"value": val})
 }
 
+// handleTerminalDetect 检测终端类型的可执行文件路径
+func (s *APIServer) handleTerminalDetect(w http.ResponseWriter, r *http.Request) {
+	termType := r.URL.Query().Get("type")
+	if termType == "" {
+		writeErr(w, http.StatusBadRequest, "type is required")
+		return
+	}
+	path := shortcuts.DetectTerminalPath(termType)
+	if path != "" {
+		writeJSON(w, map[string]string{"path": path})
+	} else {
+		writeJSON(w, map[string]string{"path": ""})
+	}
+}
+
 // handleSetDefaultTerminal 设置默认终端类型
 func (s *APIServer) handleSetDefaultTerminal(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1010,6 +1051,73 @@ func (s *APIServer) handleSetDefaultTerminal(w http.ResponseWriter, r *http.Requ
 	}
 	writeJSON(w, map[string]string{"value": req.Value})
 }
+// handleModelList 返回模型列表（从 config.json 加载）
+func (s *APIServer) handleModelList(w http.ResponseWriter, r *http.Request) {
+	cfg := config.AppConfig
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+	writeJSON(w, map[string]interface{}{
+		"cli_type_models": cfg.Models,
+	})
+}
+
+// handleGetConfig 返回当前配置（从 config.json 读取）
+func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := config.AppConfig
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+	resp := map[string]interface{}{
+		"terminal": map[string]interface{}{
+			"default_type":  cfg.Terminal.DefaultType,
+			"detect_paths":  cfg.Terminal.DetectPaths,
+			"types":         cfg.Terminal.Types,
+		},
+		"models": cfg.Models,
+	}
+	writeJSON(w, resp)
+}
+
+// handleSetConfig 保存用户配置（回写 config.json）
+func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TerminalType string `json:"terminal_type"`
+		TerminalPath string `json:"terminal_path"`
+		ModelDefaults map[string]string `json:"model_defaults"` // cli_type -> default model
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	cfg := config.AppConfig
+	changed := false
+	if req.TerminalType != "" && cfg != nil {
+		cfg.Terminal.DefaultType = req.TerminalType
+		changed = true
+	}
+	if req.TerminalPath != "" && cfg != nil && req.TerminalType != "" {
+		if typeDef, ok := cfg.Terminal.Types[req.TerminalType]; ok {
+			typeDef.Path = req.TerminalPath
+			cfg.Terminal.Types[req.TerminalType] = typeDef
+			changed = true
+		}
+	}
+	if req.ModelDefaults != nil && cfg != nil {
+		for cliType, model := range req.ModelDefaults {
+			if group, ok := cfg.Models[cliType]; ok {
+				group.Default = model
+				cfg.Models[cliType] = group
+				changed = true
+			}
+		}
+	}
+	if changed {
+		config.Save()
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
 
 // --- Scheduled Tasks ---
 
@@ -1383,6 +1491,24 @@ func main() {
 	if err := backend.InitSchema(db); err != nil {
 		log.Fatalf("init schema: %v", err)
 	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		log.Printf("[config] load failed: %v, using defaults", err)
+		cfg = config.DefaultConfig()
+	}
+	config.AppConfig = cfg
+
+		// 支持 -config 指定配置文件路径
+		cfgPath := flag.String("config", "", "path to config.json")
+		flag.Parse()
+		if *cfgPath != "" {
+			if err := config.LoadFromPath(*cfgPath); err != nil {
+				log.Printf("[config] load from %s failed: %v", *cfgPath, err)
+			} else {
+				slog.Info("config loaded", slog.String("path", *cfgPath))
+			}
+		}
 
 	taskRepo := backend.NewTaskRepo(db)
 	expRepo := backend.NewExperienceRepo(db)
