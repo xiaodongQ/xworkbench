@@ -24,21 +24,16 @@ func Middleware(next http.Handler) http.Handler {
 		start := time.Now()
 		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rw, r)
-		lvl := slog.LevelInfo
 		switch {
 		case rw.status >= 500:
-			lvl = slog.LevelError
+			slog.Error("http", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Int("status", rw.status), slog.Int64("dur_ms", time.Since(start).Milliseconds()))
 		case rw.status >= 400:
-			lvl = slog.LevelWarn
+			slog.Warn("http", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Int("status", rw.status), slog.Int64("dur_ms", time.Since(start).Milliseconds()))
 		case r.Method == http.MethodGet:
-			lvl = slog.LevelDebug
+			slog.Debug("http", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Int("status", rw.status), slog.Int64("dur_ms", time.Since(start).Milliseconds()))
+		default:
+			slog.Info("http", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Int("status", rw.status), slog.Int64("dur_ms", time.Since(start).Milliseconds()))
 		}
-		slog.LogAttrs(r.Context(), lvl, "http",
-			slog.String("method", r.Method),
-			slog.String("path", r.URL.Path),
-			slog.Int("status", rw.status),
-			slog.Int64("dur_ms", time.Since(start).Milliseconds()),
-		)
 	})
 }
 
