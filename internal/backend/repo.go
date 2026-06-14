@@ -179,6 +179,10 @@ func migrateTasksColumns(db *sql.DB) error {
 		{"improvement_threshold", "improvement_threshold REAL"},
 		{"last_heartbeat", "last_heartbeat DATETIME"},
 		{"last_error", "last_error TEXT"},
+		{"task_type", "task_type TEXT DEFAULT 'manual'"},
+		{"claimer_agent_id", "claimer_agent_id TEXT"},
+		{"result_output", "result_output TEXT"},
+		{"evaluation_score", "evaluation_score REAL DEFAULT 0"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
