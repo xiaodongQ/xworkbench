@@ -183,3 +183,67 @@ Agent 侧 UI（如果是独立页面）：
 ---
 
 *调研完成时间：2026-06-15*
+---
+
+## 7. 升级兼容性分析（2026-06-15 补充）
+
+### 7.1 现状
+
+**迁移逻辑**（repo.go:150-186）：
+```go
+// 查已存在的列，避免重复 ALTER
+rows, _ := db.Query(`PRAGMA table_info(tasks)`)
+// 对每个缺失列执行 ALTER TABLE ADD COLUMN
+```
+→ 对已加过的列不会重复加，**兼容 OK**。
+
+**CREATE TABLE**（repo.go:12-37）已含大部分 v2 字段（priority/start_at/completed_at/executor_model 等），但 `task_type / claimer_agent_id / result_output / evaluation_score` **不在初始建表语句中**，只有迁移函数里加。
+
+### 7.2 发现的问题
+
+**问题 A：`Get()` SELECT 漏了新 4 列**
+```go
+// repo.go:239 — 查不到 task_type / claimer_agent_id / result_output / evaluation_score
+q := `SELECT id,title,description,status,...,result FROM tasks WHERE id=?`
+```
+后果：DB 有值但 API 返回缺字段，前端无法使用。
+
+**问题 B：`Update()` UPDATE 漏了新 4 列**
+```go
+// repo.go:260 — 无法回写 task_type / claimer_agent_id / result_output / evaluation_score
+q := `UPDATE tasks SET title=?,description=?,experience_id=?,resources=?,acceptance=? WHERE id=?`
+```
+后果：claim 后 claimer_agent_id 写不进去，report 后 result_output 写不进去。
+
+**问题 C：初始建表与迁移列有重叠**
+CREATE TABLE 和 migrateTasksColumns 都声明了 priority/start_at/completed_at/executor_model/...，虽然 `PRAGMA table_info` 保护不炸，但逻辑冗余，应合并。
+
+### 7.3 修复方案
+
+**Step 1：`Get()` 查询补全 4 列**
+```go
+q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,
+    created_at,claimed_at,maintainer,repo_address,archived_at,result,
+    executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,
+    last_heartbeat,last_error,task_type,claimer_agent_id,result_output,evaluation_score
+    FROM tasks WHERE id=?`
+```
+
+**Step 2：`Update()` 补全字段**
+```go
+q := `UPDATE tasks SET title=?,description=?,experience_id=?,resources=?,acceptance=?,
+    task_type=?,claimer_agent_id=?,result_output=?,evaluation_score=? WHERE id=?`
+```
+
+**Step 3：合并 CREATE TABLE 与迁移列（可选，非阻塞）**
+把 CREATE TABLE 中缺失的列补进去，把 migrateTasksColumns 中已在初始建表里的去掉，迁移函数只负责真正的历史 db 升级。
+
+### 7.4 SQLite ADD COLUMN 限制
+
+SQLite 的 `ALTER TABLE ADD COLUMN` 有以下限制（大部分不影响当前场景）：
+- 不能添加有 NOT NULL 约束且无 DEFAULT 的列 → 当前新列都有默认值或允许 NULL，**不受影响**
+- 不能添加主键列 → **不受影响**
+- 不能添加外键 → **不受影响**
+- 不能添加 UNIQUE 约束 → **不受影响**
+
+**当前新增列声明全部合规**，升级逻辑安全。
