@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -81,7 +82,15 @@ func (h *RelayHandler) HandleRelayProxy(w http.ResponseWriter, r *http.Request) 
 	}
 
 	client := &http.Client{Timeout: timeout}
+	started := time.Now()
+	slog.Info("relay: proxy start",
+		slog.String("method", method),
+		slog.String("url", req.URL),
+		slog.Int("timeout_ms", req.TimeoutMs),
+		slog.Int("req_bytes", len(req.Body)),
+	)
 	resp, err := client.Do(httpReq)
+	durMs := time.Since(started).Milliseconds()
 	logEntry := &RelayLog{
 		Source:       "proxy",
 		Destination:  req.URL,
@@ -111,6 +120,19 @@ func (h *RelayHandler) HandleRelayProxy(w http.ResponseWriter, r *http.Request) 
 		logEntry.Status = "success"
 		logEntry.ResponseSize = len(body)
 	}
+
+	lvl := slog.LevelInfo
+	if err != nil || proxyResp.StatusCode >= 400 {
+		lvl = slog.LevelError
+	}
+	slog.LogAttrs(nil, lvl, "relay: proxy done",
+		slog.String("method", method),
+		slog.String("url", req.URL),
+		slog.Int("status", proxyResp.StatusCode),
+		slog.Int64("dur_ms", durMs),
+		slog.String("err", proxyResp.Error),
+		slog.Int("resp_bytes", len(proxyResp.Body)),
+	)
 
 	if h.repo != nil {
 		_ = h.repo.Log(logEntry)

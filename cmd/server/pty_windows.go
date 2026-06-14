@@ -28,12 +28,16 @@ var upgrader = websocket.Upgrader{
 
 // handlePty 启动一个 ConPTY + WebSocket 终端会话。
 func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
+	tabID := r.URL.Query().Get("tab_id")
+	log.Printf("pty: ws open request tab_id=%q remote=%s", tabID, r.RemoteAddr)
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("websocket upgrade error: %v", err)
+		log.Printf("pty: websocket upgrade error: %v", err)
 		return
 	}
 	defer conn.Close()
+	log.Printf("pty: ws upgraded tab_id=%q", tabID)
 
 	cliType, _ := s.setDB.Get("aichat_default_cli")
 	if cliType == "" {
@@ -51,10 +55,13 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
 
+	log.Printf("pty: cmd ready tab_id=%q cli=%s cmdStr=%q ctxDir=%q argv=%v",
+		tabID, cliType, cmdStr, ctxDir, cmd.Args)
+
 	// 创建 ConPTY，80 列 24 行
 	pty, err := xpty.NewPty(80, 24)
 	if err != nil {
-		log.Printf("xpty new error: %v", err)
+		log.Printf("pty: xpty.NewPty error tab_id=%q err=%v", tabID, err)
 		conn.WriteMessage(websocket.TextMessage,
 			[]byte("\r\n\x1b[31m[xworkbench] ConPTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
 		return
@@ -62,14 +69,35 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	defer pty.Close()
 
 	if err := pty.Start(cmd); err != nil {
-		log.Printf("xpty start error: %v", err)
+		log.Printf("pty: xpty.Start error tab_id=%q err=%v", tabID, err)
 		conn.WriteMessage(websocket.TextMessage,
 			[]byte("\r\n\x1b[31m[xworkbench] ConPTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
 		return
 	}
+	pid := 0
+	if cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
+	log.Printf("pty: xpty started tab_id=%q pid=%d", tabID, pid)
 
 	banner := fmt.Sprintf("\x1b[36m[xworkbench] ConPTY 启动 (cli=%s)\x1b[0m\r\n", cliType)
 	conn.WriteMessage(websocket.TextMessage, []byte(banner))
+
+	// 监听子进程退出
+	go func() {
+		werr := xpty.WaitProcess(context.Background(), cmd)
+		exitCode := -1
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+		if werr != nil {
+			log.Printf("pty: cli exited tab_id=%q pid=%d err=%v exitCode=%d",
+				tabID, pid, werr, exitCode)
+		} else {
+			log.Printf("pty: cli exited tab_id=%q pid=%d exitCode=%d",
+				tabID, pid, exitCode)
+		}
+	}()
 
 	// PTY 输出 → WebSocket
 	var wg sync.WaitGroup
@@ -77,24 +105,36 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		buf := make([]byte, 1024)
+		totalBytes := 0
+		reads := 0
 		for {
-			n, err := pty.Read(buf)
-			if err != nil {
-				break
+			n, rerr := pty.Read(buf)
+			reads++
+			if n > 0 {
+				totalBytes += n
+				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+					log.Printf("pty: ws write error tab_id=%q err=%v", tabID, werr)
+					return
+				}
 			}
-			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+			if rerr != nil {
+				if rerr == io.EOF {
+					log.Printf("pty: read EOF tab_id=%q bytes=%d reads=%d", tabID, totalBytes, reads)
+				} else {
+					log.Printf("pty: read error tab_id=%q err=%v bytes=%d reads=%d",
+						tabID, rerr, totalBytes, reads)
+				}
 				break
 			}
 		}
 	}()
 
 	// WebSocket 输入 → PTY（含 resize 检测）
-	_, err = io.Copy(pty, &wsReader{conn: conn, pty: pty})
-
-	// Windows ConPTY 需要用 xpty.WaitProcess 等待进程退出
-	xpty.WaitProcess(context.Background(), cmd)
+	inBytes, err := io.Copy(pty, &wsReader{conn: conn, pty: pty})
+	log.Printf("pty: ws input closed tab_id=%q err=%v inBytes=%d", tabID, err, inBytes)
 
 	wg.Wait()
+	log.Printf("pty: ws fully closed tab_id=%q", tabID)
 }
 
 // wsReader 将 WebSocket 消息转发到 PTY，同时拦截 resize 消息。
@@ -145,7 +185,12 @@ func getContextDir() string {
 }
 
 // determineAICmd 根据 CLI 类型构造 AI 命令。
+//
+// 这里是 PTY(交互式终端)路径,只决定启动哪个 CLI 让用户输入。
+// 之前版本会从 context/ 目录读 prompt 拼成文件再传 `claude --prompt-file`,
+// 但 claude CLI 没有这个 flag,会启动失败。任务执行链路才需要 prompt 注入。
 func determineAICmd(cliType, ctxDir string) string {
+	_ = ctxDir // 保留参数避免改调用方
 	if cmd := os.Getenv("CLAUDE_CMD"); cmd != "" {
 		return cmd
 	}
@@ -157,23 +202,8 @@ func determineAICmd(cliType, ctxDir string) string {
 	case "shell":
 		return ""
 	default:
-		cliType = "claude"
-	}
-	if ctxDir == "" {
 		return "claude"
 	}
-	promptFiles := ""
-	for _, f := range []string{"system-prompt.md", "task-schema.md", "experience-schema.md"} {
-		if data, err := os.ReadFile(filepath.Join(ctxDir, f)); err == nil {
-			promptFiles += string(data) + "\n\n"
-		}
-	}
-	if promptFiles != "" {
-		tmpFile := os.Getenv("TEMP") + "\\claude-code-xworkbench-prompt.txt"
-		os.WriteFile(tmpFile, []byte(promptFiles), 0644)
-		return "claude --prompt-file " + tmpFile
-	}
-	return "claude"
 }
 
 

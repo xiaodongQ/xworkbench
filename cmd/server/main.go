@@ -686,6 +686,11 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 	}
 	// 异步执行（避免 HTTP 阻塞 30s+）
 	go func() {
+		slog.Info("evaluator: dispatched",
+			slog.String("execution_id", id),
+			slog.String("cli", req.CliType),
+			slog.String("model", req.Model),
+		)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		_, err := evaluator.RunAndSave(ctx, s.evalDB, s.execDB, exec, prompt, req.CliType, req.Model)

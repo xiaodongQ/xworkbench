@@ -4,7 +4,9 @@ package relay
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,7 +50,13 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	start := time.Now()
-	result, err := executor.Run(ctx, parseShell(req.Command), req.Cwd, nil)
+	cmdArgs := parseShell(req.Command)
+	slog.Info("relay: exec start",
+		slog.String("cwd", req.Cwd),
+		slog.Int("timeout_ms", req.TimeoutMs),
+		slog.String("cmd", truncateRelayCmd(cmdArgs)),
+	)
+	result, err := executor.Run(ctx, cmdArgs, req.Cwd, nil)
 
 	resp := ExecResponse{
 		DurationMs: time.Since(start).Milliseconds(),
@@ -62,8 +70,31 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 		resp.ExitCode = result.ExitCode
 	}
 
+	lvl := slog.LevelInfo
+	if err != nil || (result != nil && result.ExitCode != 0) {
+		lvl = slog.LevelError
+	}
+	slog.LogAttrs(context.Background(), lvl, "relay: exec done",
+		slog.String("cmd", truncateRelayCmd(cmdArgs)),
+		slog.Int("exit_code", resp.ExitCode),
+		slog.Int64("dur_ms", resp.DurationMs),
+		slog.String("err", resp.Error),
+		slog.Int("stdout_bytes", len(resp.Output)),
+		slog.Int("stderr_bytes", len(resp.ErrorOut)),
+	)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// truncateRelayCmd relay 端 cmd 截断,避免长命令把日志灌爆。
+func truncateRelayCmd(cmd []string) string {
+	full := strings.Join(cmd, " ")
+	const max = 200
+	if len(full) <= max {
+		return full
+	}
+	return full[:max] + "...[truncated, total " + strconv.Itoa(len(full)) + " chars]"
 }
 
 // parseShell 将 shell 命令字符串解析为 exec.Command 所需的 []string。

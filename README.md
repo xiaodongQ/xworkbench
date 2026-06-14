@@ -1,6 +1,6 @@
 # xworkbench v2 — All-in-One 个人工作台
 
-> 单 Go 二进制 · 12 张表 · 6 大功能（链接 / 目录 / todo / 定时 / AI 任务 / 经验库）· 跨 macOS / Linux / Windows
+> 单 Go 二进制 · 11 张表 · 6 Tab（总览 / 任务 / 经验库 / 自动化 / AI 对话 / 代理）+ 5 widget · 跨 macOS / Linux / Windows
 
 融合 `xworkbench v1`（Go + 经验库 + PTY + 漂亮 UI）和 `ai-task-system v2.4`（Python 调度 + AI CLI 执行器），加上多个新功能，作为日常 homepage / launcher / 任务调度统一入口。
 
@@ -75,8 +75,9 @@ cd xworkbench
 
 - [docs/DESIGN.md](docs/DESIGN.md) — 架构设计 + 实施历程
 - [docs/CLI.md](docs/CLI.md) — claude / cbc / shell 命令格式
-- [docs/MIGRATION.md](docs/MIGRATION.md) — v1 → v2 迁移指南
 - [docs/SCHEDULER.md](docs/SCHEDULER.md) — Cron 语法 + 跨平台调度
+- [docs/MIGRATION.md](docs/MIGRATION.md) — v1 → v2 迁移指南
+- [docs/relay-proxy-design.md](docs/relay-proxy-design.md) — 代理层设计（Exec + HTTP 代理）
 
 ## 依赖
 

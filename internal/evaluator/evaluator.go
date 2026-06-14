@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
@@ -181,8 +182,20 @@ func truncate(s string, n int) string {
 
 // RunAndSave 评估并把结果存 evaluations 表。返回 evaluation id。
 func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *backend.ExecutionRepo, exec *backend.Execution, taskPrompt, cliType, model string) (string, error) {
+	started := time.Now()
+	slog.Info("evaluator: run start",
+		slog.String("execution_id", exec.ID),
+		slog.String("task_id", exec.TaskID),
+		slog.String("cli", cliType),
+		slog.String("model", model),
+	)
 	res, err := Evaluate(ctx, exec, taskPrompt, cliType, model)
 	if err != nil {
+		slog.Error("evaluator: run failed",
+			slog.String("execution_id", exec.ID),
+			slog.String("err", err.Error()),
+			slog.Int64("dur_ms", time.Since(started).Milliseconds()),
+		)
 		return "", err
 	}
 	ev := &backend.Evaluation{
@@ -195,8 +208,18 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		CreatedAt:      time.Now(),
 	}
 	if err := evalDB.Create(ev); err != nil {
+		slog.Error("evaluator: save failed",
+			slog.String("execution_id", exec.ID),
+			slog.String("err", err.Error()),
+		)
 		return "", fmt.Errorf("save evaluation: %w", err)
 	}
+	slog.Info("evaluator: run done",
+		slog.String("execution_id", exec.ID),
+		slog.Int("score", res.Score),
+		slog.String("model", cliType+"/"+model),
+		slog.Int64("dur_ms", time.Since(started).Milliseconds()),
+	)
 	return ev.ID, nil
 }
 

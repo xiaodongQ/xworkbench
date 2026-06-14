@@ -136,13 +136,15 @@ func sendNotify(conn *websocket.Conn, tabID, notifyType, extra string) {
 // query param: tab_id 用于多 Tab 区分
 func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	tabID := r.URL.Query().Get("tab_id")
+	log.Printf("pty: ws open request tab_id=%q remote=%s", tabID, r.RemoteAddr)
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("websocket upgrade error: %v", err)
+		log.Printf("pty: websocket upgrade error: %v", err)
 		return
 	}
 	defer conn.Close()
+	log.Printf("pty: ws upgraded tab_id=%q", tabID)
 
 	cliType, _ := s.setDB.Get("aichat_default_cli")
 	if cliType == "" {
@@ -165,24 +167,49 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "TERM=xterm-256color", "CLAUDE_CODE_PROMPT_PATH="+ctxDir)
 
+	log.Printf("pty: cmd ready tab_id=%q cli=%s shell=%s cmdStr=%q ctxDir=%q argv=%v",
+		tabID, cliType, shell, cmdStr, ctxDir, cmd.Args)
+
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		log.Printf("pty start error: %v", err)
+		log.Printf("pty: pty.Start error tab_id=%q err=%v", tabID, err)
 		conn.WriteMessage(websocket.TextMessage,
 			[]byte("\r\n\x1b[31m[xworkbench] PTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
 		return
 	}
+	pid := 0
+	if cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
+	log.Printf("pty: pty started tab_id=%q pid=%d", tabID, pid)
 
 	sess := &PTYSession{ptmx: ptmx, cmd: cmd, tabID: tabID}
 	registerPTY(tabID, sess)
 
 	defer func() {
 		ptmx.Close()
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
+		log.Printf("pty: cleanup done tab_id=%q pid=%d", tabID, pid)
 	}()
 
 	banner := fmt.Sprintf("\x1b[36m[xworkbench] PTY 启动 (shell=%s, cli=%s)\x1b[0m\r\n", shell, cliType)
 	conn.WriteMessage(websocket.TextMessage, []byte(banner))
+
+	// 监听子进程退出,记录退出码(便于排查"启动了但没 prompt")
+	go func() {
+		werr := cmd.Wait()
+		exitCode := -1
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+		if werr != nil {
+			log.Printf("pty: cli exited tab_id=%q pid=%d err=%v exitCode=%d",
+				tabID, pid, werr, exitCode)
+		} else {
+			log.Printf("pty: cli exited tab_id=%q pid=%d exitCode=%d",
+				tabID, pid, exitCode)
+		}
+	}()
 
 	var wg sync.WaitGroup
 
@@ -193,10 +220,17 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 		var lineBuf strings.Builder
 		authNotified := false
 		buf := make([]byte, 1024)
+		totalBytes := 0
+		reads := 0
 		for {
-			n, err := ptmx.Read(buf)
+			n, rerr := ptmx.Read(buf)
+			reads++
 			if n > 0 {
-				conn.WriteMessage(websocket.BinaryMessage, buf[:n])
+				totalBytes += n
+				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+					log.Printf("pty: ws write error tab_id=%q err=%v", tabID, werr)
+					return
+				}
 				if !authNotified {
 					for _, b := range buf[:n] {
 						if b == '\n' || b == '\r' {
@@ -212,16 +246,24 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			if err != nil {
+			if rerr != nil {
+				if rerr == io.EOF {
+					log.Printf("pty: read EOF tab_id=%q bytes=%d reads=%d", tabID, totalBytes, reads)
+				} else {
+					log.Printf("pty: read error tab_id=%q err=%v bytes=%d reads=%d",
+						tabID, rerr, totalBytes, reads)
+				}
 				break
 			}
 		}
 	}()
 
 	// WebSocket 输入 → PTY（含 resize 检测）
-	_, _ = io.Copy(ptmx, &wsReader{conn: conn, ptmx: ptmx})
+	inBytes, err := io.Copy(ptmx, &wsReader{conn: conn, ptmx: ptmx})
+	log.Printf("pty: ws input closed tab_id=%q err=%v inBytes=%d", tabID, err, inBytes)
 
 	wg.Wait()
+	log.Printf("pty: ws fully closed tab_id=%q", tabID)
 }
 
 // handlePtyInput 处理 POST /api/pty/{tab_id}/submit-input
@@ -299,6 +341,13 @@ func getContextDir() string {
 }
 
 // determineAICmd 根据 CLI 类型构造 AI 命令。
+//
+// 注释:这里是 PTY(交互式终端)路径,只决定启动哪个 CLI 让用户输入。
+// 之前版本会从 context/ 目录读 system-prompt / schemas 拼成文件再传
+// `claude --prompt-file <file>`,但 claude CLI 实际没有这个 flag(只有
+// `claude --print "..."` 位置参数形式),导致 cli=claude 启动立即报
+// `error: unknown option '--prompt-file'` 后退出,PTY 看不到 prompt。
+// 任务执行链路(`internal/executor/runner`)才需要 prompt 注入,不在此处。
 func determineAICmd(cliType, ctxDir string) string {
 	if cmd := os.Getenv("CLAUDE_CMD"); cmd != "" {
 		return cmd
@@ -311,21 +360,6 @@ func determineAICmd(cliType, ctxDir string) string {
 	case "shell":
 		return "sh"
 	default:
-		cliType = "claude"
-	}
-	if ctxDir == "" {
 		return "claude"
 	}
-	promptFiles := ""
-	for _, f := range []string{"system-prompt.md", "task-schema.md", "experience-schema.md"} {
-		if data, err := os.ReadFile(filepath.Join(ctxDir, f)); err == nil {
-			promptFiles += string(data) + "\n\n"
-		}
-	}
-	if promptFiles != "" {
-		tmpFile := "/tmp/claude-code-xworkbench-prompt.txt"
-		os.WriteFile(tmpFile, []byte(promptFiles), 0644)
-		return "claude --prompt-file " + tmpFile
-	}
-	return "claude"
 }

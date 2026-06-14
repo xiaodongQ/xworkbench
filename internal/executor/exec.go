@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,7 +47,7 @@ func Run(ctx context.Context, cmd []string, dir string, onChunk func(string)) (*
 		return nil, err
 	}
 	slog.Debug("executor: process started",
-		slog.String("cmd", strings.Join(cmd, " ")),
+		slog.String("cmd", truncateCmd(cmd)),
 		slog.Int("pid", c.Process.Pid),
 	)
 
@@ -110,7 +111,7 @@ func Run(ctx context.Context, cmd []string, dir string, onChunk func(string)) (*
 		lvl = slog.LevelError
 	}
 	slog.LogAttrs(context.Background(), lvl, "executor: process exited",
-		slog.String("cmd", strings.Join(cmd, " ")),
+		slog.String("cmd", truncateCmd(cmd)),
 		slog.Int("exit_code", exit),
 		slog.Int64("dur_ms", time.Since(started).Milliseconds()),
 		slog.String("err", errStr(waitErr)),
@@ -125,4 +126,15 @@ func errStr(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// truncateCmd 把命令行拼成可读字符串,超过 200 字符截断(避免 AI CLI 的长 prompt
+// 把日志撑爆)。truncateCmd 同时会标记原长度,方便定位"是不是 prompt 太长"。
+func truncateCmd(cmd []string) string {
+	full := strings.Join(cmd, " ")
+	const max = 200
+	if len(full) <= max {
+		return full
+	}
+	return full[:max] + "...[truncated, total " + strconv.Itoa(len(full)) + " chars]"
 }
