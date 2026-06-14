@@ -1,5 +1,16 @@
 // ===== 代理页面 =====
 
+function toggleApiDoc(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isHidden = el.classList.contains('hidden');
+  if (isHidden) {
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
 async function runExec() {
   const cmd = document.getElementById('exec-cmd').value.trim();
   if (!cmd) { alert('命令不能为空'); return; }
