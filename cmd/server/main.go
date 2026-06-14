@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"log/slog"
 	"net"
@@ -87,6 +88,10 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("DELETE /api/tasks/{id}", s.handleTaskDelete)
 	mux.HandleFunc("PUT /api/tasks/{id}/experiences", s.handleTaskSetExperiences)
 	mux.HandleFunc("GET /api/tasks/{id}/executions", s.handleTaskExecutions)
+	mux.HandleFunc("GET /api/tasks/{id}/eval-history", s.handleTaskEvalHistory)
+	mux.HandleFunc("POST /api/tasks/{id}/reevaluate", s.handleTaskReevaluate)
+	mux.HandleFunc("POST /api/tasks/{id}/run-loop", s.handleTaskRunLoop)
+	mux.HandleFunc("POST /api/tasks/{id}/learn", s.handleTaskLearn)
 	mux.HandleFunc("GET /api/executions", s.handleExecutionsRecent)
 	mux.HandleFunc("GET /api/executions/{id}", s.handleExecutionGet)
 	mux.HandleFunc("POST /api/executions/{id}/evaluate", s.handleExecutionEvaluate)
@@ -1558,5 +1563,230 @@ func main() {
 	log.Printf("Skill Factory started at http://localhost%s", addr)
 	if err := (&http.Server{Handler: srv}).Serve(ln); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// ---- eval-loop handlers ----
+
+// handleTaskEvalHistory 返回任务的评估历史。
+func (s *APIServer) handleTaskEvalHistory(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.db.Get(id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	execs, err := s.execDB.ListByTask(id, 50)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	type Step struct {
+		ExecutionID     string     `json:"execution_id"`
+		Score          *float64  `json:"score,omitempty"`
+		Comments       string     `json:"comments,omitempty"`
+		EvaluatorModel string     `json:"evaluator_model,omitempty"`
+		CreatedAt      *time.Time `json:"created_at,omitempty"`
+	}
+	result := make([]Step, 0, len(execs))
+	for _, e := range execs {
+		step := Step{ExecutionID: e.ID}
+		if evs, err := s.evalDB.ListByExecution(e.ID); err == nil && len(evs) > 0 {
+			ev := evs[0]
+			step.Score = &ev.Score
+			step.Comments = ev.Comments
+			step.EvaluatorModel = ev.EvaluatorModel
+			step.CreatedAt = &ev.CreatedAt
+		}
+		result = append(result, step)
+	}
+	writeJSON(w, result)
+}
+
+// handleTaskReevaluate 用新模型重新评估最新 execution。
+func (s *APIServer) handleTaskReevaluate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.db.Get(id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var req struct{ CliType, Model string }
+	json.NewDecoder(r.Body).Decode(&req)
+	if req.CliType == "" {
+		req.CliType = "claude"
+	}
+	if req.Model == "" {
+		req.Model = "haiku"
+	}
+	execs, err := s.execDB.ListByTask(id, 1)
+	if err != nil || len(execs) == 0 {
+		writeErr(w, http.StatusBadRequest, "no execution to reevaluate")
+		return
+	}
+	exec := execs[0]
+	go func() {
+		evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, "reevaluate", req.CliType, req.Model)
+	}()
+	writeJSON(w, map[string]interface{}{"execution_id": exec.ID, "status": "reevaluating", "cli_type": req.CliType, "model": req.Model})
+}
+
+// handleTaskRunLoop 评估闭环：执行→评估→分数<阈值则换更强模型重试。
+func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.db.Get(id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var req struct {
+		Prompt        string  `json:"prompt"`
+		Model         string  `json:"model"`
+		CliType       string  `json:"cli_type"`
+		Threshold     float64 `json:"threshold"`
+		MaxIterations int     `json:"max_iterations"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Threshold == 0 {
+		req.Threshold = 7
+	}
+	if req.MaxIterations == 0 {
+		req.MaxIterations = 3
+	}
+	if req.CliType == "" {
+		req.CliType = "claude"
+	}
+	models := []string{req.Model}
+	if req.Model == "haiku" || req.Model == "" {
+		models = []string{"haiku", "sonnet", "opus"}
+	}
+	type Step struct {
+		Iteration int      `json:"iteration"`
+		Model    string   `json:"model"`
+		ExitCode int      `json:"exit_code"`
+		Score    *float64 `json:"score,omitempty"`
+		Error    string   `json:"error,omitempty"`
+	}
+	result := map[string]interface{}{"task_id": id, "loop_done": false, "history": []Step{}}
+
+	for i := 0; i < req.MaxIterations; i++ {
+		model := models[i%len(models)]
+		cmd, cleanup, err := runner.BuildCommand(req.CliType, model, "", req.Prompt)
+		if err != nil {
+			result["history"] = append(result["history"].([]Step), Step{Iteration: i + 1, Model: model, Error: err.Error()})
+			break
+		}
+		exec := &backend.Execution{ID: uuid.New().String(), TaskID: id, Source: "loop", Command: runner.CmdString(cmd), Model: model, StartedAt: time.Now()}
+		s.execDB.Create(exec)
+		go func() { defer cleanup() }()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		res, _ := executor.Run(ctx, cmd, "", nil)
+		cancel()
+		exitCode := -1
+		var out string
+		if res != nil {
+			out, _ = res.Output, res.ErrorOut
+			exitCode = res.ExitCode
+		}
+		s.execDB.Finish(exec.ID, out, "", exitCode)
+		step := Step{Iteration: i + 1, Model: model, ExitCode: exitCode}
+		if evID, err := evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, req.Prompt, req.CliType, model); err == nil {
+			if evs, _ := s.evalDB.ListByExecution(exec.ID); len(evs) > 0 {
+				step.Score = &evs[0].Score
+			}
+			_ = evID
+		}
+		result["history"] = append(result["history"].([]Step), step)
+		if step.Score != nil && *step.Score >= req.Threshold {
+			result["loop_done"] = true
+			break
+		}
+	}
+	writeJSON(w, result)
+}
+
+// handleTaskLearn 对完成任务触发自我学习，从执行记录生成经验写入 experiences 表。
+func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	task, err := s.db.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	execs, err := s.execDB.ListByTask(id, 1)
+	if err != nil || len(execs) == 0 {
+		writeErr(w, http.StatusBadRequest, "no execution found")
+		return
+	}
+	exec := execs[0]
+	prompt := task.Description
+	if prompt == "" {
+		prompt = task.Title
+	}
+	go func() {
+		reflectPrompt := fmt.Sprintf(`你是 xworkbench 的自我学习模块。请分析任务执行记录，提取可复用经验。
+
+任务：%s
+命令：%s
+退出码：%d
+输出：%s
+
+输出 JSON：{"module":"<领域>","scene":"<场景>","keywords":"<关键词>","tool_usage":"<使用的工具>","lesson":"<教训，50-200字>","code_snippet":"<可复用代码，可为空>"}
+如果执行失败，重点描述失败原因。`, task.Title, exec.Command, exec.ExitCode, func(s string, n int) string { if len(s) <= n { return s }; return s[:n]+"...(truncated)" }(exec.Output, 2000))
+		cmd, cleanup, _ := runner.BuildCommand("claude", "haiku", "", reflectPrompt)
+		if cleanup == nil {
+			return
+		}
+		defer cleanup()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		res, _ := executor.Run(ctx, cmd, "", nil)
+		if res == nil || res.ExitCode != 0 {
+			return
+		}
+		exp := parseLearnOutput(res.Output, task, exec)
+		if exp != nil {
+			s.expDB.Create(exp)
+		}
+	}()
+	writeJSON(w, map[string]string{"status": "learning", "task_id": id})
+}
+
+func parseLearnOutput(output string, task *backend.Task, exec *backend.Execution) *backend.Experience {
+	var f struct {
+		Module     string `json:"module"`
+		Scene      string `json:"scene"`
+		Keywords   string `json:"keywords"`
+		ToolUsage  string `json:"tool_usage"`
+		Lesson     string `json:"lesson"`
+		CodeSnippet string `json:"code_snippet"`
+	}
+	if strings.HasPrefix(strings.TrimSpace(output), "{") {
+		json.Unmarshal([]byte(output), &f)
+	}
+	if f.Module == "" {
+		f.Module = "general"
+		if strings.Contains(task.Title, "bug") || strings.Contains(task.Title, "fix") {
+			f.Module = "debug"
+		}
+	}
+	if f.Lesson == "" {
+		lines := strings.Split(strings.TrimSpace(output), "\n")
+		for _, l := range lines {
+			l = strings.TrimSpace(l)
+			if len(l) > 30 {
+				f.Lesson = l
+				break
+			}
+		}
+	}
+	return &backend.Experience{
+		ID:           uuid.New().String(),
+		Module:       f.Module,
+		Scene:        task.Title,
+		Keywords:     f.Keywords,
+		ToolUsage:    f.ToolUsage,
+		LogSamples:   exec.Command,
+		CodeSnippets: f.CodeSnippet,
 	}
 }
