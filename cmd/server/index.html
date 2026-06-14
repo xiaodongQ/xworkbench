@@ -36,6 +36,9 @@
     <div class="nav-item" data-tab="aichat" onclick="switchTab('aichat')" data-tooltip="AI 对话&#10;终端式 Claude Code 交互（PTY）&#10;macOS / Linux 实时">
       <span class="nav-icon">🤖</span><span class="nav-text">AI 对话</span>
     </div>
+    <div class="nav-item" data-tab="relay" onclick="switchTab('relay')" data-tooltip="代理&#10;命令执行 / HTTP 代理转发&#10;跨平台操作桥梁">
+      <span class="nav-icon">🔀</span><span class="nav-text">代理</span>
+    </div>
     <!-- 目录区（紧邻 AI 对话，带抬头 + 轻框区分） -->
     <div class="dir-section">
       <div class="dir-section-head">
@@ -240,6 +243,85 @@
     </div>
     <div style="font-size:12px;color:var(--text-secondary);text-align:center">
       直接输入命令，如"帮我添加一条 redis-cluster 经验"或"查看待认领任务"
+    </div>
+  </div>
+
+  <!-- 代理 Tab -->
+  <div id="page-relay" class="hidden">
+    <h1 class="page-title">🔀 代理</h1>
+
+    <!-- 命令执行 -->
+    <div class="widget" style="margin-bottom:16px">
+      <div class="widget-title">⚡ 命令执行</div>
+      <div class="form-group">
+        <label style="font-size:12px">命令 <span class="field-hint">在 Windows 上执行</span></label>
+        <textarea id="exec-cmd" class="code" rows="3" placeholder="powershell -Command 'Get-Process'"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="flex:0 0 200px">
+          <label style="font-size:12px">工作目录 <span class="field-hint">可选</span></label>
+          <input id="exec-cwd" type="text" placeholder="C:\temp">
+        </div>
+        <div class="form-group" style="flex:0 0 150px">
+          <label style="font-size:12px">超时 (ms)</label>
+          <input id="exec-timeout" type="number" value="30000" placeholder="30000">
+        </div>
+        <div class="form-group" style="flex:1 1 auto;display:flex;align-items:flex-end">
+          <button class="btn btn-primary" onclick="runExec()" style="width:100%">▶ 执行</button>
+        </div>
+      </div>
+      <div id="exec-result" class="code" style="margin-top:8px;padding:8px;border-radius:4px;background:var(--hover);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;display:none"></div>
+    </div>
+
+    <!-- HTTP 代理 -->
+    <div class="widget" style="margin-bottom:16px">
+      <div class="widget-title">🌐 HTTP 代理转发</div>
+      <div class="form-group">
+        <label style="font-size:12px">目标 URL <span class="field-hint">必填</span></label>
+        <input id="proxy-url" type="text" placeholder="https://api.example.com/data">
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="flex:0 0 100px">
+          <label style="font-size:12px">方法</label>
+          <select id="proxy-method" style="font-size:13px;padding:6px 8px">
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex:0 0 150px">
+          <label style="font-size:12px">超时 (ms)</label>
+          <input id="proxy-timeout" type="number" value="30000" placeholder="30000">
+        </div>
+        <div class="form-group" style="flex:1 1 auto;display:flex;align-items:flex-end">
+          <button class="btn btn-primary" onclick="runProxy()" style="width:100%">▶ 转发</button>
+        </div>
+      </div>
+      <div id="proxy-result" class="code" style="margin-top:8px;padding:8px;border-radius:4px;background:var(--hover);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;display:none"></div>
+    </div>
+
+    <!-- 转发统计 -->
+    <div class="widget">
+      <div class="widget-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>📊 转发统计</span>
+        <button class="btn btn-small" onclick="loadRelayStats()">刷新</button>
+      </div>
+      <div id="relay-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
+        <div style="text-align:center;padding:8px;background:var(--hover);border-radius:6px">
+          <div style="font-size:20px;font-weight:600" id="relay-total">-</div>
+          <div style="font-size:11px;color:var(--text-secondary)">总请求</div>
+        </div>
+        <div style="text-align:center;padding:8px;background:var(--hover);border-radius:6px">
+          <div style="font-size:20px;font-weight:600;color:green" id="relay-success">-</div>
+          <div style="font-size:11px;color:var(--text-secondary)">成功</div>
+        </div>
+        <div style="text-align:center;padding:8px;background:var(--hover);border-radius:6px">
+          <div style="font-size:20px;font-weight:600;color:red" id="relay-failed">-</div>
+          <div style="font-size:11px;color:var(--text-secondary)">失败</div>
+        </div>
+      </div>
+      <div id="relay-histogram" style="font-size:12px;color:var(--text-secondary)"></div>
     </div>
   </div>
 </main>
@@ -476,6 +558,7 @@
 <script src="/static/js/views/experiences.js"></script>
 <script src="/static/js/views/automation.js"></script>
 <script src="/static/js/views/aichat.js"></script>
+<script src="/static/js/views/relay.js"></script>
 
 <!-- Init: 全局事件 + 首次加载 dashboard + widget 侧栏 -->
 <script>

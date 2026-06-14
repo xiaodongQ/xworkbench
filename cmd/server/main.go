@@ -26,6 +26,7 @@ import (
 	taskpkg "github.com/xiaodongQ/xworkbench/internal/task"
 	"github.com/xiaodongQ/xworkbench/internal/todo"
 	"github.com/xiaodongQ/xworkbench/internal/httplog"
+	"github.com/xiaodongQ/xworkbench/internal/relay"
 	"github.com/xiaodongQ/xworkbench/internal/wsmsg"
 )
 
@@ -43,6 +44,7 @@ type APIServer struct {
 	evalDB *backend.EvaluationRepo
 	sch    *scheduler.Scheduler
 	hub    *hub.Hub
+	relayHandler *relay.RelayHandler
 	mux       *http.ServeMux
 	wrapped   http.Handler // mux + httplog.Middleware
 
@@ -56,11 +58,13 @@ func NewAPIServer(
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
 	schedDB *backend.ScheduledTaskRepo, setDB *backend.AppSettingsRepo,
 	evalDB *backend.EvaluationRepo, sch *scheduler.Scheduler, h *hub.Hub,
+	relayRepo relay.Repo,
 ) *APIServer {
 	s := &APIServer{
 		db: db, expDB: expDB, execDB: execDB,
 		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, setDB: setDB, evalDB: evalDB,
 		sch: sch, hub: h,
+		relayHandler: relay.NewRelayHandler(relayRepo),
 		mux: http.NewServeMux(), running: map[string]context.CancelFunc{},
 	}
 	s.routes()
@@ -136,6 +140,11 @@ func (s *APIServer) routes() {
 
 	mux.HandleFunc("GET /api/settings", s.handleSettingsList)
 	mux.HandleFunc("PUT /api/settings/{key}", s.handleSettingsSet)
+
+	// relay 代理功能
+	mux.HandleFunc("POST /api/exec", relay.HandleExec)
+	mux.HandleFunc("POST /api/relay/proxy", s.relayHandler.HandleRelayProxy)
+	mux.HandleFunc("GET /api/relay/stats", s.relayHandler.HandleRelayStats)
 }
 
 func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -1369,8 +1378,15 @@ func main() {
 	if err := sch.AutoStart(); err != nil {
 		log.Printf("[scheduler] auto start failed: %v", err)
 	}
+
+	// init relay repo
+	relayRepo := relay.NewSQLiteRelayRepo(db)
+	if err := relayRepo.InitSchema(); err != nil {
+		log.Fatalf("init relay schema: %v", err)
+	}
+
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
-		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, sch, h)
+		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, sch, h, relayRepo)
 
 	addr := os.Getenv("ADDR")
 	if addr == "" {
