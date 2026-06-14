@@ -402,3 +402,56 @@ tr:last-child td { border-bottom: none; }
 .scheduled-item .s-status.success { background: rgba(16, 185, 129, 0.15); color: var(--archived); }
 .scheduled-item .s-status.failed { background: rgba(239, 68, 68, 0.15); color: var(--exception); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* 终端按钮 */
+.dir-item .dir-term {
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-right: 2px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.dir-item:hover .dir-term { opacity: 1; }
+.dir-item .dir-term:hover { color: var(--accent, #22d3ee); }
+
+/* ===== AI Chat 多 Tab ===== */
+#tab-bar { min-height: 32px; }
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+.tab-btn:hover { border-color: var(--accent,#22d3ee); color: var(--text); }
+.tab-btn.tab-active { border-color: var(--accent,#22d3ee); color: var(--text); background: var(--hover); }
+.tab-btn.tab-auth { border-color: #f87171; color: #f87171; }
+.tab-name { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-auth-dot { font-size: 10px; }
+.tab-close {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 50%;
+  padding: 0 2px;
+}
+.tab-close:hover { background: var(--exception); color: #fff; }
+.tab-add-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.tab-add-btn:hover { border-color: var(--accent); color: var(--accent); }

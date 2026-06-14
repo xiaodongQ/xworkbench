@@ -112,6 +112,7 @@ async function loadDirs() {
         ondragstart="widgetDragStart(event, 'dir-shortcuts')" ondragover="widgetDragOver(event)" ondrop="widgetDrop(event, 'dir-shortcuts', loadDirs)" ondragleave="widgetDragLeave(event)">
       <span class="drag-handle" title="拖动排序"></span>
       <span class="dir-icon" onclick="openDir('${d.id}')">📁</span>
+      <span class="dir-term" onclick="event.stopPropagation();openDirTerminal('${d.id}')" title="打开终端">⬢</span>
       <span class="dir-text" onclick="openDir('${d.id}')">
         <span class="dir-name">${esc(d.name)}</span>
         <span class="dir-path" title="${esc(d.path)}">${esc(d.path)}</span>
@@ -171,6 +172,23 @@ async function openDir(id) {
     alert('打开失败：' + e.message);
   }
 }
+
+// openDirTerminal 打开终端到指定目录，优先用当前选中的终端类型
+async function openDirTerminal(id) {
+  // 获取当前默认终端类型
+  let termType = localStorage.getItem('default_terminal_type') || 'wezterm';
+  try {
+    const r = await fetch('/api/dir-shortcuts/' + id + '/open-terminal?type=' + encodeURIComponent(termType), {method:'POST'});
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      alert('打开终端失败：' + (body.error || r.statusText || '请确认终端已安装'));
+      return;
+    }
+  } catch (e) {
+    alert('打开终端失败：' + e.message);
+  }
+}
+
 function deleteDir(id) {
   if (!confirm('删除该目录快捷？')) return;
   fetch('/api/dir-shortcuts/' + id, {method:'DELETE'}).then(() => loadDirs());
