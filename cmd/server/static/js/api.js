@@ -47,6 +47,7 @@ function switchTab(tab) {
   if (tab === 'experiences' && typeof loadExps === 'function') loadExps();
   if (tab === 'automation' && typeof loadAutomation === 'function') loadAutomation();
   if (tab === 'aichat' && typeof initTerminal === 'function') initTerminal();
+  if (tab === 'relay' && typeof loadRelayStats === 'function') loadRelayStats();
 }
 
 // 初始化：恢复上次停留的 tab（移到 index.html init 脚本末尾执行，依赖所有 view JS 加载完）
