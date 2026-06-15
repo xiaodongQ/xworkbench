@@ -213,6 +213,8 @@ tr:last-child td { border-bottom: none; }
 .task-table .col-status { width: 70px; }
 .task-table .col-time { width: 150px; }
 .task-table .col-ops { width: auto; white-space: nowrap; padding-left: 8px; }
+.task-table th { vertical-align: middle; }
+.task-table td { vertical-align: middle; }
 
 /* 经验库表格 */
 .exp-table { table-layout: fixed; width: 100%; border-collapse: collapse; overflow: hidden; }
