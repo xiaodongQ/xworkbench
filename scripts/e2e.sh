@@ -444,6 +444,94 @@ case_audit_deps() {
   ok "audit-deps case ✅"
 }
 
+case_templates_filters() {
+  info "[tpl-sf] 创建模板 → instantiate → 保存过滤器"
+
+  # 1. 创建模板
+  local tpl_resp
+  tpl_resp=$(curl -s -X POST "http://${BASE_URL}/api/task-templates" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name":"release-checklist",
+      "description":"发布前检查",
+      "category":"release",
+      "task_type":"manual",
+      "template_body":"{\"description\":\"Run all smoke tests before release\",\"resources\":\"wiki/release-checklist\",\"acceptance\":\"所有 smoke test 通过\"}"
+    }')
+  local tpl_id=$(jget "$tpl_resp" "id")
+  [ -n "$tpl_id" ] || { err "模板创建失败: $tpl_resp"; return 1; }
+  ok "模板创建: $tpl_id"
+
+  # 2. 列出模板
+  local list_resp
+  list_resp=$(curl -s "http://${BASE_URL}/api/task-templates?category=release")
+  local has_tpl=$(echo "$list_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(t['id']=='$tpl_id' for t in d))" 2>/dev/null)
+  [ "$has_tpl" = "True" ] || { err "List(category) 缺模板: $list_resp"; return 1; }
+  ok "List(category) 包含模板"
+
+  # 3. instantiate 模板
+  local inst_resp
+  inst_resp=$(curl -s -X POST "http://${BASE_URL}/api/task-templates/$tpl_id/instantiate" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"release v1.0.0"}')
+  local new_id=$(jget "$inst_resp" "id")
+  [ -n "$new_id" ] || { err "instantiate 失败: $inst_resp"; return 1; }
+  ok "instantiate 创建任务: $new_id"
+
+  # 验证任务字段是从模板继承
+  local inst_desc=$(jget "$inst_resp" "description")
+  local inst_acc=$(jget "$inst_resp" "acceptance")
+  [ "$inst_desc" = "Run all smoke tests before release" ] || { err "description 未继承: $inst_desc"; return 1; }
+  [ "$inst_acc" = "所有 smoke test 通过" ] || { err "acceptance 未继承: $inst_acc"; return 1; }
+  ok "模板字段正确继承到任务"
+
+  # 验证 use_count 自增
+  local tpl_after=$(curl -s "http://${BASE_URL}/api/task-templates/$tpl_id")
+  local use_count=$(jget "$tpl_after" "use_count")
+  [ "$use_count" = "1" ] || { err "use_count = $use_count, want 1"; return 1; }
+  ok "use_count = 1"
+
+  # 4. override 测试
+  local inst2
+  inst2=$(curl -s -X POST "http://${BASE_URL}/api/task-templates/$tpl_id/instantiate" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"hotfix v1.0.1","description":"紧急修复跳过部分测试"}')
+  local desc2=$(jget "$inst2" "description")
+  [ "$desc2" = "紧急修复跳过部分测试" ] || { err "override description 失败: $desc2"; return 1; }
+  ok "override 字段生效"
+
+  # 5. 验证事件记录
+  local evts
+  evts=$(curl -s "http://${BASE_URL}/api/tasks/$new_id/events")
+  local has_tpl_evt=$(echo "$evts" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(e['event_type']=='created_from_template' for e in d))" 2>/dev/null)
+  [ "$has_tpl_evt" = "True" ] || { err "缺 created_from_template 事件: $evts"; return 1; }
+  ok "事件流含 created_from_template"
+
+  # 6. 保存过滤器
+  local sf_resp
+  sf_resp=$(curl -s -X POST "http://${BASE_URL}/api/saved-filters" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"今日待办","filter_json":"{\"status\":\"pending\"}","is_default":1}')
+  local sf_id=$(jget "$sf_resp" "id")
+  [ -n "$sf_id" ] || { err "过滤器创建失败: $sf_resp"; return 1; }
+  ok "过滤器创建: $sf_id"
+
+  # 列出
+  local sf_list
+  sf_list=$(curl -s "http://${BASE_URL}/api/saved-filters")
+  local has_sf=$(echo "$sf_list" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(f['id']=='$sf_id' for f in d))" 2>/dev/null)
+  [ "$has_sf" = "True" ] || { err "List 缺过滤器: $sf_list"; return 1; }
+  ok "List 包含过滤器"
+
+  # 7. 清理
+  curl -s -X DELETE "http://${BASE_URL}/api/task-templates/$tpl_id" >/dev/null
+  curl -s -X DELETE "http://${BASE_URL}/api/tasks/$new_id" >/dev/null
+  local inst2_id=$(jget "$inst2" "id")
+  [ -n "$inst2_id" ] && curl -s -X DELETE "http://${BASE_URL}/api/tasks/$inst2_id" >/dev/null
+  curl -s -X DELETE "http://${BASE_URL}/api/saved-filters/$sf_id" >/dev/null
+  ok "tpl-sf case ✅"
+}
+
 case_teardown() {
   info "[teardown] 强清残留进程和临时文件"
   lsof -ti :19000-19999 2>/dev/null | xargs -r kill -9 2>/dev/null
@@ -488,6 +576,7 @@ case "$TARGET" in
     run_case case_eval
     run_case case_remote_claim
     run_case case_audit_deps
+    run_case case_templates_filters
     ;;
   basic)   run_case case_basic ;;
   delete)  run_case case_delete ;;
@@ -496,6 +585,7 @@ case "$TARGET" in
   prompt)  run_case case_prompt_inject ;;
   remote)  run_case case_remote_claim ;;
   audit)   run_case case_audit_deps ;;
+  tpl)     run_case case_templates_filters ;;
   fast)
     # 已在入口前处理(start_server 跳过)。这里只跑 case。
     run_case case_basic
@@ -507,7 +597,7 @@ case "$TARGET" in
   teardown) case_teardown; exit 0 ;;
   *)
     err "未知 case: $TARGET"
-    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|audit|teardown]"
+    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|audit|tpl|teardown]"
     exit 2
     ;;
 esac
@@ -517,3 +607,4 @@ if [ "$FAILED" = "1" ]; then
   exit 1
 fi
 ok "===== 全部 case 通过 ====="
+

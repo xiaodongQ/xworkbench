@@ -484,3 +484,77 @@ func TestTaskDependency(t *testing.T) {
 	deps, _ = depRepo.ListByTask("B")
 	if len(deps) != 0 { t.Errorf("after cleanup deps = %+v, want []", deps) }
 }
+
+// TestTaskTemplate 验证任务模板 CRUD + instantiate use_count 自增。
+func TestTaskTemplate(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil { t.Fatalf("TestDB: %v", err) }
+	defer cleanup()
+	repo := NewTaskTemplateRepo(db)
+	taskRepo := NewTaskRepo(db)
+
+	tpl := &TaskTemplate{
+		Name: "release-checklist", Category: "release", TaskType: "manual",
+		TemplateBody: `{"description":"release前的检查清单","resources":"wiki/release"}`,
+	}
+	if err := repo.Create(tpl); err != nil { t.Fatalf("Create: %v", err) }
+	if tpl.ID == "" { t.Errorf("ID auto-gen failed") }
+
+	// 列出
+	tpls, _ := repo.List("")
+	if len(tpls) != 1 { t.Errorf("List len = %d, want 1", len(tpls)) }
+
+	// 按 category 过滤
+	tpls2, _ := repo.List("release")
+	if len(tpls2) != 1 { t.Errorf("List(release) len = %d, want 1", len(tpls2)) }
+	tpls3, _ := repo.List("dev")
+	if len(tpls3) != 0 { t.Errorf("List(dev) len = %d, want 0", len(tpls3)) }
+
+	// Update
+	tpl.Description = "updated"
+	repo.Update(tpl)
+	got, _ := repo.Get(tpl.ID)
+	if got.Description != "updated" { t.Errorf("update failed") }
+
+	// Instantiate: 创建任务
+	task := &Task{
+		ID: "tpl-task-1", Title: "release v1.0",
+		Status: TaskStatusPending, Version: "v1", CreatedAt: time.Now(),
+	}
+	taskRepo.Create(task)
+	repo.IncrementUseCount(tpl.ID)
+	got, _ = repo.Get(tpl.ID)
+	if got.UseCount != 1 { t.Errorf("use_count = %d, want 1", got.UseCount) }
+
+	// Delete
+	if err := repo.Delete(tpl.ID); err != nil { t.Errorf("Delete: %v", err) }
+	_, err = repo.Get(tpl.ID)
+	if err == nil { t.Errorf("template should be deleted") }
+}
+
+// TestSavedFilter 验证 saved filter CRUD。
+func TestSavedFilter(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil { t.Fatalf("TestDB: %v", err) }
+	defer cleanup()
+	repo := NewSavedFilterRepo(db)
+
+	f := &SavedFilter{
+		Name: "我今天要做的", Description: "pending + 高优",
+		FilterJSON: `{"status":"pending","priority":{"$gte":7}}`,
+		IsDefault: 1, SortOrder: 0,
+	}
+	if err := repo.Create(f); err != nil { t.Fatalf("Create: %v", err) }
+
+	list, _ := repo.List()
+	if len(list) != 1 { t.Errorf("List len = %d, want 1", len(list)) }
+
+	f.Name = "我今天要做的（改）"
+	repo.Update(f)
+	got, _ := repo.Get(f.ID)
+	if got.Name != "我今天要做的（改）" { t.Errorf("Update failed") }
+
+	repo.Delete(f.ID)
+	_, err = repo.Get(f.ID)
+	if err == nil { t.Errorf("should be deleted") }
+}

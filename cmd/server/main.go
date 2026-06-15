@@ -49,6 +49,8 @@ type APIServer struct {
 	agentDB *backend.AgentRepo
 	eventDB *backend.TaskEventRepo
 	depDB   *backend.TaskDependencyRepo
+	tplDB   *backend.TaskTemplateRepo
+	sfDB    *backend.SavedFilterRepo
 	sch    *scheduler.Scheduler
 	hub    *hub.Hub
 	relayHandler *relay.RelayHandler
@@ -66,6 +68,7 @@ func NewAPIServer(
 	schedDB *backend.ScheduledTaskRepo, setDB *backend.AppSettingsRepo,
 	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
 	eventDB *backend.TaskEventRepo, depDB *backend.TaskDependencyRepo,
+	tplDB *backend.TaskTemplateRepo, sfDB *backend.SavedFilterRepo,
 	sch *scheduler.Scheduler, h *hub.Hub,
 	relayRepo relay.Repo,
 ) *APIServer {
@@ -73,6 +76,7 @@ func NewAPIServer(
 		db: db, expDB: expDB, execDB: execDB,
 		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, setDB: setDB, evalDB: evalDB,
 		agentDB: agentDB, eventDB: eventDB, depDB: depDB,
+		tplDB: tplDB, sfDB: sfDB,
 		sch: sch, hub: h,
 		relayHandler: relay.NewRelayHandler(relayRepo),
 		mux: http.NewServeMux(), running: map[string]context.CancelFunc{},
@@ -175,6 +179,20 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/tasks/{id}/dependencies", s.handleTaskDepAdd)
 	mux.HandleFunc("GET /api/tasks/{id}/dependencies", s.handleTaskDepList)
 	mux.HandleFunc("DELETE /api/tasks/{id}/dependencies/{dep}", s.handleTaskDepDelete)
+
+	// 任务模板
+	mux.HandleFunc("GET /api/task-templates", s.handleTemplateList)
+	mux.HandleFunc("POST /api/task-templates", s.handleTemplateCreate)
+	mux.HandleFunc("GET /api/task-templates/{id}", s.handleTemplateGet)
+	mux.HandleFunc("PUT /api/task-templates/{id}", s.handleTemplateUpdate)
+	mux.HandleFunc("DELETE /api/task-templates/{id}", s.handleTemplateDelete)
+	mux.HandleFunc("POST /api/task-templates/{id}/instantiate", s.handleTemplateInstantiate)
+
+	// 保存过滤器
+	mux.HandleFunc("GET /api/saved-filters", s.handleSFList)
+	mux.HandleFunc("POST /api/saved-filters", s.handleSFCreate)
+	mux.HandleFunc("PUT /api/saved-filters/{id}", s.handleSFUpdate)
+	mux.HandleFunc("DELETE /api/saved-filters/{id}", s.handleSFDelete)
 }
 
 func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -1597,9 +1615,11 @@ func main() {
 	agentRepo := backend.NewAgentRepo(db)
 	eventRepo := backend.NewTaskEventRepo(db)
 	depRepo := backend.NewTaskDependencyRepo(db)
+	tplRepo := backend.NewTaskTemplateRepo(db)
+	sfRepo := backend.NewSavedFilterRepo(db)
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
 		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, agentRepo,
-		eventRepo, depRepo, sch, h, relayRepo)
+		eventRepo, depRepo, tplRepo, sfRepo, sch, h, relayRepo)
 
 	// 后台 goroutine：心跳超时检测
 	// Agent >30s 未心跳 → 标记为 offline，并把该 agent 手上未完成的任务还回 pending 池
@@ -2149,4 +2169,253 @@ func (s *APIServer) handleTaskDepDelete(w http.ResponseWriter, r *http.Request) 
 		CreatedAt: time.Now(),
 	})
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// ---- Task Template Handlers ----
+
+func (s *APIServer) handleTemplateList(w http.ResponseWriter, r *http.Request) {
+	category := r.URL.Query().Get("category")
+	tpls, err := s.tplDB.List(category)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, tpls)
+}
+
+func (s *APIServer) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name         string `json:"name"`
+		Description  string `json:"description"`
+		Category     string `json:"category"`
+		TaskType     string `json:"task_type"`
+		TemplateBody string `json:"template_body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	t := &backend.TaskTemplate{
+		Name:         req.Name,
+		Description:  req.Description,
+		Category:     req.Category,
+		TaskType:     req.TaskType,
+		TemplateBody: req.TemplateBody,
+	}
+	if err := s.tplDB.Create(t); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, t)
+}
+
+func (s *APIServer) handleTemplateGet(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	t, err := s.tplDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, t)
+}
+
+func (s *APIServer) handleTemplateUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	t, err := s.tplDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var req struct {
+		Name         string `json:"name"`
+		Description  string `json:"description"`
+		Category     string `json:"category"`
+		TaskType     string `json:"task_type"`
+		TemplateBody string `json:"template_body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	t.Name = req.Name
+	t.Description = req.Description
+	t.Category = req.Category
+	t.TaskType = req.TaskType
+	t.TemplateBody = req.TemplateBody
+	if err := s.tplDB.Update(t); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, t)
+}
+
+func (s *APIServer) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.tplDB.Delete(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+// handleTemplateInstantiate 用模板创建任务。
+// 1) 读模板，解析 template_body
+// 2) 合并传入的 overrides
+// 3) 创建任务，递增 use_count
+func (s *APIServer) handleTemplateInstantiate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	tpl, err := s.tplDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var overrides map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&overrides); err != nil && err.Error() != "EOF" {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 合并：overrides 优先
+	body := map[string]any{}
+	if tpl.TemplateBody != "" {
+		if err := json.Unmarshal([]byte(tpl.TemplateBody), &body); err != nil {
+			writeErr(w, http.StatusBadRequest, "template_body is not valid JSON: "+err.Error())
+			return
+		}
+	}
+	for k, v := range overrides {
+		body[k] = v
+	}
+	// 创建任务
+	title, _ := body["title"].(string)
+	if title == "" {
+		title = tpl.Name
+	}
+	task := &backend.Task{
+		ID:          uuid.New().String(),
+		Title:       title,
+		Description: getStr(body, "description"),
+		Resources:   getStr(body, "resources"),
+		Acceptance:  getStr(body, "acceptance"),
+		Status:      backend.TaskStatusPending,
+		Version:     "v0.0.1",
+		CreatedAt:   time.Now(),
+		TaskType:    tpl.TaskType,
+	}
+	if v := getStr(body, "task_type"); v != "" {
+		task.TaskType = v
+	}
+	if expIDs, ok := body["experience_ids"].([]any); ok {
+		for _, e := range expIDs {
+			if s, ok := e.(string); ok {
+				task.ExperienceIDs = append(task.ExperienceIDs, s)
+			}
+		}
+	} else if v := getStr(body, "experience_id"); v != "" {
+		task.ExperienceID = v
+	}
+	if err := s.db.Create(task); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(task.ExperienceIDs) > 0 {
+		s.db.AttachExperiences(task.ID, task.ExperienceIDs)
+	}
+	s.tplDB.IncrementUseCount(id)
+	// 审计
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: task.ID, EventType: "created_from_template",
+		Actor: "user", Payload: fmt.Sprintf(`{"template_id":"%s","template_name":"%s"}`, tpl.ID, tpl.Name),
+		CreatedAt: time.Now(),
+	})
+	writeJSON(w, task)
+}
+
+func getStr(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok { return v }
+	return ""
+}
+
+// ---- Saved Filter Handlers ----
+
+func (s *APIServer) handleSFList(w http.ResponseWriter, r *http.Request) {
+	filters, err := s.sfDB.List()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, filters)
+}
+
+func (s *APIServer) handleSFCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		FilterJSON  string `json:"filter_json"`
+		IsDefault   int    `json:"is_default"`
+		SortOrder   int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.FilterJSON == "" {
+		writeErr(w, http.StatusBadRequest, "filter_json is required")
+		return
+	}
+	f := &backend.SavedFilter{
+		Name: req.Name, Description: req.Description, FilterJSON: req.FilterJSON,
+		IsDefault: req.IsDefault, SortOrder: req.SortOrder,
+	}
+	if err := s.sfDB.Create(f); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, f)
+}
+
+func (s *APIServer) handleSFUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	f, err := s.sfDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		FilterJSON  string `json:"filter_json"`
+		IsDefault   int    `json:"is_default"`
+		SortOrder   int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	f.Name = req.Name
+	f.Description = req.Description
+	if req.FilterJSON != "" { f.FilterJSON = req.FilterJSON }
+	f.IsDefault = req.IsDefault
+	f.SortOrder = req.SortOrder
+	if err := s.sfDB.Update(f); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, f)
+}
+
+func (s *APIServer) handleSFDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.sfDB.Delete(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
 }

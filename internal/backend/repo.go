@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 )
@@ -160,6 +161,28 @@ func InitSchema(db *sql.DB) error {
 		PRIMARY KEY (task_id, depends_on)
 	);
 	CREATE INDEX IF NOT EXISTS idx_task_deps_dep ON task_dependencies(depends_on);
+	CREATE TABLE IF NOT EXISTS task_templates (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		description TEXT,
+		category TEXT,
+		task_type TEXT,
+		template_body TEXT,
+		use_count INTEGER DEFAULT 0,
+		created_at DATETIME,
+		updated_at DATETIME
+	);
+	CREATE INDEX IF NOT EXISTS idx_templates_category ON task_templates(category);
+	CREATE TABLE IF NOT EXISTS saved_filters (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		description TEXT,
+		filter_json TEXT NOT NULL,
+		is_default INTEGER DEFAULT 0,
+		sort_order INTEGER DEFAULT 0,
+		created_at DATETIME,
+		updated_at DATETIME
+	);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		return err
@@ -1382,4 +1405,158 @@ func (r *TaskDependencyRepo) HasUnmetHardDeps(taskID string) (bool, error) {
 	var n int
 	err := r.db.QueryRow(q, taskID).Scan(&n)
 	return n > 0, err
+}
+
+// ---- TaskTemplate 任务模板 ----
+
+type TaskTemplate struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description,omitempty"`
+	Category     string    `json:"category,omitempty"`
+	TaskType     string    `json:"task_type,omitempty"`
+	TemplateBody string    `json:"template_body,omitempty"` // JSON
+	UseCount     int       `json:"use_count"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type TaskTemplateRepo struct{ db *sql.DB }
+
+func NewTaskTemplateRepo(db *sql.DB) *TaskTemplateRepo { return &TaskTemplateRepo{db: db} }
+
+func (r *TaskTemplateRepo) Create(t *TaskTemplate) error {
+	if t.ID == "" { t.ID = "tpl-" + time.Now().Format("20060102150405") + "-" + randStr(6) }
+	now := time.Now()
+	t.CreatedAt = now
+	t.UpdatedAt = now
+	if t.UseCount == 0 { t.UseCount = 0 }
+	_, err := r.db.Exec(`INSERT INTO task_templates (id,name,description,category,task_type,template_body,use_count,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.Name, t.Description, t.Category, t.TaskType, t.TemplateBody, t.UseCount, t.CreatedAt, t.UpdatedAt)
+	return err
+}
+
+func (r *TaskTemplateRepo) Get(id string) (*TaskTemplate, error) {
+	q := `SELECT id,name,description,category,task_type,template_body,use_count,created_at,updated_at FROM task_templates WHERE id=?`
+	var t TaskTemplate
+	err := r.db.QueryRow(q, id).Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.TaskType, &t.TemplateBody, &t.UseCount, &t.CreatedAt, &t.UpdatedAt)
+	if err == sql.ErrNoRows { return nil, fmt.Errorf("template %s not found", id) }
+	return &t, err
+}
+
+func (r *TaskTemplateRepo) List(category string) ([]*TaskTemplate, error) {
+	var q string
+	var args []any
+	if category != "" {
+		q = `SELECT id,name,description,category,task_type,template_body,use_count,created_at,updated_at FROM task_templates WHERE category=? ORDER BY use_count DESC, created_at DESC`
+		args = []any{category}
+	} else {
+		q = `SELECT id,name,description,category,task_type,template_body,use_count,created_at,updated_at FROM task_templates ORDER BY use_count DESC, created_at DESC`
+	}
+	rows, err := r.db.Query(q, args...)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var out []*TaskTemplate
+	for rows.Next() {
+		var t TaskTemplate
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.TaskType, &t.TemplateBody, &t.UseCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &t)
+	}
+	return out, rows.Err()
+}
+
+func (r *TaskTemplateRepo) Update(t *TaskTemplate) error {
+	t.UpdatedAt = time.Now()
+	_, err := r.db.Exec(`UPDATE task_templates SET name=?,description=?,category=?,task_type=?,template_body=?,updated_at=?
+		WHERE id=?`, t.Name, t.Description, t.Category, t.TaskType, t.TemplateBody, t.UpdatedAt, t.ID)
+	return err
+}
+
+func (r *TaskTemplateRepo) Delete(id string) error {
+	_, err := r.db.Exec(`DELETE FROM task_templates WHERE id=?`, id)
+	return err
+}
+
+func (r *TaskTemplateRepo) IncrementUseCount(id string) error {
+	_, err := r.db.Exec(`UPDATE task_templates SET use_count=use_count+1 WHERE id=?`, id)
+	return err
+}
+
+// ---- SavedFilter 保存过滤器 ----
+
+type SavedFilter struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	FilterJSON  string    `json:"filter_json"` // JSON
+	IsDefault   int       `json:"is_default"`
+	SortOrder   int       `json:"sort_order"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type SavedFilterRepo struct{ db *sql.DB }
+
+func NewSavedFilterRepo(db *sql.DB) *SavedFilterRepo { return &SavedFilterRepo{db: db} }
+
+func (r *SavedFilterRepo) Create(f *SavedFilter) error {
+	if f.ID == "" { f.ID = "sf-" + time.Now().Format("20060102150405") + "-" + randStr(6) }
+	now := time.Now()
+	f.CreatedAt = now
+	f.UpdatedAt = now
+	_, err := r.db.Exec(`INSERT INTO saved_filters (id,name,description,filter_json,is_default,sort_order,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		f.ID, f.Name, f.Description, f.FilterJSON, f.IsDefault, f.SortOrder, f.CreatedAt, f.UpdatedAt)
+	return err
+}
+
+func (r *SavedFilterRepo) List() ([]*SavedFilter, error) {
+	rows, err := r.db.Query(`SELECT id,name,description,filter_json,is_default,sort_order,created_at,updated_at
+		FROM saved_filters ORDER BY is_default DESC, sort_order ASC, created_at DESC`)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var out []*SavedFilter
+	for rows.Next() {
+		var f SavedFilter
+		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.FilterJSON, &f.IsDefault, &f.SortOrder, &f.CreatedAt, &f.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &f)
+	}
+	return out, rows.Err()
+}
+
+func (r *SavedFilterRepo) Get(id string) (*SavedFilter, error) {
+	q := `SELECT id,name,description,filter_json,is_default,sort_order,created_at,updated_at FROM saved_filters WHERE id=?`
+	var f SavedFilter
+	err := r.db.QueryRow(q, id).Scan(&f.ID, &f.Name, &f.Description, &f.FilterJSON, &f.IsDefault, &f.SortOrder, &f.CreatedAt, &f.UpdatedAt)
+	if err == sql.ErrNoRows { return nil, fmt.Errorf("filter %s not found", id) }
+	return &f, err
+}
+
+func (r *SavedFilterRepo) Update(f *SavedFilter) error {
+	f.UpdatedAt = time.Now()
+	_, err := r.db.Exec(`UPDATE saved_filters SET name=?,description=?,filter_json=?,is_default=?,sort_order=?,updated_at=?
+		WHERE id=?`, f.Name, f.Description, f.FilterJSON, f.IsDefault, f.SortOrder, f.UpdatedAt, f.ID)
+	return err
+}
+
+func (r *SavedFilterRepo) Delete(id string) error {
+	_, err := r.db.Exec(`DELETE FROM saved_filters WHERE id=?`, id)
+	return err
+}
+
+// randStr 生成 N 位随机字符串（用于生成 ID 后缀）。
+var randSrc = rand.New(rand.NewSource(time.Now().UnixNano()))
+
+func randStr(n int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = charset[randSrc.Intn(len(charset))]
+	}
+	return string(b)
 }
