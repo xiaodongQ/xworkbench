@@ -1,7 +1,9 @@
 package backend
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -1120,6 +1122,19 @@ func (r *AgentRepo) GetByTokenHash(hash string) (*Agent, error) {
 	return &a, err
 }
 
+// GetByToken 是 handler 首选入口：传明文 token，内部 hash 后查 Agent。
+func (r *AgentRepo) GetByToken(token string) (*Agent, error) {
+	return r.GetByTokenHash(HashToken(token))
+}
+
+// HashToken 对明文 token 做 SHA-256，返回 hex 字符串作为 token_hash。
+// 使用 SHA-256 而不是明文或 bcrypt：stateless token 不需要 bcrypt 的慢哈希，
+// 但为了避免明文泄露，查表时统一用 hash 匹配。
+func HashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
 // UpdateHeartbeat 更新心跳时间并返回更新后的 Agent。
 func (r *AgentRepo) UpdateHeartbeat(id string) (*Agent, error) {
 	now := time.Now()
@@ -1195,4 +1210,16 @@ func (r *TaskRepo) ReleaseTasksFromAgent(agentID string) error {
 		WHERE claimer_agent_id=? AND status='in_progress' AND task_type='remote'`
 	_, err := r.db.Exec(q, "agent heartbeat timeout", agentID)
 	return err
+}
+
+// ReleaseStaleTasks 释放超时任务：claimed_at 距今超过 maxAgeSec 秒、且 status 仍为 in_progress。
+// 用于任务超时检测（防止 agent claim 后失联但心跳还活着）。
+func (r *TaskRepo) ReleaseStaleTasks(maxAgeSec int) (int, error) {
+	result, err := r.db.Exec(`UPDATE tasks SET status='pending', claimer_agent_id='', last_error='task claim timeout'
+		WHERE status='in_progress' AND task_type='remote' AND claimed_at < datetime('now', '-' || ? || ' seconds')`, maxAgeSec)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return int(n), nil
 }

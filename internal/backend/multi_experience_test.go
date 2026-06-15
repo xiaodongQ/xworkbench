@@ -1,6 +1,9 @@
 package backend
 
 import (
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -283,5 +286,126 @@ func TestReleaseTasksFromAgent(t *testing.T) {
 	got3, _ := taskRepo.Get("task-manual-1")
 	if got3.Status != TaskStatusInProgress {
 		t.Errorf("manual task status = %s, want in_progress", got3.Status)
+	}
+}
+
+// TestHashToken 验证 SHA-256 hash 是 deterministic 且不同 token 不撞。
+func TestHashToken(t *testing.T) {
+	h1 := HashToken("token-abc-123")
+	h2 := HashToken("token-abc-123")
+	if h1 != h2 {
+		t.Errorf("HashToken not deterministic: %s != %s", h1, h2)
+	}
+	h3 := HashToken("token-abc-124")
+	if h1 == h3 {
+		t.Errorf("HashToken collision: %s == %s", h1, h3)
+	}
+	// hash 长度 = 64 hex chars
+	if len(h1) != 64 {
+		t.Errorf("HashToken length = %d, want 64", len(h1))
+	}
+}
+
+// TestReleaseStaleTasks 验证超时任务被释放回 pending 池。
+func TestReleaseStaleTasks(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil {
+		t.Fatalf("TestDB: %v", err)
+	}
+	defer cleanup()
+	taskRepo := NewTaskRepo(db)
+	agentRepo := NewAgentRepo(db)
+	agentID := "agent-stale-001"
+	agentRepo.Register(&Agent{ID: agentID, Name: "stale-test", TokenHash: "h", Status: "online", CreatedAt: time.Now()})
+
+	// 创建 3 个 task：1 个已完成不动，1 个刚 claim，1 个老 claim
+	archivedTask := &Task{ID: "task-archived-1", Title: "a", Status: TaskStatusArchived, TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now(), ClaimerAgentID: agentID}
+	taskRepo.Create(archivedTask)
+
+	freshTask := &Task{ID: "task-fresh-1", Title: "f", Status: TaskStatusPending, TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now()}
+	taskRepo.Create(freshTask)
+	taskRepo.ClaimTask("task-fresh-1", agentID) // claim_at = now
+
+	// 手动 claim 一个老 task（claimed_at = 2小时前）
+	oldTask := &Task{ID: "task-old-1", Title: "o", Status: TaskStatusPending, TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now()}
+	taskRepo.Create(oldTask)
+	taskRepo.ClaimTask("task-old-1", agentID)
+	// 把 claimed_at 改到 2 小时前
+	_, err = db.Exec(`UPDATE tasks SET claimed_at=datetime('now', '-2 hours') WHERE id='task-old-1'`)
+	if err != nil {
+		t.Fatalf("set old claimed_at: %v", err)
+	}
+
+	// 释放超过 60s 还没完成的任务
+	n, err := taskRepo.ReleaseStaleTasks(60)
+	if err != nil {
+		t.Fatalf("ReleaseStaleTasks: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("released count = %d, want 1", n)
+	}
+
+	// 验证：老任务回到 pending
+	old, _ := taskRepo.Get("task-old-1")
+	if old.Status != TaskStatusPending {
+		t.Errorf("old task status = %s, want pending", old.Status)
+	}
+	if old.ClaimerAgentID != "" {
+		t.Errorf("old task claimer = %q, want empty", old.ClaimerAgentID)
+	}
+
+	// 验证：刚 claim 的没被释放
+	fresh, _ := taskRepo.Get("task-fresh-1")
+	if fresh.Status != TaskStatusInProgress {
+		t.Errorf("fresh task status = %s, want in_progress", fresh.Status)
+	}
+
+	// 验证：archived 任务没动
+	archived, _ := taskRepo.Get("task-archived-1")
+	if archived.Status != TaskStatusArchived {
+		t.Errorf("archived task status = %s, want archived", archived.Status)
+	}
+}
+
+// TestClaimTaskConcurrent 验证并发 claim 同一 task 时只有一个 agent 能成功。
+func TestClaimTaskConcurrent(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil {
+		t.Fatalf("TestDB: %v", err)
+	}
+	defer cleanup()
+	taskRepo := NewTaskRepo(db)
+
+	// 创建任务
+	task := &Task{ID: "task-concurrent-1", Title: "race", Status: TaskStatusPending, TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now()}
+	taskRepo.Create(task)
+
+	// 10 个并发 claim
+	const N = 10
+	var wg sync.WaitGroup
+	var successCount int32
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			agentID := fmt.Sprintf("agent-%d", idx)
+			if err := taskRepo.ClaimTask("task-concurrent-1", agentID); err == nil {
+				atomic.AddInt32(&successCount, 1)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if successCount != 1 {
+		t.Errorf("concurrent claim success count = %d, want 1", successCount)
+	}
+
+	// 验证：只有一个 agent 拿到了 claimer_agent_id
+	t1, _ := taskRepo.Get("task-concurrent-1")
+	if t1.Status != TaskStatusInProgress {
+		t.Errorf("task status = %s, want in_progress", t1.Status)
+	}
+	if t1.ClaimerAgentID == "" {
+		t.Errorf("task claimer_agent_id is empty")
 	}
 }

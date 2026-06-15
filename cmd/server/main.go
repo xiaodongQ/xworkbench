@@ -1580,7 +1580,8 @@ func main() {
 
 	// 后台 goroutine：心跳超时检测
 	// Agent >30s 未心跳 → 标记为 offline，并把该 agent 手上未完成的任务还回 pending 池
-	startAgentHeartbeatChecker(agentRepo, taskRepo, h, 30*time.Second)
+	// 任务 claim >10min 未完成 → 强制释放回 pending 池（防心跳还在但任务托死）
+	startAgentHeartbeatChecker(agentRepo, taskRepo, h, 30*time.Second, 10*time.Minute)
 
 	addr := os.Getenv("ADDR")
 	if addr == "" {
@@ -1841,8 +1842,8 @@ func (s *APIServer) handleAgentRegister(w http.ResponseWriter, r *http.Request) 
 	}
 	// 生成 agent id 和 token
 	agentID := uuid.New().String()
-	token := uuid.New().String() // 简单 UUID token，够用即可（生产环境换 JWT）
-	tokenHash := token           // 简化：直接存 UUID 明文 hash（实际应用换 bcrypt）
+	token := uuid.New().String()
+	tokenHash := backend.HashToken(token) // SHA-256 hash，不存明文
 
 	a := &backend.Agent{
 		ID:           agentID,
@@ -1876,7 +1877,7 @@ func (s *APIServer) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	// 验证 token
-	a, err := s.agentDB.GetByTokenHash(token)
+	a, err := s.agentDB.GetByToken(token)
 	if err != nil || a.ID != agentID {
 		writeErr(w, http.StatusUnauthorized, "invalid token")
 		return
@@ -1915,7 +1916,7 @@ func (s *APIServer) handleTaskClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 验证 token 对应 agent
-	a, err := s.agentDB.GetByTokenHash(token)
+	a, err := s.agentDB.GetByToken(token)
 	if err != nil || a.ID != req.AgentID {
 		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
 		return
@@ -1948,7 +1949,7 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 验证 token
-	a, err := s.agentDB.GetByTokenHash(token)
+	a, err := s.agentDB.GetByToken(token)
 	if err != nil || a.ID != req.AgentID {
 		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
 		return
@@ -1980,33 +1981,45 @@ func extractBearerToken(r *http.Request) string {
 	return strings.TrimPrefix(h, "Bearer ")
 }
 
-// startAgentHeartbeatChecker 启动后台 goroutine 定期检查 agent 心跳。
-// 超时的 agent 会被标记为 offline，并将其手上的任务还回 pending 池。
-// 使用 context 取消以便优雅退出。
-func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.TaskRepo, h *hub.Hub, timeout time.Duration) {
+// startAgentHeartbeatChecker 启动后台 goroutine 定期检查 agent 心跳 + 任务超时。
+// 1) 心跳超时（默认 30s）：agent 标记 offline，手上任务还回 pending
+// 2) 任务超时（默认 10min）：claimed 太久未完成的任务也强制释放，避免 agent 心跳还在但任务托死
+func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.TaskRepo, h *hub.Hub, hbTimeout time.Duration, taskTimeout time.Duration) {
 	go func() {
-		ticker := time.NewTicker(timeout / 2) // 每半个 timeout 查一次
+		ticker := time.NewTicker(hbTimeout / 2) // 每半个心跳周期检查一次
 		defer ticker.Stop()
 		for range ticker.C {
-			stale, err := agentRepo.ListStaleAgents(int(timeout.Seconds()))
+			// 1) agent 心跳超时
+			stale, err := agentRepo.ListStaleAgents(int(hbTimeout.Seconds()))
 			if err != nil {
 				slog.Error("list stale agents failed", "err", err)
-				continue
+			} else {
+				for _, agentID := range stale {
+					if err := agentRepo.SetStatusOffline(agentID); err != nil {
+						slog.Error("set agent offline failed", "agent_id", agentID, "err", err)
+						continue
+					}
+					if err := taskRepo.ReleaseTasksFromAgent(agentID); err != nil {
+						slog.Error("release tasks from agent failed", "agent_id", agentID, "err", err)
+						continue
+					}
+					slog.Warn("agent heartbeat timeout", "agent_id", agentID)
+					h.Broadcast(wsmsg.ChannelTask, map[string]any{
+						"event":    "agent_offline",
+						"agent_id": agentID,
+					})
+				}
 			}
-			for _, agentID := range stale {
-				if err := agentRepo.SetStatusOffline(agentID); err != nil {
-					slog.Error("set agent offline failed", "agent_id", agentID, "err", err)
-					continue
-				}
-				// 释放该 agent 手上所有 in_progress 的 remote 任务回 pending
-				if err := taskRepo.ReleaseTasksFromAgent(agentID); err != nil {
-					slog.Error("release tasks from agent failed", "agent_id", agentID, "err", err)
-					continue
-				}
-				slog.Warn("agent heartbeat timeout", "agent_id", agentID)
+			// 2) 任务超时
+			released, err := taskRepo.ReleaseStaleTasks(int(taskTimeout.Seconds()))
+			if err != nil {
+				slog.Error("release stale tasks failed", "err", err)
+			} else if released > 0 {
+				slog.Warn("released stale tasks", "count", released, "timeout_sec", int(taskTimeout.Seconds()))
 				h.Broadcast(wsmsg.ChannelTask, map[string]any{
-					"event":    "agent_offline",
-					"agent_id": agentID,
+					"event": "tasks_released",
+					"count": released,
+					"reason": "task_claim_timeout",
 				})
 			}
 		}

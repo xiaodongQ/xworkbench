@@ -296,8 +296,40 @@ case_remote_claim() {
   [ -z "$report_err" ] || { err "report 失败: $report_err"; return 1; }
   ok "report 成功"
 
-  # 6. 清理
+  # 6. 安全验证：错 agent report 应被拒
+  # 创建另一个 agent，尝试用其 token 报告上面 task
+  local bad_reg=$(curl -s -X POST "http://${BASE_URL}/api/agents/register" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"bad-agent","version":"0.1"}')
+  local bad_id=$(jget "$bad_reg" "agent_id")
+  local bad_token=$(jget "$bad_reg" "token")
+  local wrong_report
+  wrong_report=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$tid/report" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $bad_token" \
+    -d "{\"agent_id\":\"$bad_id\",\"status\":\"archived\"}")
+  local wrong_err=$(jget "$wrong_report" "error")
+  [ -n "$wrong_err" ] || { err "错 agent 报告未被拒（漏洞！）：$wrong_report"; return 1; }
+  ok "错 agent 报告被拒: $wrong_err"
+
+  # 7. 错 token claim 应被拒
+  local new_task_resp
+  new_task_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"e2e-remote-task-2","task_type":"remote"}')
+  local tid2=$(jget "$new_task_resp" "id")
+  local wrong_claim
+  wrong_claim=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$tid2/claim" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer wrong-token" \
+    -d "{\"agent_id\":\"agent-bad\"}")
+  local wrong_claim_err=$(jget "$wrong_claim" "error")
+  [ -n "$wrong_claim_err" ] || { err "错 token claim 未被拒（漏洞！）：$wrong_claim"; return 1; }
+  ok "错 token claim 被拒: $wrong_claim_err"
+
+  # 8. 清理
   curl -s -X DELETE "http://${BASE_URL}/api/tasks/$tid" >/dev/null
+  curl -s -X DELETE "http://${BASE_URL}/api/tasks/$tid2" >/dev/null
   ok "remote-claim case ✅"
 }
 
