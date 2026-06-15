@@ -262,10 +262,10 @@ type TaskRepo struct{ db *sql.DB }
 func NewTaskRepo(db *sql.DB) *TaskRepo { return &TaskRepo{db: db} }
 
 func (r *TaskRepo) Create(t *Task) error {
-	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at)
-	        VALUES (?,?,?,?,?,?,?,?,?)`
+	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type)
+	        VALUES (?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, t.ID, t.Title, t.Description, t.Status,
-		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt)
+		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt, t.TaskType)
 	return err
 }
 
@@ -1139,7 +1139,7 @@ func (r *TaskRepo) ClaimTask(taskID, agentID string) error {
 }
 
 // ReportTask 远程 Agent 上报执行结果。验证 claimer 匹配后更新。
-func (r *TaskRepo) ReportTask(taskID, agentID, status, resultOutput string, evalScore *float64, lastErr string, waitingInput string) error {
+func (r *TaskRepo) ReportTask(taskID, agentID, status, resultOutput string, evalScore *float64, lastErr string) error {
 	t, err := r.Get(taskID)
 	if err != nil {
 		return err
@@ -1148,10 +1148,9 @@ func (r *TaskRepo) ReportTask(taskID, agentID, status, resultOutput string, eval
 		return fmt.Errorf("task %s is not claimed by agent %s", taskID, agentID)
 	}
 	q := `UPDATE tasks SET status=?, result_output=?, evaluation_score=?, last_error=?,
-		waiting_input=?,
 		completed_at=CASE WHEN ? IN ('archived','exception') THEN COALESCE(completed_at, ?) END
 		WHERE id=?`
 	now := time.Now()
-	_, err = r.db.Exec(q, status, resultOutput, evalScore, lastErr, waitingInput, status, now, taskID)
+	_, err = r.db.Exec(q, status, resultOutput, evalScore, lastErr, status, now, taskID)
 	return err
 }

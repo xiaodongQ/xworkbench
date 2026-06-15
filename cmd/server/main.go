@@ -196,6 +196,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Resources    string   `json:"resources"`
 		Acceptance   string   `json:"acceptance"`
 		Module       string   `json:"module"`
+		TaskType     string   `json:"task_type"` // 'manual'|'scheduled'|'remote'，默认 'manual'
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -211,6 +212,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Status:       backend.TaskStatusPending,
 		Version:      "v0.0.1",
 		CreatedAt:    time.Now(),
+		TaskType:     req.TaskType,
 	}
 	if err := s.db.Create(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -1935,7 +1937,6 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		ResultOutput  string   `json:"result_output"`
 		EvaluationScore *float64 `json:"evaluation_score"`
 		LastError     string   `json:"last_error"`
-		WaitingInput  string   `json:"waiting_input"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -1950,7 +1951,7 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 	if req.Status == "" {
 		req.Status = backend.TaskStatusArchived
 	}
-	if err := s.db.ReportTask(taskID, req.AgentID, req.Status, req.ResultOutput, req.EvaluationScore, req.LastError, req.WaitingInput); err != nil {
+	if err := s.db.ReportTask(taskID, req.AgentID, req.Status, req.ResultOutput, req.EvaluationScore, req.LastError); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1958,10 +1959,9 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 	// WebSocket 广播任务状态变更
 	task, _ := s.db.Get(taskID)
 	s.hub.Broadcast(wsmsg.ChannelTask, map[string]any{
-		"task_id":       taskID,
-		"status":        req.Status,
-		"waiting_input": req.WaitingInput,
-		"task":          task,
+		"task_id": taskID,
+		"status":  req.Status,
+		"task":    task,
 	})
 	writeJSON(w, map[string]any{"ok": true, "task_id": taskID})
 }

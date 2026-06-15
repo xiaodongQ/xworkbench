@@ -244,6 +244,63 @@ print(d[0]['command'][:500] if d else '')")
   ok "prompt-inject case ✅"
 }
 
+case_remote_claim() {
+  info "[remote-claim] 注册 Agent → 创建 remote 类型任务 → claim → report"
+
+  # 1. 注册 Agent
+  local reg_resp
+  reg_resp=$(curl -s -X POST "http://${BASE_URL}/api/agents/register" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"e2e-test-agent","capabilities":"remote-task","version":"0.1.0"}')
+  local agent_id=$(jget "$reg_resp" "agent_id")
+  local token=$(jget "$reg_resp" "token")
+  [ -n "$agent_id" ] || { err "agent 注册失败: $reg_resp"; return 1; }
+  ok "agent 注册成功: $agent_id"
+
+  # 2. 创建 task_type=remote 的任务
+  local task_resp
+  task_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"e2e-remote-task","description":"run a remote task","task_type":"remote"}')
+  local tid=$(jget "$task_resp" "id")
+  [ -n "$tid" ] || { err "创建任务失败: $task_resp"; return 1; }
+  local got_type=$(jget "$task_resp" "task_type")
+  [ "$got_type" = "remote" ] || { err "task_type 不对，期望 remote，实际 $got_type"; return 1; }
+  ok "remote 类型任务创建成功: $tid (task_type=$got_type)"
+
+  # 3. Agent 用 token claim 任务
+  local claim_resp
+  claim_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$tid/claim" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $token" \
+    -d "{\"agent_id\":\"$agent_id\"}")
+  local claim_err=$(jget "$claim_resp" "error")
+  [ -z "$claim_err" ] || { err "claim 失败: $claim_err"; return 1; }
+  ok "任务 claim 成功"
+
+
+  # 4. 验证 task.claimer_agent_id 已填充
+  local task_get
+  task_get=$(curl -s "http://${BASE_URL}/api/tasks/$tid")
+  local claimer=$(jget "$task_get" "claimer_agent_id")
+  [ "$claimer" = "$agent_id" ] || { err "claimer_agent_id 不匹配，期望 $agent_id，实际 $claimer"; return 1; }
+  ok "claimer_agent_id 正确填充: $claimer"
+
+  # 5. Agent report 结果
+  local report_resp
+  report_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$tid/report" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $token" \
+    -d "{\"agent_id\":\"$agent_id\",\"status\":\"archived\",\"result_output\":\"done\"}")
+  local report_err=$(jget "$report_resp" "error")
+  [ -z "$report_err" ] || { err "report 失败: $report_err"; return 1; }
+  ok "report 成功"
+
+  # 6. 清理
+  curl -s -X DELETE "http://${BASE_URL}/api/tasks/$tid" >/dev/null
+  ok "remote-claim case ✅"
+}
+
 case_teardown() {
   info "[teardown] 强清残留进程和临时文件"
   lsof -ti :19000-19999 2>/dev/null | xargs -r kill -9 2>/dev/null
@@ -286,12 +343,14 @@ case "$TARGET" in
     run_case case_toggle
     run_case case_prompt_inject
     run_case case_eval
+    run_case case_remote_claim
     ;;
   basic)   run_case case_basic ;;
   delete)  run_case case_delete ;;
   toggle)  run_case case_toggle ;;
   eval)    run_case case_eval ;;
   prompt)  run_case case_prompt_inject ;;
+  remote)  run_case case_remote_claim ;;
   fast)
     # 已在入口前处理(start_server 跳过)。这里只跑 case。
     run_case case_basic
@@ -303,7 +362,7 @@ case "$TARGET" in
   teardown) case_teardown; exit 0 ;;
   *)
     err "未知 case: $TARGET"
-    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|teardown]"
+    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|teardown]"
     exit 2
     ;;
 esac
