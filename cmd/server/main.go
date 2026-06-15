@@ -47,6 +47,8 @@ type APIServer struct {
 	setDB  *backend.AppSettingsRepo
 	evalDB *backend.EvaluationRepo
 	agentDB *backend.AgentRepo
+	eventDB *backend.TaskEventRepo
+	depDB   *backend.TaskDependencyRepo
 	sch    *scheduler.Scheduler
 	hub    *hub.Hub
 	relayHandler *relay.RelayHandler
@@ -63,13 +65,14 @@ func NewAPIServer(
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
 	schedDB *backend.ScheduledTaskRepo, setDB *backend.AppSettingsRepo,
 	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
+	eventDB *backend.TaskEventRepo, depDB *backend.TaskDependencyRepo,
 	sch *scheduler.Scheduler, h *hub.Hub,
 	relayRepo relay.Repo,
 ) *APIServer {
 	s := &APIServer{
 		db: db, expDB: expDB, execDB: execDB,
 		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, setDB: setDB, evalDB: evalDB,
-		agentDB: agentDB,
+		agentDB: agentDB, eventDB: eventDB, depDB: depDB,
 		sch: sch, hub: h,
 		relayHandler: relay.NewRelayHandler(relayRepo),
 		mux: http.NewServeMux(), running: map[string]context.CancelFunc{},
@@ -166,6 +169,12 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/agents/{id}/heartbeat", s.handleAgentHeartbeat)
 	mux.HandleFunc("POST /api/tasks/{id}/claim", s.handleTaskClaim)
 	mux.HandleFunc("POST /api/tasks/{id}/report", s.handleTaskReport)
+
+	// 审计 + 依赖
+	mux.HandleFunc("GET /api/tasks/{id}/events", s.handleTaskEvents)
+	mux.HandleFunc("POST /api/tasks/{id}/dependencies", s.handleTaskDepAdd)
+	mux.HandleFunc("GET /api/tasks/{id}/dependencies", s.handleTaskDepList)
+	mux.HandleFunc("DELETE /api/tasks/{id}/dependencies/{dep}", s.handleTaskDepDelete)
 }
 
 func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +240,12 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		task.ExperienceIDs = expIDs
 	}
+	// 审计：记录创建事件
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: task.ID, EventType: "created",
+		Actor: "user", Payload: fmt.Sprintf(`{"task_type":"%s"}`, task.TaskType),
+		CreatedAt: time.Now(),
+	})
 	writeJSON(w, task)
 }
 
@@ -635,6 +650,11 @@ func (s *APIServer) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
 // handleTaskDelete 硬删 task + 关联 executions + evaluations（不可恢复）。
 func (s *APIServer) handleTaskDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	// 清理依赖（避免悬空引用）
+	if err := s.depDB.DeleteByTask(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if err := s.db.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1575,13 +1595,16 @@ func main() {
 	}
 
 	agentRepo := backend.NewAgentRepo(db)
+	eventRepo := backend.NewTaskEventRepo(db)
+	depRepo := backend.NewTaskDependencyRepo(db)
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
-		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, agentRepo, sch, h, relayRepo)
+		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, agentRepo,
+		eventRepo, depRepo, sch, h, relayRepo)
 
 	// 后台 goroutine：心跳超时检测
 	// Agent >30s 未心跳 → 标记为 offline，并把该 agent 手上未完成的任务还回 pending 池
 	// 任务 claim >10min 未完成 → 强制释放回 pending 池（防心跳还在但任务托死）
-	startAgentHeartbeatChecker(agentRepo, taskRepo, h, 30*time.Second, 10*time.Minute)
+	startAgentHeartbeatChecker(agentRepo, taskRepo, eventRepo, h, 30*time.Second, 10*time.Minute)
 
 	addr := os.Getenv("ADDR")
 	if addr == "" {
@@ -1926,6 +1949,11 @@ func (s *APIServer) handleTaskClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task, _ := s.db.Get(taskID)
+	// 审计
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: taskID, EventType: "claimed",
+		Actor: "agent:" + req.AgentID, CreatedAt: time.Now(),
+	})
 	writeJSON(w, map[string]any{"status": "claimed", "task": task})
 }
 
@@ -1962,6 +1990,15 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("task report received", "task_id", taskID, "agent_id", req.AgentID, "status", req.Status)
+	// 审计
+	scoreStr := "null"
+	if req.EvaluationScore != nil { scoreStr = fmt.Sprintf("%v", *req.EvaluationScore) }
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: taskID, EventType: "reported",
+		Actor: "agent:" + req.AgentID,
+		Payload: fmt.Sprintf(`{"status":"%s","score":%s}`, req.Status, scoreStr),
+		CreatedAt: time.Now(),
+	})
 	// WebSocket 广播任务状态变更
 	task, _ := s.db.Get(taskID)
 	s.hub.Broadcast(wsmsg.ChannelTask, map[string]any{
@@ -1984,7 +2021,7 @@ func extractBearerToken(r *http.Request) string {
 // startAgentHeartbeatChecker 启动后台 goroutine 定期检查 agent 心跳 + 任务超时。
 // 1) 心跳超时（默认 30s）：agent 标记 offline，手上任务还回 pending
 // 2) 任务超时（默认 10min）：claimed 太久未完成的任务也强制释放，避免 agent 心跳还在但任务托死
-func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.TaskRepo, h *hub.Hub, hbTimeout time.Duration, taskTimeout time.Duration) {
+func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.TaskRepo, eventRepo *backend.TaskEventRepo, h *hub.Hub, hbTimeout time.Duration, taskTimeout time.Duration) {
 	go func() {
 		ticker := time.NewTicker(hbTimeout / 2) // 每半个心跳周期检查一次
 		defer ticker.Stop()
@@ -1999,11 +2036,14 @@ func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.
 						slog.Error("set agent offline failed", "agent_id", agentID, "err", err)
 						continue
 					}
-					if err := taskRepo.ReleaseTasksFromAgent(agentID); err != nil {
-						slog.Error("release tasks from agent failed", "agent_id", agentID, "err", err)
-						continue
-					}
-					slog.Warn("agent heartbeat timeout", "agent_id", agentID)
+					released, _ := taskRepo.ReleaseTasksFromAgent(agentID)
+					slog.Warn("agent heartbeat timeout", "agent_id", agentID, "released_tasks", released)
+					eventRepo.Record(&backend.TaskEvent{
+						TaskID: "", EventType: "heartbeat_lost",
+						Actor: "system:" + agentID,
+						Payload: fmt.Sprintf(`{"released_tasks":%d}`, released),
+						CreatedAt: time.Now(),
+					})
 					h.Broadcast(wsmsg.ChannelTask, map[string]any{
 						"event":    "agent_offline",
 						"agent_id": agentID,
@@ -2016,12 +2056,97 @@ func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.
 				slog.Error("release stale tasks failed", "err", err)
 			} else if released > 0 {
 				slog.Warn("released stale tasks", "count", released, "timeout_sec", int(taskTimeout.Seconds()))
+				eventRepo.Record(&backend.TaskEvent{
+					TaskID: "", EventType: "task_timeout",
+					Actor: "system",
+					Payload: fmt.Sprintf(`{"count":%d,"timeout_sec":%d}`, released, int(taskTimeout.Seconds())),
+					CreatedAt: time.Now(),
+				})
 				h.Broadcast(wsmsg.ChannelTask, map[string]any{
-					"event": "tasks_released",
-					"count": released,
+					"event":  "tasks_released",
+					"count":  released,
 					"reason": "task_claim_timeout",
 				})
 			}
 		}
 	}()
+}
+
+// ---- 审计 + 依赖 Handlers ----
+
+// handleTaskEvents 返回某 task 的所有审计事件（时间倒序）。
+func (s *APIServer) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("id")
+	limit := parseInt(r.URL.Query().Get("limit"), 100)
+	events, err := s.eventDB.ListByTask(taskID, limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, events)
+}
+
+// handleTaskDepAdd 添加任务依赖。
+func (s *APIServer) handleTaskDepAdd(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("id")
+	var req struct {
+		DependsOn string `json:"depends_on"`
+		Type      string `json:"type"` // hard | soft，默认 hard
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.DependsOn == "" {
+		writeErr(w, http.StatusBadRequest, "depends_on is required")
+		return
+	}
+	if req.DependsOn == taskID {
+		writeErr(w, http.StatusBadRequest, "task cannot depend on itself")
+		return
+	}
+	dep := &backend.TaskDependency{
+		TaskID: taskID, DependsOn: req.DependsOn, Type: req.Type,
+	}
+	if err := s.depDB.Add(dep); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 审计
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: taskID, EventType: "dep_added",
+		Actor: "user",
+		Payload: fmt.Sprintf(`{"depends_on":"%s","type":"%s"}`, req.DependsOn, dep.Type),
+		CreatedAt: time.Now(),
+	})
+	writeJSON(w, dep)
+}
+
+// handleTaskDepList 列出某 task 的所有上游依赖。
+func (s *APIServer) handleTaskDepList(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("id")
+	deps, err := s.depDB.ListByTask(taskID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, deps)
+}
+
+// handleTaskDepDelete 删除一条依赖。
+func (s *APIServer) handleTaskDepDelete(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("id")
+	dependsOn := r.PathValue("dep")
+	if err := s.depDB.Delete(taskID, dependsOn); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// 审计
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: taskID, EventType: "dep_removed",
+		Actor: "user",
+		Payload: fmt.Sprintf(`{"depends_on":"%s"}`, dependsOn),
+		CreatedAt: time.Now(),
+	})
+	writeJSON(w, map[string]any{"ok": true})
 }

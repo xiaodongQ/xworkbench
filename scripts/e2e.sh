@@ -333,6 +333,117 @@ case_remote_claim() {
   ok "remote-claim case ✅"
 }
 
+case_audit_deps() {
+  info "[audit-deps] 创建 → 触发 claim → 查 events → 加 dep → 验证未完成时不能 claim"
+
+  # 1. 注册 agent
+  local reg_resp
+  reg_resp=$(curl -s -X POST "http://${BASE_URL}/api/agents/register" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"e2e-deps-agent","version":"0.1"}')
+  local agent_id=$(jget "$reg_resp" "agent_id")
+  local token=$(jget "$reg_resp" "token")
+  [ -n "$agent_id" ] || { err "agent 注册失败: $reg_resp"; return 1; }
+  ok "agent 注册成功: $agent_id"
+
+  # 2. 创建两个任务：A 和 B
+  local a_resp
+  a_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"dep-A","task_type":"remote"}')
+  local aid=$(jget "$a_resp" "id")
+  [ -n "$aid" ] || { err "创建 A 失败"; return 1; }
+  ok "task A 创建成功: $aid"
+
+  local b_resp
+  b_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"dep-B","task_type":"remote"}')
+  local bid=$(jget "$b_resp" "id")
+  [ -n "$bid" ] || { err "创建 B 失败"; return 1; }
+  ok "task B 创建成功: $bid"
+
+  # 3. B 依赖 A
+  local add_dep
+  add_dep=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$bid/dependencies" \
+    -H "Content-Type: application/json" \
+    -d "{\"depends_on\":\"$aid\",\"type\":\"hard\"}")
+  local dep_err=$(jget "$add_dep" "error")
+  [ -z "$dep_err" ] || { err "添加依赖失败: $dep_err"; return 1; }
+  ok "B 已依赖 A"
+
+  # 4. 验证 B 不能被 claim（A 未完成）
+  local fail_claim
+  fail_claim=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$bid/claim" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $token" \
+    -d "{\"agent_id\":\"$agent_id\"}")
+  local fail_err=$(jget "$fail_claim" "error")
+  if [ -z "$fail_err" ]; then
+    err "B 在 A 未完成时被 claim 了（漏洞！）: $fail_claim"
+    return 1
+  fi
+  ok "B 在 A 未完成时不能 claim: $fail_err"
+
+  # 5. 验证循环依赖被拒：A 依赖 B
+  local cycle_dep
+  cycle_dep=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$aid/dependencies" \
+    -H "Content-Type: application/json" \
+    -d "{\"depends_on\":\"$bid\",\"type\":\"hard\"}")
+  local cycle_err=$(jget "$cycle_dep" "error")
+  [ -n "$cycle_err" ] || { err "循环依赖未被拒（漏洞！）"; return 1; }
+  ok "循环依赖被拒: $cycle_err"
+
+  # 6. claim A → report
+  local a_claim
+  a_claim=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$aid/claim" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $token" \
+    -d "{\"agent_id\":\"$agent_id\"}")
+  local a_claim_err=$(jget "$a_claim" "error")
+  [ -z "$a_claim_err" ] || { err "A claim 失败: $a_claim_err"; return 1; }
+  ok "A 被 claim"
+
+  curl -s -X POST "http://${BASE_URL}/api/tasks/$aid/report" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $token" \
+    -d "{\"agent_id\":\"$agent_id\",\"status\":\"archived\",\"result_output\":\"A done\"}" > /dev/null
+  ok "A 已 report"
+
+  # 7. 现在 B 可以被 claim 了
+  local b_claim
+  b_claim=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$bid/claim" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $token" \
+    -d "{\"agent_id\":\"$agent_id\"}")
+  local b_claim_err=$(jget "$b_claim" "error")
+  [ -z "$b_claim_err" ] || { err "A 完成后 B 仍不能 claim: $b_claim_err"; return 1; }
+  ok "A 完成后 B 可被 claim"
+
+  # 8. 验证 task_events 时间线
+  local a_events
+  a_events=$(curl -s "http://${BASE_URL}/api/tasks/$aid/events")
+  local has_created=$(echo "$a_events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(e['event_type']=='created' for e in d))" 2>/dev/null)
+  local has_claimed=$(echo "$a_events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(e['event_type']=='claimed' for e in d))" 2>/dev/null)
+  local has_reported=$(echo "$a_events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(e['event_type']=='reported' for e in d))" 2>/dev/null)
+  [ "$has_created" = "True" ] || { err "events 缺 created: $a_events"; return 1; }
+  [ "$has_claimed" = "True" ] || { err "events 缺 claimed: $a_events"; return 1; }
+  [ "$has_reported" = "True" ] || { err "events 缺 reported: $a_events"; return 1; }
+  ok "task_events 时间线完整: created/claimed/reported 都有"
+
+  # 9. 验证 B 的 events 包含 dep_added
+  local b_events
+  b_events=$(curl -s "http://${BASE_URL}/api/tasks/$bid/events")
+  local has_dep=$(echo "$b_events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(e['event_type']=='dep_added' for e in d))" 2>/dev/null)
+  [ "$has_dep" = "True" ] || { err "B events 缺 dep_added: $b_events"; return 1; }
+  ok "B 事件流含 dep_added"
+
+  # 10. 清理
+  curl -s -X DELETE "http://${BASE_URL}/api/tasks/$aid" >/dev/null
+  curl -s -X DELETE "http://${BASE_URL}/api/tasks/$bid" >/dev/null
+  ok "audit-deps case ✅"
+}
+
 case_teardown() {
   info "[teardown] 强清残留进程和临时文件"
   lsof -ti :19000-19999 2>/dev/null | xargs -r kill -9 2>/dev/null
@@ -376,6 +487,7 @@ case "$TARGET" in
     run_case case_prompt_inject
     run_case case_eval
     run_case case_remote_claim
+    run_case case_audit_deps
     ;;
   basic)   run_case case_basic ;;
   delete)  run_case case_delete ;;
@@ -383,6 +495,7 @@ case "$TARGET" in
   eval)    run_case case_eval ;;
   prompt)  run_case case_prompt_inject ;;
   remote)  run_case case_remote_claim ;;
+  audit)   run_case case_audit_deps ;;
   fast)
     # 已在入口前处理(start_server 跳过)。这里只跑 case。
     run_case case_basic
@@ -394,7 +507,7 @@ case "$TARGET" in
   teardown) case_teardown; exit 0 ;;
   *)
     err "未知 case: $TARGET"
-    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|teardown]"
+    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|audit|teardown]"
     exit 2
     ;;
 esac

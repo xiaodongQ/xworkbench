@@ -143,6 +143,23 @@ func InitSchema(db *sql.DB) error {
 		created_at DATETIME
 	);
 	CREATE INDEX IF NOT EXISTS idx_agents_token ON agents(token_hash);
+	CREATE TABLE IF NOT EXISTS task_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		task_id TEXT NOT NULL,
+		event_type TEXT NOT NULL,
+		actor TEXT,
+		payload TEXT,
+		created_at DATETIME
+	);
+	CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, created_at DESC);
+	CREATE TABLE IF NOT EXISTS task_dependencies (
+		task_id TEXT NOT NULL,
+		depends_on TEXT NOT NULL,
+		type TEXT DEFAULT 'hard',
+		created_at DATETIME,
+		PRIMARY KEY (task_id, depends_on)
+	);
+	CREATE INDEX IF NOT EXISTS idx_task_deps_dep ON task_dependencies(depends_on);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		return err
@@ -1173,6 +1190,15 @@ func (r *AgentRepo) SetStatusOffline(id string) error {
 // ClaimTask 原子 claim：只有在 task 状态为 pending 且类型为 remote 且无人认领时才能 claim。
 // 成功返回 nil，失败返回 error（并发抢或状态不对）。
 func (r *TaskRepo) ClaimTask(taskID, agentID string) error {
+	// 先检查 hard 依赖是否都完成
+	depRepo := NewTaskDependencyRepo(r.db)
+	hasUnmet, err := depRepo.HasUnmetHardDeps(taskID)
+	if err != nil {
+		return fmt.Errorf("check dependencies: %w", err)
+	}
+	if hasUnmet {
+		return fmt.Errorf("task %s has unmet hard dependencies", taskID)
+	}
 	result, err := r.db.Exec(`UPDATE tasks SET status=?, claimer_agent_id=?, claimed_at=COALESCE(claimed_at, ?)
 		WHERE id=? AND status='pending' AND task_type='remote' AND (claimer_agent_id='' OR claimer_agent_id IS NULL)`,
 		TaskStatusInProgress, agentID, time.Now(), taskID)
@@ -1204,12 +1230,16 @@ func (r *TaskRepo) ReportTask(taskID, agentID, status, resultOutput string, eval
 }
 
 // ReleaseTasksFromAgent 释放某个 agent 手上所有 in_progress 的 remote 任务回 pending 池。
-// 用于心跳超时后回收任务。
-func (r *TaskRepo) ReleaseTasksFromAgent(agentID string) error {
+// 用于心跳超时后回收任务。返回释放的任务数。
+func (r *TaskRepo) ReleaseTasksFromAgent(agentID string) (int, error) {
 	q := `UPDATE tasks SET status='pending', claimer_agent_id='', last_error=?
 		WHERE claimer_agent_id=? AND status='in_progress' AND task_type='remote'`
-	_, err := r.db.Exec(q, "agent heartbeat timeout", agentID)
-	return err
+	result, err := r.db.Exec(q, "agent heartbeat timeout", agentID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return int(n), nil
 }
 
 // ReleaseStaleTasks 释放超时任务：claimed_at 距今超过 maxAgeSec 秒、且 status 仍为 in_progress。
@@ -1222,4 +1252,134 @@ func (r *TaskRepo) ReleaseStaleTasks(maxAgeSec int) (int, error) {
 	}
 	n, _ := result.RowsAffected()
 	return int(n), nil
+}
+
+// ---- TaskEvent 审计事件 ----
+
+type TaskEvent struct {
+	ID        int64     `json:"id"`
+	TaskID    string    `json:"task_id"`
+	EventType string    `json:"event_type"`
+	Actor     string    `json:"actor,omitempty"`
+	Payload   string    `json:"payload,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type TaskEventRepo struct{ db *sql.DB }
+
+func NewTaskEventRepo(db *sql.DB) *TaskEventRepo { return &TaskEventRepo{db: db} }
+
+// Record 插入一条事件。payload 可为 "" 或 JSON 字符串。
+func (r *TaskEventRepo) Record(e *TaskEvent) error {
+	_, err := r.db.Exec(`INSERT INTO task_events (task_id,event_type,actor,payload,created_at)
+		VALUES (?,?,?,?,?)`, e.TaskID, e.EventType, e.Actor, e.Payload, e.CreatedAt)
+	return err
+}
+
+// ListByTask 返回某 task 的所有事件（按时间倒序）。
+func (r *TaskEventRepo) ListByTask(taskID string, limit int) ([]*TaskEvent, error) {
+	if limit <= 0 { limit = 100 }
+	rows, err := r.db.Query(`SELECT id,task_id,event_type,actor,payload,created_at
+		FROM task_events WHERE task_id=? ORDER BY created_at DESC, id DESC LIMIT ?`, taskID, limit)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var out []*TaskEvent
+	for rows.Next() {
+		var e TaskEvent
+		var actor, payload sql.NullString
+		if err := rows.Scan(&e.ID, &e.TaskID, &e.EventType, &actor, &payload, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		e.Actor = actor.String
+		e.Payload = payload.String
+		out = append(out, &e)
+	}
+	return out, rows.Err()
+}
+
+// ---- TaskDependency 任务依赖 ----
+
+type TaskDependency struct {
+	TaskID    string    `json:"task_id"`
+	DependsOn string    `json:"depends_on"`
+	Type      string    `json:"type"` // hard | soft
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type TaskDependencyRepo struct{ db *sql.DB }
+
+func NewTaskDependencyRepo(db *sql.DB) *TaskDependencyRepo { return &TaskDependencyRepo{db: db} }
+
+// Add 添加一条依赖。检测自依赖和直接环（A→B, B→A）。
+func (r *TaskDependencyRepo) Add(d *TaskDependency) error {
+	if d.Type == "" { d.Type = "hard" }
+	d.CreatedAt = time.Now()
+	// 自依赖拒绝
+	if d.TaskID == d.DependsOn {
+		return fmt.Errorf("task %s cannot depend on itself", d.TaskID)
+	}
+	// 循环检测：如果 B 已经依赖 A（含传递闭包），则 A 依赖 B 会成环
+	// 这里只检测直接环：A→B 且 B→A
+	var existing int
+	err := r.db.QueryRow(`SELECT COUNT(*) FROM task_dependencies WHERE task_id=? AND depends_on=?`,
+		d.DependsOn, d.TaskID).Scan(&existing)
+	if err != nil { return err }
+	if existing > 0 {
+		return fmt.Errorf("dependency would create a cycle: %s -> %s and %s -> %s", d.TaskID, d.DependsOn, d.DependsOn, d.TaskID)
+	}
+	_, err = r.db.Exec(`INSERT OR IGNORE INTO task_dependencies (task_id,depends_on,type,created_at)
+		VALUES (?,?,?,?)`, d.TaskID, d.DependsOn, d.Type, d.CreatedAt)
+	return err
+}
+
+// Delete 删除一条依赖。
+func (r *TaskDependencyRepo) Delete(taskID, dependsOn string) error {
+	_, err := r.db.Exec(`DELETE FROM task_dependencies WHERE task_id=? AND depends_on=?`, taskID, dependsOn)
+	return err
+}
+
+// DeleteByTask 删除某 task 的所有依赖（任务删除时清理）。
+func (r *TaskDependencyRepo) DeleteByTask(taskID string) error {
+	_, err := r.db.Exec(`DELETE FROM task_dependencies WHERE task_id=? OR depends_on=?`, taskID, taskID)
+	return err
+}
+
+// ListByTask 返回某 task 的所有上游依赖。
+func (r *TaskDependencyRepo) ListByTask(taskID string) ([]*TaskDependency, error) {
+	rows, err := r.db.Query(`SELECT task_id,depends_on,type,created_at FROM task_dependencies WHERE task_id=?`, taskID)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var out []*TaskDependency
+	for rows.Next() {
+		var d TaskDependency
+		if err := rows.Scan(&d.TaskID, &d.DependsOn, &d.Type, &d.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &d)
+	}
+	return out, rows.Err()
+}
+
+// ListDependents 返回依赖某 task 的下游任务 ID 列表。
+func (r *TaskDependencyRepo) ListDependents(taskID string) ([]string, error) {
+	rows, err := r.db.Query(`SELECT task_id FROM task_dependencies WHERE depends_on=?`, taskID)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil { return nil, err }
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// HasUnmetHardDeps 检查某 task 是否有未完成的 hard 依赖。如果有则不能 claim。
+func (r *TaskDependencyRepo) HasUnmetHardDeps(taskID string) (bool, error) {
+	q := `SELECT COUNT(*) FROM task_dependencies d
+		JOIN tasks t ON t.id = d.depends_on
+		WHERE d.task_id=? AND d.type='hard' AND t.status != 'archived'`
+	var n int
+	err := r.db.QueryRow(q, taskID).Scan(&n)
+	return n > 0, err
 }

@@ -260,7 +260,7 @@ func TestReleaseTasksFromAgent(t *testing.T) {
 	}
 
 	// 释放 agent 任务
-	if err := taskRepo.ReleaseTasksFromAgent(agentID); err != nil {
+	if _, err := taskRepo.ReleaseTasksFromAgent(agentID); err != nil {
 		t.Fatalf("ReleaseTasksFromAgent: %v", err)
 	}
 
@@ -408,4 +408,79 @@ func TestClaimTaskConcurrent(t *testing.T) {
 	if t1.ClaimerAgentID == "" {
 		t.Errorf("task claimer_agent_id is empty")
 	}
+}
+
+// TestTaskEvent 验证 task event CRUD + ListByTask 顺序。
+func TestTaskEvent(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil { t.Fatalf("TestDB: %v", err) }
+	defer cleanup()
+	repo := NewTaskEventRepo(db)
+	for i, et := range []string{"created", "claimed", "reported"} {
+		if err := repo.Record(&TaskEvent{
+			TaskID: "task-evt-1", EventType: et, Actor: "test",
+			CreatedAt: time.Now().Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("Record: %v", err)
+		}
+	}
+	events, err := repo.ListByTask("task-evt-1", 10)
+	if err != nil { t.Fatalf("ListByTask: %v", err) }
+	if len(events) != 3 { t.Fatalf("events len = %d, want 3", len(events)) }
+	// ListByTask 倒序，最新的（reported）在前
+	if events[0].EventType != "reported" { t.Errorf("events[0] = %s, want reported", events[0].EventType) }
+}
+
+// TestTaskDependency 验证依赖添加 + 硬依赖未完成时阻挡 claim。
+func TestTaskDependency(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil { t.Fatalf("TestDB: %v", err) }
+	defer cleanup()
+	taskRepo := NewTaskRepo(db)
+	depRepo := NewTaskDependencyRepo(db)
+
+	// 准备 A、B 两个 remote 任务，都 pending
+	for _, t1 := range []Task{
+		{ID: "A", Title: "A", Status: TaskStatusPending, TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now()},
+		{ID: "B", Title: "B", Status: TaskStatusPending, TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now()},
+	} {
+		if err := taskRepo.Create(&t1); err != nil { t.Fatalf("Create: %v", err) }
+	}
+	// B 依赖 A（hard）
+	if err := depRepo.Add(&TaskDependency{TaskID: "B", DependsOn: "A", Type: "hard"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	// 循环依赖：再 A 依赖 B，应失败
+	if err := depRepo.Add(&TaskDependency{TaskID: "A", DependsOn: "B", Type: "hard"}); err == nil {
+		t.Errorf("cycle dep not detected")
+	}
+	// 自依赖：应失败
+	if err := depRepo.Add(&TaskDependency{TaskID: "A", DependsOn: "A", Type: "hard"}); err == nil {
+		t.Errorf("self-dep not rejected")
+	}
+	// B 不能 claim（A 未完成）
+	if err := taskRepo.ClaimTask("B", "agent-1"); err == nil {
+		t.Errorf("B claimed despite unmet hard dep")
+	}
+	// A 可以 claim
+	if err := taskRepo.ClaimTask("A", "agent-1"); err != nil {
+		t.Errorf("A claim failed: %v", err)
+	}
+	// A 完成后，B 就可以 claim 了
+	A, _ := taskRepo.Get("A")
+	A.Status = TaskStatusArchived
+	// 直接 UPDATE 而不是走 ReportTask（ReportTask 验证 claimer，不在这里重造）
+	db.Exec(`UPDATE tasks SET status='archived' WHERE id='A'`)
+	if err := taskRepo.ClaimTask("B", "agent-2"); err != nil {
+		t.Errorf("B claim after A done failed: %v", err)
+	}
+	// 列出 B 的依赖
+	deps, _ := depRepo.ListByTask("B")
+	if len(deps) != 1 || deps[0].DependsOn != "A" {
+		t.Errorf("B deps = %+v, want [A]", deps)
+	}
+	// DeleteByTask 清理
+	if err := depRepo.DeleteByTask("A"); err != nil { t.Errorf("DeleteByTask: %v", err) }
+	deps, _ = depRepo.ListByTask("B")
+	if len(deps) != 0 { t.Errorf("after cleanup deps = %+v, want []", deps) }
 }
