@@ -176,10 +176,11 @@ func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleTasks(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
+	taskType := r.URL.Query().Get("task_type")
 	offset := parseInt(r.URL.Query().Get("offset"), 0)
 	limit := parseInt(r.URL.Query().Get("limit"), 50)
 
-	tasks, err := s.db.List(backend.TaskFilter{Status: status, Offset: offset, Limit: limit})
+	tasks, err := s.db.List(backend.TaskFilter{Status: status, TaskType: taskType, Offset: offset, Limit: limit})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1577,6 +1578,10 @@ func main() {
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
 		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, agentRepo, sch, h, relayRepo)
 
+	// 后台 goroutine：心跳超时检测
+	// Agent >30s 未心跳 → 标记为 offline，并把该 agent 手上未完成的任务还回 pending 池
+	startAgentHeartbeatChecker(agentRepo, taskRepo, h, 30*time.Second)
+
 	addr := os.Getenv("ADDR")
 	if addr == "" {
 		addr = ":8902"
@@ -1973,4 +1978,37 @@ func extractBearerToken(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimPrefix(h, "Bearer ")
+}
+
+// startAgentHeartbeatChecker 启动后台 goroutine 定期检查 agent 心跳。
+// 超时的 agent 会被标记为 offline，并将其手上的任务还回 pending 池。
+// 使用 context 取消以便优雅退出。
+func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.TaskRepo, h *hub.Hub, timeout time.Duration) {
+	go func() {
+		ticker := time.NewTicker(timeout / 2) // 每半个 timeout 查一次
+		defer ticker.Stop()
+		for range ticker.C {
+			stale, err := agentRepo.ListStaleAgents(int(timeout.Seconds()))
+			if err != nil {
+				slog.Error("list stale agents failed", "err", err)
+				continue
+			}
+			for _, agentID := range stale {
+				if err := agentRepo.SetStatusOffline(agentID); err != nil {
+					slog.Error("set agent offline failed", "agent_id", agentID, "err", err)
+					continue
+				}
+				// 释放该 agent 手上所有 in_progress 的 remote 任务回 pending
+				if err := taskRepo.ReleaseTasksFromAgent(agentID); err != nil {
+					slog.Error("release tasks from agent failed", "agent_id", agentID, "err", err)
+					continue
+				}
+				slog.Warn("agent heartbeat timeout", "agent_id", agentID)
+				h.Broadcast(wsmsg.ChannelTask, map[string]any{
+					"event":    "agent_offline",
+					"agent_id": agentID,
+				})
+			}
+		}
+	}()
 }

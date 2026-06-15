@@ -427,11 +427,26 @@ func (r *TaskRepo) UpdateStatus(id, status, maintainer string) error {
 }
 
 func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
-	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,claimed_at,maintainer,repo_address,archived_at,result FROM tasks`
+	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
+		claimed_at,maintainer,repo_address,archived_at,result,
+		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
+		task_type,claimer_agent_id,result_output,evaluation_score
+		FROM tasks`
 	var args []any
+	var where []string
 	if filter.Status != "" {
-		q += ` WHERE status=?`
+		where = append(where, "status=?")
 		args = append(args, filter.Status)
+	}
+	if filter.TaskType != "" {
+		where = append(where, "task_type=?")
+		args = append(args, filter.TaskType)
+	}
+	if len(where) > 0 {
+		q += " WHERE " + where[0]
+		for i := 1; i < len(where); i++ {
+			q += " AND " + where[i]
+		}
 	}
 	q += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
 	args = append(args, filter.Limit, filter.Offset)
@@ -445,15 +460,33 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		var t Task
 		var claimedAt, archivedAt sql.NullTime
 		var acc, res, maintainer, repoAddr sql.NullString
+		var execModel, cbcMdl sql.NullString
+		var iterCount, maxIter int
+		var improvThresh, evalScore sql.NullFloat64
+		var lastHeartbeat sql.NullTime
+		var lastErr, taskType, claimerAgentID, resultOutput sql.NullString
 		err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 			&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
-			&claimedAt, &maintainer, &repoAddr, &archivedAt, &res)
+			&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
+			&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
+			&taskType, &claimerAgentID, &resultOutput, &evalScore)
 		t.Acceptance = acc.String
 		t.Result = res.String
 		t.Maintainer = maintainer.String
 		t.RepoAddress = repoAddr.String
+		t.ExecutorModel = execModel.String
+		t.CbcModel = cbcMdl.String
+		t.IterationCount = iterCount
+		t.MaxIterations = maxIter
+		t.LastError = lastErr.String
+		t.TaskType = taskType.String
+		t.ClaimerAgentID = claimerAgentID.String
+		t.ResultOutput = resultOutput.String
 		if claimedAt.Valid { t.ClaimedAt = &claimedAt.Time }
 		if archivedAt.Valid { t.ArchivedAt = &archivedAt.Time }
+		if improvThresh.Valid { t.ImprovementThreshold = improvThresh.Float64 }
+		if lastHeartbeat.Valid { t.LastHeartbeat = &lastHeartbeat.Time }
+		if evalScore.Valid { t.EvaluationScore = &evalScore.Float64 }
 		if err != nil { rows.Close(); return nil, err }
 		tasks = append(tasks, &t)
 	}
@@ -1152,5 +1185,14 @@ func (r *TaskRepo) ReportTask(taskID, agentID, status, resultOutput string, eval
 		WHERE id=?`
 	now := time.Now()
 	_, err = r.db.Exec(q, status, resultOutput, evalScore, lastErr, status, now, taskID)
+	return err
+}
+
+// ReleaseTasksFromAgent 释放某个 agent 手上所有 in_progress 的 remote 任务回 pending 池。
+// 用于心跳超时后回收任务。
+func (r *TaskRepo) ReleaseTasksFromAgent(agentID string) error {
+	q := `UPDATE tasks SET status='pending', claimer_agent_id='', last_error=?
+		WHERE claimer_agent_id=? AND status='in_progress' AND task_type='remote'`
+	_, err := r.db.Exec(q, "agent heartbeat timeout", agentID)
 	return err
 }

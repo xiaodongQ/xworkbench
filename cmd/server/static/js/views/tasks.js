@@ -118,7 +118,11 @@ function sortIcon(field) {
 
 async function loadTasks() {
   const status = document.getElementById('filter-status').value;
-  const url = API + '/api/tasks' + (status ? '?status=' + status : '');
+  const taskType = document.getElementById('filter-task-type').value;
+  const params = [];
+  if (status) params.push('status=' + status);
+  if (taskType) params.push('task_type=' + taskType);
+  const url = API + '/api/tasks' + (params.length ? '?' + params.join('&') : '');
   console.log('[loadTasks] url=', url, 'task-list el:', !!document.getElementById('task-list'));
   try {
     tasks = await fetchJSON(url);
@@ -147,6 +151,7 @@ function renderTaskTable(list) {
     <thead><tr>
       <th class="col-title" style="text-align:left">标题</th>
       <th class="col-status" style="cursor:pointer" onclick="setTaskSort('status')">状态${sortIcon('status')}</th>
+      <th>类型</th>
       <th class="col-time" style="cursor:pointer" onclick="setTaskSort('created_at')">创建时间${sortIcon('created_at')}</th>
       <th class="col-ops" style="text-align:left">操作</th>
     </tr></thead>
@@ -162,6 +167,7 @@ function renderTaskTable(list) {
           </span>
         </td>
         <td class="col-status">${statusTag(t.status)}</td>
+        <td>${taskTypeTag(t.task_type)}</td>
         <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
         <td class="col-ops" style="display:flex;align-items:center;gap:4px">
           <button class="btn btn-secondary btn-small" onclick="viewTask('${t.id}')">查看</button>
@@ -378,6 +384,7 @@ function showTaskModal(task) {
   document.getElementById('task-resources').value = task ? (task.resources || '') : '';
   document.getElementById('task-acceptance').value = task ? (task.acceptance || '') : '';
   document.getElementById('task-acceptance').readOnly = false;
+  document.getElementById('task-type').value = task ? (task.task_type || 'manual') : 'manual';
   document.getElementById('task-submit-btn').classList.remove('hidden');
   // 经验库：编辑模式从 task.experience_id 解析
   _selectedExps = [];
@@ -410,7 +417,8 @@ async function submitTask() {
     experience_id: _selectedExps.map(s => s.id).join(','),
     module: document.getElementById('task-module').value,
     resources: document.getElementById('task-resources').value,
-    acceptance: document.getElementById('task-acceptance').value
+    acceptance: document.getElementById('task-acceptance').value,
+    task_type: document.getElementById('task-type').value
   };
   if (id) {
     await fetch(API + '/api/tasks/' + id, {

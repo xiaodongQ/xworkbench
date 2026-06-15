@@ -207,3 +207,81 @@ func TestTaskListIncludesExperienceIDs(t *testing.T) {
 		t.Errorf("list.ExperienceIDs = %v, want [exp-y]", found.ExperienceIDs)
 	}
 }
+// TestReleaseTasksFromAgent 验证 agent 心跳超时后任务被正确释放回 pending 池。
+func TestReleaseTasksFromAgent(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil {
+		t.Fatalf("TestDB: %v", err)
+	}
+	defer cleanup()
+	taskRepo := NewTaskRepo(db)
+	agentRepo := NewAgentRepo(db)
+
+	// 准备 agent
+	agentID := "agent-test-001"
+	if err := agentRepo.Register(&Agent{
+		ID: agentID, Name: "test-agent", TokenHash: "hash-1",
+		Status: "online", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("Register agent: %v", err)
+	}
+
+	// 准备 2 个 remote 任务（pending 和 in_progress 状态各一）
+	pendingTask := &Task{
+		ID: "task-pending-1", Title: "p1", Status: TaskStatusPending,
+		TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now(),
+	}
+	if err := taskRepo.Create(pendingTask); err != nil {
+		t.Fatalf("Create pending: %v", err)
+	}
+
+	claimedTask := &Task{
+		ID: "task-claimed-1", Title: "c1", Status: TaskStatusPending,
+		TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now(),
+	}
+	if err := taskRepo.Create(claimedTask); err != nil {
+		t.Fatalf("Create claimed: %v", err)
+	}
+	// claim
+	if err := taskRepo.ClaimTask("task-claimed-1", agentID); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+
+	// 准备一个手动任务（不应被释放）
+	manualTask := &Task{
+		ID: "task-manual-1", Title: "m1", Status: TaskStatusInProgress,
+		TaskType: TaskTypeManual, Maintainer: "user-1", Version: "v1", CreatedAt: time.Now(),
+	}
+	if err := taskRepo.Create(manualTask); err != nil {
+		t.Fatalf("Create manual: %v", err)
+	}
+
+	// 释放 agent 任务
+	if err := taskRepo.ReleaseTasksFromAgent(agentID); err != nil {
+		t.Fatalf("ReleaseTasksFromAgent: %v", err)
+	}
+
+	// 验证：claimed task 应该回到 pending 且 claimer 清空
+	got, err := taskRepo.Get("task-claimed-1")
+	if err != nil {
+		t.Fatalf("Get claimed: %v", err)
+	}
+	if got.Status != TaskStatusPending {
+		t.Errorf("claimed task status = %s, want pending", got.Status)
+	}
+	if got.ClaimerAgentID != "" {
+		t.Errorf("claimed task claimer = %q, want empty", got.ClaimerAgentID)
+	}
+
+	// 验证：pending task 不应被影响
+	got2, _ := taskRepo.Get("task-pending-1")
+	if got2.Status != TaskStatusPending {
+		t.Errorf("pending task status = %s, want pending", got2.Status)
+	}
+
+	// 验证：manual 任务不应被影响
+	got3, _ := taskRepo.Get("task-manual-1")
+	if got3.Status != TaskStatusInProgress {
+		t.Errorf("manual task status = %s, want in_progress", got3.Status)
+	}
+}

@@ -83,9 +83,10 @@ type SkillVersion struct {
 }
 
 type TaskFilter struct {
-	Status string
-	Offset int
-	Limit  int
+	Status   string
+	TaskType string
+	Offset   int
+	Limit    int
 }
 
 type TaskResult struct {

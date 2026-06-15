@@ -167,6 +167,12 @@
         <option value="archived">已完成</option>
         <option value="exception">异常</option>
       </select>
+      <select id="filter-task-type">
+        <option value="">全部类型</option>
+        <option value="manual">本地手动</option>
+        <option value="scheduled">定时</option>
+        <option value="remote">远程 Agent</option>
+      </select>
       <button class="btn btn-primary" onclick="showTaskModal()">+ 新建任务</button>
       <div class="spacer"></div>
       <span class="count" id="task-count"></span>
@@ -379,6 +385,15 @@
     <input type="hidden" id="task-id">
     <div class="form-group"><label>标题 <span class="field-hint">必填</span></label><input id="task-title" placeholder="任务标题"></div>
     <div class="form-group"><label>描述 <span class="field-hint">详细描述问题和背景</span></label><textarea id="task-desc" placeholder="详细描述..."></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>任务类型<span class="field-hint">manual / scheduled / remote</span></label>
+        <select id="task-type">
+          <option value="manual">manual（本地手动执行）</option>
+          <option value="scheduled">scheduled（定时执行）</option>
+          <option value="remote">remote（远程 Agent 领取）</option>
+        </select>
+      </div>
+    </div>
     <div class="form-group">
       <label>关联经验库 <span class="field-hint">点击右侧按钮多选</span></label>
       <div style="display:flex;gap:8px;align-items:flex-start">
@@ -663,6 +678,7 @@
 <script>
 // 事件绑定（filter / search）
 document.getElementById('filter-status').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
+document.getElementById('filter-task-type').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
 document.getElementById('exp-search').addEventListener('input', debounce(() => { if (typeof loadExps === 'function') loadExps(); }, 300));
 
 // 首次加载：dashboard 主体 + widget 侧栏（链接/目录/todo 常驻）

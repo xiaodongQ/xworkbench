@@ -58,6 +58,13 @@ function statusTag(status) {
   return `<span class="status-pill status-${status}">${labels[status] || status}</span>`;
 }
 
+function taskTypeTag(type) {
+  const labels = {manual: '本地', scheduled: '定时', remote: '远程'};
+  const colors = {manual: '#64748b', scheduled: '#0ea5e9', remote: '#8b5cf6'};
+  const t = type || 'manual';
+  return `<span style="font-size:11px;padding:2px 6px;border-radius:3px;background:${colors[t] || '#64748b'};color:#fff">${labels[t] || t}</span>`;
+}
+
 function fmt(ts) {
   if (!ts) return '-';
   const d = new Date(ts);
