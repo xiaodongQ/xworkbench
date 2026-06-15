@@ -183,6 +183,17 @@ func InitSchema(db *sql.DB) error {
 		created_at DATETIME,
 		updated_at DATETIME
 	);
+	CREATE TABLE IF NOT EXISTS webhooks (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		url TEXT NOT NULL,
+		secret TEXT,
+		events TEXT,
+		enabled INTEGER DEFAULT 1,
+		created_at DATETIME,
+		last_triggered_at DATETIME,
+		fail_count INTEGER DEFAULT 0
+	);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		return err
@@ -1559,4 +1570,101 @@ func randStr(n int) string {
 		b[i] = charset[randSrc.Intn(len(charset))]
 	}
 	return string(b)
+}
+
+// ---- Webhook ----
+
+type Webhook struct {
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	URL            string     `json:"url"`
+	Secret         string     `json:"secret,omitempty"`
+	Events         string     `json:"events,omitempty"` // 逗号分隔事件类型
+	Enabled        int        `json:"enabled"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastTriggeredAt *time.Time `json:"last_triggered_at,omitempty"`
+	FailCount      int        `json:"fail_count"`
+}
+
+type WebhookRepo struct{ db *sql.DB }
+
+func NewWebhookRepo(db *sql.DB) *WebhookRepo { return &WebhookRepo{db: db} }
+
+func (r *WebhookRepo) Create(w *Webhook) error {
+	if w.ID == "" { w.ID = "wh-" + time.Now().Format("20060102150405") + "-" + randStr(6) }
+	w.CreatedAt = time.Now()
+	_, err := r.db.Exec(`INSERT INTO webhooks (id,name,url,secret,events,enabled,created_at,fail_count)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		w.ID, w.Name, w.URL, w.Secret, w.Events, w.Enabled, w.CreatedAt, w.FailCount)
+	return err
+}
+
+func (r *WebhookRepo) List() ([]*Webhook, error) {
+	rows, err := r.db.Query(`SELECT id,name,url,secret,events,enabled,created_at,last_triggered_at,fail_count
+		FROM webhooks ORDER BY created_at DESC`)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var out []*Webhook
+	for rows.Next() {
+		var w Webhook
+		var lastT sql.NullTime
+		if err := rows.Scan(&w.ID, &w.Name, &w.URL, &w.Secret, &w.Events, &w.Enabled, &w.CreatedAt, &lastT, &w.FailCount); err != nil {
+			return nil, err
+		}
+		if lastT.Valid { w.LastTriggeredAt = &lastT.Time }
+		out = append(out, &w)
+	}
+	return out, rows.Err()
+}
+
+func (r *WebhookRepo) Get(id string) (*Webhook, error) {
+	q := `SELECT id,name,url,secret,events,enabled,created_at,last_triggered_at,fail_count FROM webhooks WHERE id=?`
+	var w Webhook
+	var lastT sql.NullTime
+	err := r.db.QueryRow(q, id).Scan(&w.ID, &w.Name, &w.URL, &w.Secret, &w.Events, &w.Enabled, &w.CreatedAt, &lastT, &w.FailCount)
+	if err == sql.ErrNoRows { return nil, fmt.Errorf("webhook %s not found", id) }
+	if lastT.Valid { w.LastTriggeredAt = &lastT.Time }
+	return &w, err
+}
+
+func (r *WebhookRepo) Update(w *Webhook) error {
+	_, err := r.db.Exec(`UPDATE webhooks SET name=?,url=?,secret=?,events=?,enabled=? WHERE id=?`,
+		w.Name, w.URL, w.Secret, w.Events, w.Enabled, w.ID)
+	return err
+}
+
+func (r *WebhookRepo) Delete(id string) error {
+	_, err := r.db.Exec(`DELETE FROM webhooks WHERE id=?`, id)
+	return err
+}
+
+// ListEnabled 返回所有 enabled=1 的 webhook（dispatcher 触发用）。
+func (r *WebhookRepo) ListEnabled() ([]*Webhook, error) {
+	rows, err := r.db.Query(`SELECT id,name,url,secret,events,enabled,created_at,last_triggered_at,fail_count
+		FROM webhooks WHERE enabled=1`)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var out []*Webhook
+	for rows.Next() {
+		var w Webhook
+		var lastT sql.NullTime
+		if err := rows.Scan(&w.ID, &w.Name, &w.URL, &w.Secret, &w.Events, &w.Enabled, &w.CreatedAt, &lastT, &w.FailCount); err != nil {
+			return nil, err
+		}
+		if lastT.Valid { w.LastTriggeredAt = &lastT.Time }
+		out = append(out, &w)
+	}
+	return out, rows.Err()
+}
+
+// MarkTriggered 记录触发成功，更新 last_triggered_at + 重置 fail_count。
+func (r *WebhookRepo) MarkTriggered(id string) error {
+	_, err := r.db.Exec(`UPDATE webhooks SET last_triggered_at=?, fail_count=0 WHERE id=?`, time.Now(), id)
+	return err
+}
+
+// IncrementFail 触发失败，fail_count++。
+func (r *WebhookRepo) IncrementFail(id string) error {
+	_, err := r.db.Exec(`UPDATE webhooks SET fail_count=fail_count+1 WHERE id=?`, id)
+	return err
 }

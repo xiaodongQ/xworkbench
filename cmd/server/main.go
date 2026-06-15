@@ -25,8 +25,10 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/executor/runner"
 	"github.com/xiaodongQ/xworkbench/internal/hub"
 	"github.com/xiaodongQ/xworkbench/internal/paths"
+	"github.com/xiaodongQ/xworkbench/internal/ratelimit"
 	"github.com/xiaodongQ/xworkbench/internal/scheduler"
 	"github.com/xiaodongQ/xworkbench/internal/shortcuts"
+	"github.com/xiaodongQ/xworkbench/internal/webhook"
 	taskpkg "github.com/xiaodongQ/xworkbench/internal/task"
 	"github.com/xiaodongQ/xworkbench/internal/todo"
 	"github.com/xiaodongQ/xworkbench/internal/httplog"
@@ -51,6 +53,8 @@ type APIServer struct {
 	depDB   *backend.TaskDependencyRepo
 	tplDB   *backend.TaskTemplateRepo
 	sfDB    *backend.SavedFilterRepo
+	whDB    *backend.WebhookRepo
+	whDisp  *webhook.Dispatcher
 	sch    *scheduler.Scheduler
 	hub    *hub.Hub
 	relayHandler *relay.RelayHandler
@@ -69,6 +73,7 @@ func NewAPIServer(
 	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
 	eventDB *backend.TaskEventRepo, depDB *backend.TaskDependencyRepo,
 	tplDB *backend.TaskTemplateRepo, sfDB *backend.SavedFilterRepo,
+	whDB *backend.WebhookRepo, whDisp *webhook.Dispatcher,
 	sch *scheduler.Scheduler, h *hub.Hub,
 	relayRepo relay.Repo,
 ) *APIServer {
@@ -77,6 +82,7 @@ func NewAPIServer(
 		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, setDB: setDB, evalDB: evalDB,
 		agentDB: agentDB, eventDB: eventDB, depDB: depDB,
 		tplDB: tplDB, sfDB: sfDB,
+		whDB: whDB, whDisp: whDisp,
 		sch: sch, hub: h,
 		relayHandler: relay.NewRelayHandler(relayRepo),
 		mux: http.NewServeMux(), running: map[string]context.CancelFunc{},
@@ -168,11 +174,27 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/relay/proxy", s.relayHandler.HandleRelayProxy)
 	mux.HandleFunc("GET /api/relay/stats", s.relayHandler.HandleRelayStats)
 
-	// 远程 Agent API
-	mux.HandleFunc("POST /api/agents/register", s.handleAgentRegister)
-	mux.HandleFunc("POST /api/agents/{id}/heartbeat", s.handleAgentHeartbeat)
-	mux.HandleFunc("POST /api/tasks/{id}/claim", s.handleTaskClaim)
-	mux.HandleFunc("POST /api/tasks/{id}/report", s.handleTaskReport)
+	// 远程 Agent API（带速率限制）
+	// 注意：单独一个 sub-mux 给 agent 路由，避免与主 mux 冲突
+	rateLimitPerMin := parseInt(os.Getenv("RATE_LIMIT_PER_MIN"), 60)
+	agentMux := http.NewServeMux()
+	agentMux.HandleFunc("POST /api/agents/register", s.handleAgentRegister)
+	agentMux.HandleFunc("POST /api/agents/{id}/heartbeat", s.handleAgentHeartbeat)
+	agentMux.HandleFunc("POST /api/tasks/{id}/claim", s.handleTaskClaim)
+	agentMux.HandleFunc("POST /api/tasks/{id}/report", s.handleTaskReport)
+	// agent API 套上速率限制 middleware（默认 60/min，可由 RATE_LIMIT_PER_MIN 调整；0 = 禁用）
+	{
+		var agentHandler http.Handler = agentMux
+		if rateLimitPerMin > 0 {
+			limiter := ratelimit.New(rateLimitPerMin)
+			agentHandler = limiter.Middleware()(agentMux)
+		}
+		// 挂在主 mux 上（路径完全匹配，使用更具体的 path pattern）
+		mux.Handle("POST /api/agents/register", agentHandler)
+		mux.Handle("POST /api/agents/{id}/heartbeat", agentHandler)
+		mux.Handle("POST /api/tasks/{id}/claim", agentHandler)
+		mux.Handle("POST /api/tasks/{id}/report", agentHandler)
+	}
 
 	// 审计 + 依赖
 	mux.HandleFunc("GET /api/tasks/{id}/events", s.handleTaskEvents)
@@ -193,6 +215,14 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/saved-filters", s.handleSFCreate)
 	mux.HandleFunc("PUT /api/saved-filters/{id}", s.handleSFUpdate)
 	mux.HandleFunc("DELETE /api/saved-filters/{id}", s.handleSFDelete)
+
+	// Webhook
+	mux.HandleFunc("GET /api/webhooks", s.handleWebhookList)
+	mux.HandleFunc("POST /api/webhooks", s.handleWebhookCreate)
+	mux.HandleFunc("GET /api/webhooks/{id}", s.handleWebhookGet)
+	mux.HandleFunc("PUT /api/webhooks/{id}", s.handleWebhookUpdate)
+	mux.HandleFunc("DELETE /api/webhooks/{id}", s.handleWebhookDelete)
+	mux.HandleFunc("POST /api/webhooks/{id}/test", s.handleWebhookTest)
 }
 
 func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -264,6 +294,8 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Actor: "user", Payload: fmt.Sprintf(`{"task_type":"%s"}`, task.TaskType),
 		CreatedAt: time.Now(),
 	})
+	// Webhook 派发
+	s.whDisp.Dispatch("task.created", map[string]any{"task_id": task.ID, "title": task.Title, "task_type": task.TaskType})
 	writeJSON(w, task)
 }
 
@@ -1617,9 +1649,11 @@ func main() {
 	depRepo := backend.NewTaskDependencyRepo(db)
 	tplRepo := backend.NewTaskTemplateRepo(db)
 	sfRepo := backend.NewSavedFilterRepo(db)
+	whRepo := backend.NewWebhookRepo(db)
+	whDisp := webhook.NewDispatcher(whRepo)
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
 		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, agentRepo,
-		eventRepo, depRepo, tplRepo, sfRepo, sch, h, relayRepo)
+		eventRepo, depRepo, tplRepo, sfRepo, whRepo, whDisp, sch, h, relayRepo)
 
 	// 后台 goroutine：心跳超时检测
 	// Agent >30s 未心跳 → 标记为 offline，并把该 agent 手上未完成的任务还回 pending 池
@@ -1974,6 +2008,8 @@ func (s *APIServer) handleTaskClaim(w http.ResponseWriter, r *http.Request) {
 		TaskID: taskID, EventType: "claimed",
 		Actor: "agent:" + req.AgentID, CreatedAt: time.Now(),
 	})
+	// Webhook
+	s.whDisp.Dispatch("task.claimed", map[string]any{"task_id": taskID, "agent_id": req.AgentID})
 	writeJSON(w, map[string]any{"status": "claimed", "task": task})
 }
 
@@ -2019,6 +2055,8 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		Payload: fmt.Sprintf(`{"status":"%s","score":%s}`, req.Status, scoreStr),
 		CreatedAt: time.Now(),
 	})
+	// Webhook
+	s.whDisp.Dispatch("task.reported", map[string]any{"task_id": taskID, "agent_id": req.AgentID, "status": req.Status, "score": req.EvaluationScore})
 	// WebSocket 广播任务状态变更
 	task, _ := s.db.Get(taskID)
 	s.hub.Broadcast(wsmsg.ChannelTask, map[string]any{
@@ -2418,4 +2456,106 @@ func (s *APIServer) handleSFDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+// ---- Webhook Handlers ----
+
+func (s *APIServer) handleWebhookList(w http.ResponseWriter, r *http.Request) {
+	hooks, err := s.whDB.List()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, hooks)
+}
+
+func (s *APIServer) handleWebhookCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name    string `json:"name"`
+		URL     string `json:"url"`
+		Secret  string `json:"secret"`
+		Events  string `json:"events"`
+		Enabled int    `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Name == "" || req.URL == "" {
+		writeErr(w, http.StatusBadRequest, "name and url are required")
+		return
+	}
+	wh := &backend.Webhook{
+		Name: req.Name, URL: req.URL, Secret: req.Secret, Events: req.Events,
+		Enabled: req.Enabled,
+	}
+	if wh.Enabled == 0 { wh.Enabled = 1 }
+	if err := s.whDB.Create(wh); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, wh)
+}
+
+func (s *APIServer) handleWebhookGet(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	wh, err := s.whDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, wh)
+}
+
+func (s *APIServer) handleWebhookUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	wh, err := s.whDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var req struct {
+		Name    string `json:"name"`
+		URL     string `json:"url"`
+		Secret  string `json:"secret"`
+		Events  string `json:"events"`
+		Enabled int    `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	wh.Name = req.Name
+	wh.URL = req.URL
+	wh.Secret = req.Secret
+	wh.Events = req.Events
+	wh.Enabled = req.Enabled
+	if err := s.whDB.Update(wh); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, wh)
+}
+
+func (s *APIServer) handleWebhookDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.whDB.Delete(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+func (s *APIServer) handleWebhookTest(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	wh, err := s.whDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	// 触发一个测试事件
+	s.whDisp.Dispatch("test", map[string]any{
+		"webhook_id": wh.ID, "message": "Hello from xworkbench webhook test!",
+	})
+	writeJSON(w, map[string]string{"status": "test_dispatched"})
 }

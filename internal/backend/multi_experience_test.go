@@ -558,3 +558,53 @@ func TestSavedFilter(t *testing.T) {
 	_, err = repo.Get(f.ID)
 	if err == nil { t.Errorf("should be deleted") }
 }
+
+// TestWebhook 验证 webhook CRUD + 触发标记。
+func TestWebhook(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil { t.Fatalf("TestDB: %v", err) }
+	defer cleanup()
+	repo := NewWebhookRepo(db)
+
+	w := &Webhook{
+		Name: "test-hook", URL: "http://example.com/hook",
+		Secret: "test-secret", Events: "task.created,task.claimed",
+		Enabled: 1,
+	}
+	if err := repo.Create(w); err != nil { t.Fatalf("Create: %v", err) }
+	if w.ID == "" { t.Errorf("ID auto-gen failed") }
+
+	list, _ := repo.List()
+	if len(list) != 1 { t.Errorf("List len = %d, want 1", len(list)) }
+
+	// Update
+	w.URL = "http://example.com/v2"
+	repo.Update(w)
+	got, _ := repo.Get(w.ID)
+	if got.URL != "http://example.com/v2" { t.Errorf("update failed") }
+
+	// MarkTriggered
+	repo.MarkTriggered(w.ID)
+	got, _ = repo.Get(w.ID)
+	if got.LastTriggeredAt == nil { t.Errorf("LastTriggeredAt not set") }
+	if got.FailCount != 0 { t.Errorf("FailCount = %d, want 0", got.FailCount) }
+
+	// IncrementFail
+	repo.IncrementFail(w.ID)
+	repo.IncrementFail(w.ID)
+	got, _ = repo.Get(w.ID)
+	if got.FailCount != 2 { t.Errorf("FailCount = %d, want 2", got.FailCount) }
+
+	// ListEnabled
+	enabled, _ := repo.ListEnabled()
+	if len(enabled) != 1 { t.Errorf("ListEnabled len = %d, want 1", len(enabled)) }
+	w.Enabled = 0
+	repo.Update(w)
+	enabled, _ = repo.ListEnabled()
+	if len(enabled) != 0 { t.Errorf("after disable ListEnabled = %d, want 0", len(enabled)) }
+
+	// Delete
+	repo.Delete(w.ID)
+	_, err = repo.Get(w.ID)
+	if err == nil { t.Errorf("should be deleted") }
+}

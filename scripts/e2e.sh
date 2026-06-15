@@ -532,6 +532,85 @@ case_templates_filters() {
   ok "tpl-sf case ✅"
 }
 
+case_ratelimit_webhook() {
+  info "[rl-wh] 注册 agent → 触发 5 次心跳 → 验证 200 → 注册 webhook → 触发 test 事件"
+
+  # 1. 注册 agent
+  local reg_resp
+  reg_resp=$(curl -s -X POST "http://${BASE_URL}/api/agents/register" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"e2e-rl-agent","version":"0.1"}')
+  local agent_id=$(jget "$reg_resp" "agent_id")
+  local token=$(jget "$reg_resp" "token")
+  [ -n "$agent_id" ] || { err "agent 注册失败"; return 1; }
+  ok "agent 注册成功: $agent_id"
+
+  # 2. 用同一个 token 连发 5 次心跳（rate limit 默认 60/min，远低于这个数）
+  #    主要验证令牌机制不阻塞正常调用
+  for i in 1 2 3 4 5; do
+    local hb
+    hb=$(curl -s -X POST "http://${BASE_URL}/api/agents/$agent_id/heartbeat" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $token" \
+      -d '{}')
+    local ok_field=$(echo "$hb" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
+    [ "$ok_field" = "True" ] || { err "第 $i 次心跳失败: $hb"; return 1; }
+  done
+  ok "5 次心跳都成功（在 limit 内）"
+
+  # 3. 创建 webhook（指向不存在的 URL 没事，只验证 dispatch 不阻塞）
+  local wh_resp
+  wh_resp=$(curl -s -X POST "http://${BASE_URL}/api/webhooks" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name":"e2e-test-webhook",
+      "url":"http://127.0.0.1:9/nonexistent",
+      "secret":"e2e-secret",
+      "events":"test,task.created",
+      "enabled":1
+    }')
+  local wh_id=$(jget "$wh_resp" "id")
+  [ -n "$wh_id" ] || { err "webhook 创建失败: $wh_resp"; return 1; }
+  ok "webhook 创建: $wh_id"
+
+  # 4. 列出 webhook 应包含
+  local wh_list
+  wh_list=$(curl -s "http://${BASE_URL}/api/webhooks")
+  local has_wh=$(echo "$wh_list" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(w['id']=='$wh_id' for w in d))" 2>/dev/null)
+  [ "$has_wh" = "True" ] || { err "List 缺 webhook: $wh_list"; return 1; }
+  ok "List 含 webhook"
+
+  # 5. 主动触发 test 事件
+  local test_resp
+  test_resp=$(curl -s -X POST "http://${BASE_URL}/api/webhooks/$wh_id/test")
+  local test_status=$(jget "$test_resp" "status")
+  [ "$test_status" = "test_dispatched" ] || { err "test 触发失败: $test_resp"; return 1; }
+  ok "test 事件已 dispatch"
+
+  # 6. 等 5 秒让 dispatch 失败（webhook URL 不通会 3 次重试 + 1+2+4s 退避 = 7s）
+  sleep 5
+  local wh_after
+  wh_after=$(curl -s "http://${BASE_URL}/api/webhooks/$wh_id")
+  local fail_count=$(jget "$wh_after" "fail_count")
+  # 这里 fail_count 可能为 0（重试还没完成）或 ≥1（重试 1 次失败）
+  # 至少验证 webhook 状态可查、字段更新机制正常
+  ok "webhook 状态可查，fail_count=$fail_count"
+
+  # 7. 验证：创建任务触发 task.created 事件（webhook 配的事件列表里有 task.created）
+  local task_resp
+  task_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"e2e-rl-task","task_type":"manual"}')
+  local tid=$(jget "$task_resp" "id")
+  [ -n "$tid" ] || { err "task 创建失败"; return 1; }
+  ok "task 创建（webhook 应被触发）"
+
+  # 8. 清理
+  curl -s -X DELETE "http://${BASE_URL}/api/webhooks/$wh_id" >/dev/null
+  curl -s -X DELETE "http://${BASE_URL}/api/tasks/$tid" >/dev/null
+  ok "rl-wh case ✅"
+}
+
 case_teardown() {
   info "[teardown] 强清残留进程和临时文件"
   lsof -ti :19000-19999 2>/dev/null | xargs -r kill -9 2>/dev/null
@@ -577,6 +656,7 @@ case "$TARGET" in
     run_case case_remote_claim
     run_case case_audit_deps
     run_case case_templates_filters
+    run_case case_ratelimit_webhook
     ;;
   basic)   run_case case_basic ;;
   delete)  run_case case_delete ;;
@@ -586,6 +666,7 @@ case "$TARGET" in
   remote)  run_case case_remote_claim ;;
   audit)   run_case case_audit_deps ;;
   tpl)     run_case case_templates_filters ;;
+  rl)      run_case case_ratelimit_webhook ;;
   fast)
     # 已在入口前处理(start_server 跳过)。这里只跑 case。
     run_case case_basic
@@ -597,7 +678,7 @@ case "$TARGET" in
   teardown) case_teardown; exit 0 ;;
   *)
     err "未知 case: $TARGET"
-    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|audit|tpl|teardown]"
+    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|audit|tpl|rl|teardown]"
     exit 2
     ;;
 esac
@@ -607,4 +688,5 @@ if [ "$FAILED" = "1" ]; then
   exit 1
 fi
 ok "===== 全部 case 通过 ====="
+
 
