@@ -23,19 +23,19 @@
 
 ### List Tasks
 ```bash
-curl -s http://localhost:8901/api/tasks[?status=pending]
+curl -s http://localhost:8902/api/tasks[?status=pending]
 ```
 Returns: `Task[]`
 
 ### Get Task by ID
 ```bash
-curl -s http://localhost:8901/api/tasks/{id}
+curl -s http://localhost:8902/api/tasks/{id}
 ```
 Returns: `Task`
 
 ### Create Task
 ```bash
-curl -s -X POST http://localhost:8901/api/tasks \
+curl -s -X POST http://localhost:8902/api/tasks \
   -H "Content-Type: application/json" \
   -d '{
     "title": "任务标题",
@@ -48,7 +48,7 @@ curl -s -X POST http://localhost:8901/api/tasks \
 
 ### Update Task Status
 ```bash
-curl -s -X PUT http://localhost:8901/api/tasks/{id}/status \
+curl -s -X PUT http://localhost:8902/api/tasks/{id}/status \
   -H "Content-Type: application/json" \
   -d '{
     "status": "in_progress|archived|exception",
@@ -58,6 +58,6 @@ curl -s -X PUT http://localhost:8901/api/tasks/{id}/status \
 
 ### Get Stats
 ```bash
-curl -s http://localhost:8901/api/stats
+curl -s http://localhost:8902/api/stats
 ```
 Returns: `{ total_tasks, pending_tasks, in_progress_tasks, archived_tasks, exception_tasks, total_exp }`

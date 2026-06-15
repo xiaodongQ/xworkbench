@@ -12,10 +12,10 @@
 git clone <repo>
 cd xworkbench
 ./scripts/build.sh          # 编译
-./scripts/run.sh             # 启动（默认 :8901）
+./scripts/run.sh             # 启动（默认 :8902）
 ```
 
-浏览器打开 [http://localhost:8901](http://localhost:8901)，看到 6 Tab（总览 / 任务 / 经验库 / 自动化 / AI 对话 / 代理）即可。
+浏览器打开 [http://localhost:8902](http://localhost:8902)，看到 6 Tab（总览 / 任务 / 经验库 / 自动化 / AI 对话 / 代理）即可。
 
 > 配置文件：`./config.json`（可选，默认配置已包含终端类型和模型列表）
 

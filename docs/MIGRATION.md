@@ -49,7 +49,7 @@ cp data/xworkbench.db data/xworkbench.db.v1.bak
 
 # 2. 启动新版本（自动建表 + 迁移）
 go build -o xworkbench ./cmd/server
-DB_PATH=./data/xworkbench.db ADDR=:8901 ./xworkbench
+DB_PATH=./data/xworkbench.db ADDR=:8902 ./xworkbench
 # 9 张表自动建好，旧数据保留
 
 # 3. 验证

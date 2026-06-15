@@ -20,19 +20,19 @@
 
 ### List Experiences
 ```bash
-curl -s http://localhost:8901/api/experiences[?module=redis-cluster]
+curl -s http://localhost:8902/api/experiences[?module=redis-cluster]
 ```
 Returns: `Experience[]`
 
 ### Get Experience by ID
 ```bash
-curl -s http://localhost:8901/api/experiences/{id}
+curl -s http://localhost:8902/api/experiences/{id}
 ```
 Returns: `Experience`
 
 ### Create Experience
 ```bash
-curl -s -X POST http://localhost:8901/api/experiences \
+curl -s -X POST http://localhost:8902/api/experiences \
   -H "Content-Type: application/json" \
   -d '{
     "module": "redis-cluster",
@@ -47,5 +47,5 @@ curl -s -X POST http://localhost:8901/api/experiences \
 
 ### Delete Experience
 ```bash
-curl -s -X DELETE http://localhost:8901/api/experiences/{id}
+curl -s -X DELETE http://localhost:8902/api/experiences/{id}
 ```

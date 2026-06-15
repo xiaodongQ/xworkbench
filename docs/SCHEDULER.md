@@ -6,14 +6,14 @@
 
 ```bash
 # 启动
-curl -X POST localhost:8901/api/scheduler/start
+curl -X POST localhost:8902/api/scheduler/start
 # 停止
-curl -X POST localhost:8901/api/scheduler/stop
+curl -X POST localhost:8902/api/scheduler/stop
 # 状态
-curl localhost:8901/api/scheduler/status
+curl localhost:8902/api/scheduler/status
 # {"running": true}
 # 重载（增删定时任务后自动调用，也可手动）
-curl -X POST localhost:8901/api/scheduler/reload
+curl -X POST localhost:8902/api/scheduler/reload
 ```
 
 UI 路径：Dashboard 4 号 widget 或 Automation Tab 顶部。
@@ -51,7 +51,7 @@ UI 路径：Dashboard 4 号 widget 或 Automation Tab 顶部。
 ## 创建定时任务
 
 ```bash
-curl -X POST localhost:8901/api/scheduled -H "Content-Type: application/json" -d '{
+curl -X POST localhost:8902/api/scheduled -H "Content-Type: application/json" -d '{
   "name": "heartbeat",
   "cron_expr": "@every 30s",
   "command_type": "shell",
@@ -73,7 +73,7 @@ curl -X POST localhost:8901/api/scheduled -H "Content-Type: application/json" -d
 
 ```bash
 # 不依赖 cron，立即跑一次
-curl -X POST localhost:8901/api/scheduled/{id}/run-now
+curl -X POST localhost:8902/api/scheduled/{id}/run-now
 ```
 
 ## 执行流程
@@ -117,10 +117,10 @@ tail -f server.log | grep scheduler
 # [scheduler] parse xxx ("bad expr"): invalid syntax
 
 # 2. 看最近执行
-curl 'localhost:8901/api/executions?limit=20' | jq '.[] | {command, exit_code, started_at, output}'
+curl 'localhost:8902/api/executions?limit=20' | jq '.[] | {command, exit_code, started_at, output}'
 
 # 3. 看 last_status
-curl localhost:8901/api/scheduled | jq '.[] | {name, last_status, last_run_at}'
+curl localhost:8902/api/scheduled | jq '.[] | {name, last_status, last_run_at}'
 ```
 
 `last_status` 取值：

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # xworkbench 启动脚本
 # 用法：
-#   ./scripts/run.sh                # 启动（默认 :8901，二进制不存在时自动编译）
+#   ./scripts/run.sh                # 启动（默认 :8902，二进制不存在时自动编译）
 #   ./scripts/run.sh --stop         # 停止
 #   ./scripts/run.sh --restart      # 重启
 #   ./scripts/run.sh --port 9090    # 自定义端口
@@ -11,7 +11,7 @@
 #
 # 环境变量：
 #   DB_PATH  SQLite 路径（默认 ./data/xworkbench.db）
-#   ADDR     监听地址（默认 :8901，可被 --port 覆盖）
+#   ADDR     监听地址（默认 :8902，可被 --port 覆盖）
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,7 +20,7 @@ BIN="./bin/xworkbench"
 PID_FILE="./bin/xworkbench.pid"
 LOG_FILE="./bin/xworkbench.log"
 DB_PATH="${DB_PATH:-./data/xworkbench.db}"
-ADDR="${ADDR:-:8901}"
+ADDR="${ADDR:-:8902}"
 CONFIG_PATH="${CONFIG_PATH:-./config.json}"
 
 usage() {
@@ -28,7 +28,7 @@ usage() {
 Usage: $0 [option]
 
 Options:
-  (无)             启动（默认 :8901，二进制不存在时自动 ./scripts/build.sh）
+  (无)             启动（默认 :8902，二进制不存在时自动 ./scripts/build.sh）
   --stop           停止
   --restart        重启
   --port PORT      自定义端口（如 9090）
@@ -38,7 +38,7 @@ Options:
 
 环境变量：
   DB_PATH          SQLite 路径（默认 ./data/xworkbench.db）
-  ADDR             监听地址（默认 :8901）
+  ADDR             监听地址（默认 :8902）
 
 文件：
   二进制：${BIN}

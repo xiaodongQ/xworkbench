@@ -12,7 +12,7 @@
 #   ./scripts/e2e.sh teardown         # 强清理(不跑 case,只清残留)
 #
 # 设计原则：
-#   - 用 0.5% 概率空闲的临时端口(避免跟默认 8901 冲突)
+#   - 用 0.5% 概率空闲的临时端口(避免跟默认 8902 冲突)
 #   - 用 /tmp/sf-e2e-XXX.db 临时 db,跑完自动清理
 #   - 不修改 monorepo 任何文件,只起临时 binary 在 /tmp/
 #   - case 函数化,新增 case 只加 function + 在 main switch 注册
@@ -29,7 +29,7 @@ TMP_PORT=$((19000 + RANDOM % 1000))   # 19000-19999 临时端口
 SCRIPT_CMD_TYPE="${SCRIPT_CMD_TYPE:-claude}"   # 可被环境变量覆盖
 SCRIPT_MODEL="${SCRIPT_MODEL:-haiku}"
 
-# BASE_URL: 默认连临时 server;fast 模式改成连已有 server(默认 :8901)
+# BASE_URL: 默认连临时 server;fast 模式改成连已有 server(默认 :8902)
 BASE_URL="${BASE_URL:-localhost:$TMP_PORT}"
 USE_EXISTING="${USE_EXISTING:-0}"
 
@@ -53,7 +53,7 @@ cleanup() {
 trap cleanup EXIT
 
 start_server() {
-  # fast 模式:BASE_URL 已指向运行中的 server(默认 :8901),不重启
+  # fast 模式:BASE_URL 已指向运行中的 server(默认 :8902),不重启
   if [ "$USE_EXISTING" = "1" ]; then
     info "复用已有 server @ $BASE_URL(不 build/不起进程)"
     if ! curl -s "${BASE_URL}/api/tasks" >/dev/null 2>&1; then
@@ -256,7 +256,7 @@ TARGET="${1:-all}"
 # fast 模式:复用已有 server,跳过起临时 server 步骤
 if [ "$TARGET" = "fast" ]; then
   USE_EXISTING=1
-  BASE_URL="${E2E_BASE_URL:-localhost:8901}"
+  BASE_URL="${E2E_BASE_URL:-localhost:8902}"
   info "fast 模式:复用 server @ $BASE_URL(不 build/不起进程)"
   if ! curl -s "${BASE_URL}/api/tasks" >/dev/null 2>&1; then
     err "server 不在 $BASE_URL,先跑: sh scripts/run.sh --restart"

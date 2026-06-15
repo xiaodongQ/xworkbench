@@ -25,7 +25,7 @@ When the user asks you to interact with the Skill Factory system, you should:
 
 ## System Info
 
-- API Base URL: `http://localhost:8901`
+- API Base URL: `http://localhost:8902`
 - All APIs return JSON
 - Task statuses: `pending`, `in_progress`, `archived`, `exception`
 - Experience modules are categorized by name (e.g., `redis-cluster`, `mysql-slow`)
