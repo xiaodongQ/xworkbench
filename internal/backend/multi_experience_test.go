@@ -672,3 +672,76 @@ func TestNextClaimable(t *testing.T) {
 		t.Errorf("NextClaimable after claim = %s, want mid-1", next)
 	}
 }
+
+// TestAutoClaimEnabled 验证 auto_claim_enabled 开关默认 false。
+func TestAutoClaimEnabled(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil { t.Fatalf("TestDB: %v", err) }
+	defer cleanup()
+	agentRepo := NewAgentRepo(db)
+
+	a := &Agent{
+		ID:       "agent-toggle-test",
+		Name:     "ToggleTest",
+		TokenHash: HashToken("test-token-toggle"),
+		Status:   "online",
+		// AutoClaimEnabled 默认为 false（Go 默认零值）
+	}
+	if err := agentRepo.Register(a); err != nil { t.Fatalf("Register: %v", err) }
+
+	got, _ := agentRepo.GetByID("agent-toggle-test")
+	if got.AutoClaimEnabled {
+		t.Errorf("AutoClaimEnabled should default to false")
+	}
+
+	// 开启开关
+	agentRepo.SetAutoClaimEnabled("agent-toggle-test", true)
+	got2, _ := agentRepo.GetByID("agent-toggle-test")
+	if !got2.AutoClaimEnabled {
+		t.Errorf("AutoClaimEnabled should be true after SetAutoClaimEnabled")
+	}
+
+	// 关闭开关
+	agentRepo.SetAutoClaimEnabled("agent-toggle-test", false)
+	got3, _ := agentRepo.GetByID("agent-toggle-test")
+	if got3.AutoClaimEnabled {
+		t.Errorf("AutoClaimEnabled should be false after second SetAutoClaimEnabled")
+	}
+}
+
+// TestAutoEvalEnabled 验证 auto_eval_enabled 开关默认 false。
+func TestAutoEvalEnabled(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil { t.Fatalf("TestDB: %v", err) }
+	defer cleanup()
+	expRepo := NewExperienceRepo(db)
+
+	e := &Experience{
+		ID:      "exp-toggle-test",
+		Module:  "test-module",
+		Version: "v1",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		// AutoEvalEnabled 默认为 false（Go 默认零值）
+	}
+	if err := expRepo.Create(e); err != nil { t.Fatalf("Create: %v", err) }
+
+	got, _ := expRepo.Get("exp-toggle-test")
+	if got.AutoEvalEnabled {
+		t.Errorf("AutoEvalEnabled should default to false")
+	}
+
+	// 开启开关
+	expRepo.SetAutoEvalEnabled("exp-toggle-test", true)
+	got2, _ := expRepo.Get("exp-toggle-test")
+	if !got2.AutoEvalEnabled {
+		t.Errorf("AutoEvalEnabled should be true after SetAutoEvalEnabled")
+	}
+
+	// 关闭开关
+	expRepo.SetAutoEvalEnabled("exp-toggle-test", false)
+	got3, _ := expRepo.Get("exp-toggle-test")
+	if got3.AutoEvalEnabled {
+		t.Errorf("AutoEvalEnabled should be false after second SetAutoEvalEnabled")
+	}
+}

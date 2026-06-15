@@ -58,17 +58,18 @@ type Task struct {
 }
 
 type Experience struct {
-	ID           string    `json:"id"`
-	Module       string    `json:"module"`
-	Keywords     string    `json:"keywords,omitempty"`
-	LogPaths     string    `json:"log_paths,omitempty"`
-	ToolUsage    string    `json:"tool_usage,omitempty"`
-	Scene        string    `json:"scene,omitempty"`
-	LogSamples   string    `json:"log_samples,omitempty"`
-	CodeSnippets string    `json:"code_snippets,omitempty"`
-	Version      string    `json:"version"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID              string    `json:"id"`
+	Module          string    `json:"module"`
+	Keywords        string    `json:"keywords,omitempty"`
+	LogPaths        string    `json:"log_paths,omitempty"`
+	ToolUsage       string    `json:"tool_usage,omitempty"`
+	Scene           string    `json:"scene,omitempty"`
+	LogSamples      string    `json:"log_samples,omitempty"`
+	CodeSnippets    string    `json:"code_snippets,omitempty"`
+	Version         string    `json:"version"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	AutoEvalEnabled bool      `json:"auto_eval_enabled"` // 默认 false，true=开启自动评估
 }
 
 type SkillVersion struct {

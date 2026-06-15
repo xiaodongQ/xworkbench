@@ -2078,6 +2078,26 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		"status":  req.Status,
 		"task":    task,
 	})
+	// 自动评估：检查 experience 的 auto_eval_enabled 开关（仅在未手动评分时触发）
+	if req.EvaluationScore == nil && task.ExperienceID != "" {
+		exp, err := s.expDB.Get(task.ExperienceID)
+		if err == nil && exp.AutoEvalEnabled {
+			autoScore := 0.0
+			if req.Status == backend.TaskStatusArchived {
+				autoScore = 1.0
+			}
+			s.evalDB.Create(&backend.Evaluation{
+				ID:             fmt.Sprintf("auto-%s-%d", taskID, time.Now().UnixNano()),
+				TaskID:         taskID,
+				EvaluatorModel: "system",
+				Score:          autoScore,
+				Comments:       fmt.Sprintf("auto-eval: task status=%s", req.Status),
+				CreatedAt:      time.Now(),
+			})
+			s.db.UpdateEvalScore(taskID, autoScore)
+			slog.Info("auto-eval triggered", "task_id", taskID, "score", autoScore)
+		}
+	}
 	writeJSON(w, map[string]any{"ok": true, "task_id": taskID})
 }
 
@@ -2675,7 +2695,11 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
 		return
 	}
-	// 找下一个可领任务
+	if !a.AutoClaimEnabled {
+		writeErr(w, http.StatusForbidden, "auto claim is disabled for this agent")
+		return
+	}
+		// 找下一个可领任务
 	taskID, err := s.db.NextClaimable(req.AgentID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

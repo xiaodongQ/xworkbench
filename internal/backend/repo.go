@@ -49,7 +49,8 @@ func InitSchema(db *sql.DB) error {
 		code_snippets TEXT,
 		version TEXT,
 		created_at DATETIME,
-		updated_at DATETIME
+		updated_at DATETIME,
+		auto_eval_enabled INTEGER DEFAULT 0
 	);
 	CREATE TABLE IF NOT EXISTS skill_versions (
 		id TEXT PRIMARY KEY,
@@ -141,6 +142,7 @@ func InitSchema(db *sql.DB) error {
 		version TEXT,
 		last_heartbeat DATETIME,
 		status TEXT DEFAULT 'online',
+		auto_claim_enabled INTEGER DEFAULT 0,
 		created_at DATETIME
 	);
 	CREATE INDEX IF NOT EXISTS idx_agents_token ON agents(token_hash);
@@ -313,6 +315,7 @@ func migrateAgentsTable(db *sql.DB) error {
 		version TEXT,
 		last_heartbeat DATETIME,
 		status TEXT DEFAULT 'online',
+		auto_claim_enabled INTEGER DEFAULT 0,
 		created_at DATETIME
 	)`)
 	if err != nil {
@@ -574,23 +577,23 @@ type ExperienceRepo struct{ db *sql.DB }
 func NewExperienceRepo(db *sql.DB) *ExperienceRepo { return &ExperienceRepo{db: db} }
 
 func (r *ExperienceRepo) Create(e *Experience) error {
-	q := `INSERT INTO experiences (id,module,keywords,log_paths,tool_usage,scene,log_samples,code_snippets,version,created_at,updated_at)
-	        VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+	q := `INSERT INTO experiences (id,module,keywords,log_paths,tool_usage,scene,log_samples,code_snippets,version,created_at,updated_at,auto_eval_enabled)
+	        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, e.ID, e.Module, e.Keywords, e.LogPaths,
-		e.ToolUsage, e.Scene, e.LogSamples, e.CodeSnippets, e.Version, e.CreatedAt, e.UpdatedAt)
+		e.ToolUsage, e.Scene, e.LogSamples, e.CodeSnippets, e.Version, e.CreatedAt, e.UpdatedAt, e.AutoEvalEnabled)
 	return err
 }
 
 func (r *ExperienceRepo) Get(id string) (*Experience, error) {
-	q := `SELECT id,module,keywords,log_paths,tool_usage,scene,log_samples,code_snippets,version,created_at,updated_at FROM experiences WHERE id=?`
+	q := `SELECT id,module,keywords,log_paths,tool_usage,scene,log_samples,code_snippets,version,created_at,updated_at,auto_eval_enabled FROM experiences WHERE id=?`
 	var e Experience
-	err := r.db.QueryRow(q, id).Scan(&e.ID, &e.Module, &e.Keywords, &e.LogPaths, &e.ToolUsage, &e.Scene, &e.LogSamples, &e.CodeSnippets, &e.Version, &e.CreatedAt, &e.UpdatedAt)
+	err := r.db.QueryRow(q, id).Scan(&e.ID, &e.Module, &e.Keywords, &e.LogPaths, &e.ToolUsage, &e.Scene, &e.LogSamples, &e.CodeSnippets, &e.Version, &e.CreatedAt, &e.UpdatedAt, &e.AutoEvalEnabled)
 	if err == sql.ErrNoRows { return nil, fmt.Errorf("experience %s not found", id) }
 	return &e, err
 }
 
 func (r *ExperienceRepo) Search(module string) ([]*Experience, error) {
-	q := `SELECT id,module,keywords,log_paths,tool_usage,scene,log_samples,code_snippets,version,created_at,updated_at FROM experiences WHERE 1=1`
+	q := `SELECT id,module,keywords,log_paths,tool_usage,scene,log_samples,code_snippets,version,created_at,updated_at,auto_eval_enabled FROM experiences WHERE 1=1`
 	var args []any
 	if module != "" {
 		q += ` AND module LIKE ?`
@@ -602,7 +605,7 @@ func (r *ExperienceRepo) Search(module string) ([]*Experience, error) {
 	var list []*Experience
 	for rows.Next() {
 		var e Experience
-		err := rows.Scan(&e.ID, &e.Module, &e.Keywords, &e.LogPaths, &e.ToolUsage, &e.Scene, &e.LogSamples, &e.CodeSnippets, &e.Version, &e.CreatedAt, &e.UpdatedAt)
+		err := rows.Scan(&e.ID, &e.Module, &e.Keywords, &e.LogPaths, &e.ToolUsage, &e.Scene, &e.LogSamples, &e.CodeSnippets, &e.Version, &e.CreatedAt, &e.UpdatedAt, &e.AutoEvalEnabled)
 		if err != nil { return nil, err }
 		list = append(list, &e)
 	}
@@ -610,13 +613,19 @@ func (r *ExperienceRepo) Search(module string) ([]*Experience, error) {
 }
 
 func (r *ExperienceRepo) Update(e *Experience) error {
-	q := `UPDATE experiences SET keywords=?, log_paths=?, tool_usage=?, scene=?, log_samples=?, code_snippets=?, updated_at=? WHERE id=?`
-	_, err := r.db.Exec(q, e.Keywords, e.LogPaths, e.ToolUsage, e.Scene, e.LogSamples, e.CodeSnippets, time.Now(), e.ID)
+	q := `UPDATE experiences SET keywords=?, log_paths=?, tool_usage=?, scene=?, log_samples=?, code_snippets=?, updated_at=?, auto_eval_enabled=? WHERE id=?`
+	_, err := r.db.Exec(q, e.Keywords, e.LogPaths, e.ToolUsage, e.Scene, e.LogSamples, e.CodeSnippets, time.Now(), e.AutoEvalEnabled, e.ID)
 	return err
 }
 
 func (r *ExperienceRepo) Delete(id string) error {
 	_, err := r.db.Exec(`DELETE FROM experiences WHERE id=?`, id)
+	return err
+}
+
+// SetAutoEvalEnabled 开启/关闭自动评估开关。
+func (r *ExperienceRepo) SetAutoEvalEnabled(id string, enabled bool) error {
+	_, err := r.db.Exec(`UPDATE experiences SET auto_eval_enabled=? WHERE id=?`, enabled, id)
 	return err
 }
 
@@ -1144,14 +1153,15 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 // ---- Agent（远程 Agent 注册/心跳）----
 
 type Agent struct {
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	TokenHash     string     `json:"-"` // 不暴露给前端
-	Capabilities  string    `json:"capabilities,omitempty"`
-	Version       string    `json:"version,omitempty"`
-	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
-	Status        string     `json:"status"` // online | offline
-	CreatedAt     time.Time  `json:"created_at"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	TokenHash         string     `json:"-"` // 不暴露给前端
+	Capabilities      string     `json:"capabilities,omitempty"`
+	Version           string     `json:"version,omitempty"`
+	LastHeartbeat     *time.Time `json:"last_heartbeat,omitempty"`
+	Status            string     `json:"status"` // online | offline
+	AutoClaimEnabled  bool       `json:"auto_claim_enabled"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 type AgentRepo struct{ db *sql.DB }
@@ -1160,18 +1170,18 @@ func NewAgentRepo(db *sql.DB) *AgentRepo { return &AgentRepo{db: db} }
 
 // Register 新建 Agent（id/token 由调用方生成）。
 func (r *AgentRepo) Register(a *Agent) error {
-	q := `INSERT INTO agents (id,name,token_hash,capabilities,version,last_heartbeat,status,created_at)
-		VALUES (?,?,?,?,?,?,?,?)`
-	_, err := r.db.Exec(q, a.ID, a.Name, a.TokenHash, a.Capabilities, a.Version, a.LastHeartbeat, a.Status, a.CreatedAt)
+	q := `INSERT INTO agents (id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,created_at)
+		VALUES (?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.Exec(q, a.ID, a.Name, a.TokenHash, a.Capabilities, a.Version, a.LastHeartbeat, a.Status, a.AutoClaimEnabled, a.CreatedAt)
 	return err
 }
 
 // GetByID 根据 ID 查 Agent。
 func (r *AgentRepo) GetByID(id string) (*Agent, error) {
-	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,created_at FROM agents WHERE id=?`
+	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,created_at FROM agents WHERE id=?`
 	var a Agent
 	var hb sql.NullTime
-	err := r.db.QueryRow(q, id).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.CreatedAt)
+	err := r.db.QueryRow(q, id).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &a.CreatedAt)
 	if hb.Valid { a.LastHeartbeat = &hb.Time }
 	if err == sql.ErrNoRows { return nil, fmt.Errorf("agent %s not found", id) }
 	return &a, err
@@ -1179,10 +1189,10 @@ func (r *AgentRepo) GetByID(id string) (*Agent, error) {
 
 // GetByTokenHash 根据 token hash 查 Agent（用于登录验证）。
 func (r *AgentRepo) GetByTokenHash(hash string) (*Agent, error) {
-	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,created_at FROM agents WHERE token_hash=?`
+	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,created_at FROM agents WHERE token_hash=?`
 	var a Agent
 	var hb sql.NullTime
-	err := r.db.QueryRow(q, hash).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.CreatedAt)
+	err := r.db.QueryRow(q, hash).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &a.CreatedAt)
 	if hb.Valid { a.LastHeartbeat = &hb.Time }
 	if err == sql.ErrNoRows { return nil, fmt.Errorf("agent not found") }
 	return &a, err
@@ -1236,6 +1246,12 @@ func (r *AgentRepo) SetStatusOffline(id string) error {
 	return err
 }
 
+// SetAutoClaimEnabled 开启/关闭自动领任务开关。
+func (r *AgentRepo) SetAutoClaimEnabled(id string, enabled bool) error {
+	_, err := r.db.Exec(`UPDATE agents SET auto_claim_enabled=? WHERE id=?`, enabled, id)
+	return err
+}
+
 // ClaimTask 原子 claim：只有在 task 状态为 pending 且类型为 remote 且无人认领时才能 claim。
 // 成功返回 nil，失败返回 error（并发抢或状态不对）。
 func (r *TaskRepo) ClaimTask(taskID, agentID string) error {
@@ -1275,6 +1291,12 @@ func (r *TaskRepo) ReportTask(taskID, agentID, status, resultOutput string, eval
 		WHERE id=?`
 	now := time.Now()
 	_, err = r.db.Exec(q, status, resultOutput, evalScore, lastErr, status, now, taskID)
+	return err
+}
+
+// UpdateEvalScore 更新任务的评估分数（用于自动评估）。
+func (r *TaskRepo) UpdateEvalScore(taskID string, score float64) error {
+	_, err := r.db.Exec(`UPDATE tasks SET evaluation_score=? WHERE id=?`, score, taskID)
 	return err
 }
 

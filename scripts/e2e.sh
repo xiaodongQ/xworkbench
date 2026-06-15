@@ -611,6 +611,112 @@ case_ratelimit_webhook() {
   ok "rl-wh case ✅"
 }
 
+case_comments_priority() {
+  info "[cmt-pri] 创建任务带 priority → 验证 claim-next 按优先级 → 评论 CRUD"
+
+  # 1. 创建 3 个不同 priority 的任务
+  local lo_resp
+  lo_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"low-pri","task_type":"remote","priority":1}')
+  local lo_id=$(jget "$lo_resp" "id")
+  local lo_pri=$(jget "$lo_resp" "priority")
+  [ "$lo_pri" = "1" ] || { err "low priority 没设上: $lo_resp"; return 1; }
+  ok "low-pri 任务创建 (priority=$lo_pri)"
+
+  local hi_resp
+  hi_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"high-pri","task_type":"remote","priority":10}')
+  local hi_id=$(jget "$hi_resp" "id")
+  local hi_pri=$(jget "$hi_resp" "priority")
+  [ "$hi_pri" = "10" ] || { err "high priority 没设上: $hi_resp"; return 1; }
+  ok "high-pri 任务创建 (priority=$hi_pri)"
+
+  local mi_resp
+  mi_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"mid-pri","task_type":"remote","priority":5}')
+  local mi_id=$(jget "$mi_resp" "id")
+  ok "mid-pri 任务创建"
+
+  # 2. 注册 agent
+  local reg_resp
+  reg_resp=$(curl -s -X POST "http://${BASE_URL}/api/agents/register" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"e2e-cmt-agent"}')
+  local agent_id=$(jget "$reg_resp" "agent_id")
+  local token=$(jget "$reg_resp" "token")
+  [ -n "$agent_id" ] || { err "agent 注册失败"; return 1; }
+  ok "agent 注册: $agent_id"
+
+  # 3. claim-next 应返回 hi-pri 任务
+  local next_resp
+  next_resp=$(curl -s -X POST "http://${BASE_URL}/api/tasks/claim-next" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $token" \
+    -d "{\"agent_id\":\"$agent_id\"}")
+  local next_id=$(jget "$next_resp" "task.id")
+  if [ "$next_id" != "$hi_id" ]; then
+    err "claim-next 返回 $next_id，期望 $hi_id (high priority)"
+    return 1
+  fi
+  ok "claim-next 返回最高优先级任务 (high-pri)"
+
+  # 4. 验证 audit
+  local evts
+  evts=$(curl -s "http://${BASE_URL}/api/tasks/$hi_id/events")
+  local has_evt=$(echo "$evts" | python3 -c "import json,sys; d=json.load(sys.stdin); print(any(e['event_type']=='claimed_via_priority' for e in d))" 2>/dev/null)
+  [ "$has_evt" = "True" ] || { err "缺 claimed_via_priority 事件"; return 1; }
+  ok "事件流含 claimed_via_priority"
+
+  # 5. 在 hi-pri 任务上加评论
+  local c1
+  c1=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$hi_id/comments" \
+    -H "Content-Type: application/json" \
+    -d '{"author":"user-1","content":"这是第一条评论"}')
+  local c1_id=$(jget "$c1" "id")
+  [ -n "$c1_id" ] || { err "评论创建失败: $c1"; return 1; }
+  ok "评论创建: $c1_id"
+
+  # 6. 嵌套回复
+  local c2
+  c2=$(curl -s -X POST "http://${BASE_URL}/api/tasks/$hi_id/comments" \
+    -H "Content-Type: application/json" \
+    -d "{\"author\":\"user-2\",\"content\":\"这是回复\",\"parent_id\":\"$c1_id\"}")
+  local c2_id=$(jget "$c2" "id")
+  local c2_parent=$(jget "$c2" "parent_id")
+  [ "$c2_parent" = "$c1_id" ] || { err "parent_id 没设: $c2"; return 1; }
+  ok "嵌套回复 parent_id 正确"
+
+  # 7. 列表 + 修改 + 删除
+  local cmts_list
+  cmts_list=$(curl -s "http://${BASE_URL}/api/tasks/$hi_id/comments")
+  local count=$(echo "$cmts_list" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null)
+  [ "$count" = "2" ] || { err "评论数 $count, want 2"; return 1; }
+  ok "评论列表含 2 条"
+
+  # 更新
+  curl -s -X PUT "http://${BASE_URL}/api/comments/$c1_id" \
+    -H "Content-Type: application/json" \
+    -d '{"content":"修改后的内容"}' > /dev/null
+  ok "评论更新"
+
+  # 删除
+  curl -s -X DELETE "http://${BASE_URL}/api/comments/$c2_id" >/dev/null
+  local cmts_after
+  cmts_after=$(curl -s "http://${BASE_URL}/api/tasks/$hi_id/comments")
+  local count_after=$(echo "$cmts_after" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null)
+  [ "$count_after" = "1" ] || { err "删除后评论数 $count_after, want 1"; return 1; }
+  ok "评论删除成功"
+
+  # 8. 清理
+  curl -s -X DELETE "http://${BASE_URL}/api/tasks/$lo_id" >/dev/null
+  curl -s -X DELETE "http://${BASE_URL}/api/tasks/$hi_id" >/dev/null
+  curl -s -X DELETE "http://${BASE_URL}/api/tasks/$mi_id" >/dev/null
+  ok "cmt-pri case ✅"
+}
+
 case_teardown() {
   info "[teardown] 强清残留进程和临时文件"
   lsof -ti :19000-19999 2>/dev/null | xargs -r kill -9 2>/dev/null
@@ -657,6 +763,7 @@ case "$TARGET" in
     run_case case_audit_deps
     run_case case_templates_filters
     run_case case_ratelimit_webhook
+    run_case case_comments_priority
     ;;
   basic)   run_case case_basic ;;
   delete)  run_case case_delete ;;
@@ -667,6 +774,7 @@ case "$TARGET" in
   audit)   run_case case_audit_deps ;;
   tpl)     run_case case_templates_filters ;;
   rl)      run_case case_ratelimit_webhook ;;
+  cmt)     run_case case_comments_priority ;;
   fast)
     # 已在入口前处理(start_server 跳过)。这里只跑 case。
     run_case case_basic
@@ -678,7 +786,7 @@ case "$TARGET" in
   teardown) case_teardown; exit 0 ;;
   *)
     err "未知 case: $TARGET"
-    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|audit|tpl|rl|teardown]"
+    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|audit|tpl|rl|cmt|teardown]"
     exit 2
     ;;
 esac
@@ -688,5 +796,6 @@ if [ "$FAILED" = "1" ]; then
   exit 1
 fi
 ok "===== 全部 case 通过 ====="
+
 
 
