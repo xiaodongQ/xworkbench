@@ -608,3 +608,67 @@ func TestWebhook(t *testing.T) {
 	_, err = repo.Get(w.ID)
 	if err == nil { t.Errorf("should be deleted") }
 }
+
+// TestTaskComment 验证评论 CRUD + 嵌套回复。
+func TestTaskComment(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil { t.Fatalf("TestDB: %v", err) }
+	defer cleanup()
+	repo := NewTaskCommentRepo(db)
+
+	c1 := &TaskComment{TaskID: "task-cmt-1", Author: "user-1", Content: "第一条评论"}
+	if err := repo.Create(c1); err != nil { t.Fatalf("Create: %v", err) }
+	if c1.ID == "" { t.Errorf("ID auto-gen failed") }
+
+	// 嵌套回复
+	c2 := &TaskComment{TaskID: "task-cmt-1", Author: "user-2", Content: "回复第一条", ParentID: c1.ID}
+	repo.Create(c2)
+
+	// 列出
+	cmts, _ := repo.ListByTask("task-cmt-1")
+	if len(cmts) != 2 { t.Errorf("List len = %d, want 2", len(cmts)) }
+	if cmts[1].ParentID != c1.ID { t.Errorf("parent_id mismatch: %s", cmts[1].ParentID) }
+
+	// Update
+	c1.Content = "修改后的内容"
+	repo.Update(c1)
+	got, _ := repo.Get(c1.ID)
+	if got.Content != "修改后的内容" { t.Errorf("update failed") }
+
+	// Delete
+	repo.Delete(c2.ID)
+	cmts2, _ := repo.ListByTask("task-cmt-1")
+	if len(cmts2) != 1 { t.Errorf("after delete len = %d, want 1", len(cmts2)) }
+}
+
+// TestNextClaimable 验证优先级队列：priority 高的先 claim。
+func TestNextClaimable(t *testing.T) {
+	db, cleanup, err := TestDB()
+	if err != nil { t.Fatalf("TestDB: %v", err) }
+	defer cleanup()
+	taskRepo := NewTaskRepo(db)
+
+	// 创建 3 个 pending 任务，priority 不同
+	tasks := []*Task{
+		{ID: "low-1", Title: "low", Status: TaskStatusPending, TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now().Add(-3 * time.Second), Priority: 1},
+		{ID: "high-1", Title: "high", Status: TaskStatusPending, TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now().Add(-1 * time.Second), Priority: 10},
+		{ID: "mid-1", Title: "mid", Status: TaskStatusPending, TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now().Add(-2 * time.Second), Priority: 5},
+	}
+	for _, t1 := range tasks {
+		if err := taskRepo.Create(t1); err != nil { t.Fatalf("Create %s: %v", t1.ID, err) }
+	}
+
+	// NextClaimable 应返回 high-1
+	next, err := taskRepo.NextClaimable("agent-1")
+	if err != nil { t.Fatalf("NextClaimable: %v", err) }
+	if next != "high-1" {
+		t.Errorf("NextClaimable = %s, want high-1", next)
+	}
+
+	// 领取 high-1 后，下一个应是 mid-1
+	taskRepo.ClaimTask("high-1", "agent-1")
+	next, _ = taskRepo.NextClaimable("agent-2")
+	if next != "mid-1" {
+		t.Errorf("NextClaimable after claim = %s, want mid-1", next)
+	}
+}

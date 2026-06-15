@@ -194,6 +194,17 @@ func InitSchema(db *sql.DB) error {
 		last_triggered_at DATETIME,
 		fail_count INTEGER DEFAULT 0
 	);
+	CREATE TABLE IF NOT EXISTS task_comments (
+		id TEXT PRIMARY KEY,
+		task_id TEXT NOT NULL,
+		author TEXT NOT NULL,
+		content TEXT NOT NULL,
+		mentions TEXT,
+		parent_id TEXT,
+		created_at DATETIME,
+		updated_at DATETIME
+	);
+	CREATE INDEX IF NOT EXISTS idx_task_comments_task ON task_comments(task_id, created_at DESC);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		return err
@@ -315,10 +326,10 @@ type TaskRepo struct{ db *sql.DB }
 func NewTaskRepo(db *sql.DB) *TaskRepo { return &TaskRepo{db: db} }
 
 func (r *TaskRepo) Create(t *Task) error {
-	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type)
-	        VALUES (?,?,?,?,?,?,?,?,?,?)`
+	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type,priority)
+	        VALUES (?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, t.ID, t.Title, t.Description, t.Status,
-		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt, t.TaskType)
+		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt, t.TaskType, t.Priority)
 	return err
 }
 
@@ -326,7 +337,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
 		claimed_at,maintainer,repo_address,archived_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
-		task_type,claimer_agent_id,result_output,evaluation_score
+		task_type,claimer_agent_id,result_output,evaluation_score,priority
 		FROM tasks WHERE id=?`
 	var t Task
 	var claimedAt, archivedAt sql.NullTime
@@ -336,11 +347,12 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	var improvThresh, evalScore sql.NullFloat64
 	var lastHeartbeat sql.NullTime
 	var lastErr, taskType, claimerAgentID, resultOutput sql.NullString
+	var priority int
 	err := r.db.QueryRow(q, id).Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 		&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 		&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
-		&taskType, &claimerAgentID, &resultOutput, &evalScore)
+		&taskType, &claimerAgentID, &resultOutput, &evalScore, &priority)
 	t.Acceptance = acc.String
 	t.Result = res.String
 	t.Maintainer = maintainer.String
@@ -353,6 +365,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	t.TaskType = taskType.String
 	t.ClaimerAgentID = claimerAgentID.String
 	t.ResultOutput = resultOutput.String
+	t.Priority = priority
 	if claimedAt.Valid { t.ClaimedAt = &claimedAt.Time }
 	if archivedAt.Valid { t.ArchivedAt = &archivedAt.Time }
 	if improvThresh.Valid { t.ImprovementThreshold = improvThresh.Float64 }
@@ -483,7 +496,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
 		claimed_at,maintainer,repo_address,archived_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
-		task_type,claimer_agent_id,result_output,evaluation_score
+		task_type,claimer_agent_id,result_output,evaluation_score,priority
 		FROM tasks`
 	var args []any
 	var where []string
@@ -501,7 +514,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 			q += " AND " + where[i]
 		}
 	}
-	q += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	q += ` ORDER BY priority DESC, created_at DESC LIMIT ? OFFSET ?`
 	args = append(args, filter.Limit, filter.Offset)
 	rows, err := r.db.Query(q, args...)
 	if err != nil {
@@ -518,11 +531,12 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		var improvThresh, evalScore sql.NullFloat64
 		var lastHeartbeat sql.NullTime
 		var lastErr, taskType, claimerAgentID, resultOutput sql.NullString
+		var priority int
 		err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 			&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 			&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 			&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
-			&taskType, &claimerAgentID, &resultOutput, &evalScore)
+			&taskType, &claimerAgentID, &resultOutput, &evalScore, &priority)
 		t.Acceptance = acc.String
 		t.Result = res.String
 		t.Maintainer = maintainer.String
@@ -535,6 +549,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		t.TaskType = taskType.String
 		t.ClaimerAgentID = claimerAgentID.String
 		t.ResultOutput = resultOutput.String
+		t.Priority = priority
 		if claimedAt.Valid { t.ClaimedAt = &claimedAt.Time }
 		if archivedAt.Valid { t.ArchivedAt = &archivedAt.Time }
 		if improvThresh.Valid { t.ImprovementThreshold = improvThresh.Float64 }
@@ -1667,4 +1682,93 @@ func (r *WebhookRepo) MarkTriggered(id string) error {
 func (r *WebhookRepo) IncrementFail(id string) error {
 	_, err := r.db.Exec(`UPDATE webhooks SET fail_count=fail_count+1 WHERE id=?`, id)
 	return err
+}
+
+// ---- TaskComment 评论 ----
+
+type TaskComment struct {
+	ID        string    `json:"id"`
+	TaskID    string    `json:"task_id"`
+	Author    string    `json:"author"`
+	Content   string    `json:"content"`
+	Mentions  string    `json:"mentions,omitempty"` // JSON 数组
+	ParentID  string    `json:"parent_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type TaskCommentRepo struct{ db *sql.DB }
+
+func NewTaskCommentRepo(db *sql.DB) *TaskCommentRepo { return &TaskCommentRepo{db: db} }
+
+func (r *TaskCommentRepo) Create(c *TaskComment) error {
+	if c.ID == "" { c.ID = "cmt-" + time.Now().Format("20060102150405") + "-" + randStr(6) }
+	now := time.Now()
+	c.CreatedAt = now
+	c.UpdatedAt = now
+	_, err := r.db.Exec(`INSERT INTO task_comments (id,task_id,author,content,mentions,parent_id,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		c.ID, c.TaskID, c.Author, c.Content, c.Mentions, c.ParentID, c.CreatedAt, c.UpdatedAt)
+	return err
+}
+
+func (r *TaskCommentRepo) Get(id string) (*TaskComment, error) {
+	q := `SELECT id,task_id,author,content,mentions,parent_id,created_at,updated_at FROM task_comments WHERE id=?`
+	var c TaskComment
+	var mentions, parentID sql.NullString
+	err := r.db.QueryRow(q, id).Scan(&c.ID, &c.TaskID, &c.Author, &c.Content, &mentions, &parentID, &c.CreatedAt, &c.UpdatedAt)
+	if err == sql.ErrNoRows { return nil, fmt.Errorf("comment %s not found", id) }
+	c.Mentions = mentions.String
+	c.ParentID = parentID.String
+	return &c, err
+}
+
+func (r *TaskCommentRepo) ListByTask(taskID string) ([]*TaskComment, error) {
+	rows, err := r.db.Query(`SELECT id,task_id,author,content,mentions,parent_id,created_at,updated_at
+		FROM task_comments WHERE task_id=? ORDER BY created_at ASC, id ASC`, taskID)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var out []*TaskComment
+	for rows.Next() {
+		var c TaskComment
+		var mentions, parentID sql.NullString
+		if err := rows.Scan(&c.ID, &c.TaskID, &c.Author, &c.Content, &mentions, &parentID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		c.Mentions = mentions.String
+		c.ParentID = parentID.String
+		out = append(out, &c)
+	}
+	return out, rows.Err()
+}
+
+func (r *TaskCommentRepo) Update(c *TaskComment) error {
+	c.UpdatedAt = time.Now()
+	_, err := r.db.Exec(`UPDATE task_comments SET content=?,mentions=?,updated_at=? WHERE id=?`,
+		c.Content, c.Mentions, c.UpdatedAt, c.ID)
+	return err
+}
+
+func (r *TaskCommentRepo) Delete(id string) error {
+	_, err := r.db.Exec(`DELETE FROM task_comments WHERE id=?`, id)
+	return err
+}
+
+// NextClaimable 返回下一个可 claim 的 remote 任务（按 priority DESC, claimed_at ASC 排序）。
+// 排除：有未完成 hard 依赖的任务。
+func (r *TaskRepo) NextClaimable(agentID string) (string, error) {
+	q := `SELECT id FROM tasks
+		WHERE status='pending' AND task_type='remote'
+		  AND (claimer_agent_id='' OR claimer_agent_id IS NULL)
+		  AND NOT EXISTS (
+		    SELECT 1 FROM task_dependencies d
+		    WHERE d.task_id = tasks.id AND d.type='hard'
+		      AND d.depends_on IN (SELECT id FROM tasks WHERE status != 'archived')
+		  )
+		ORDER BY priority DESC, created_at ASC
+		LIMIT 1`
+	var id string
+	err := r.db.QueryRow(q).Scan(&id)
+	if err == sql.ErrNoRows { return "", nil }
+	return id, err
 }

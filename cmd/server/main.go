@@ -55,6 +55,7 @@ type APIServer struct {
 	sfDB    *backend.SavedFilterRepo
 	whDB    *backend.WebhookRepo
 	whDisp  *webhook.Dispatcher
+	cmtDB   *backend.TaskCommentRepo
 	sch    *scheduler.Scheduler
 	hub    *hub.Hub
 	relayHandler *relay.RelayHandler
@@ -73,7 +74,7 @@ func NewAPIServer(
 	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
 	eventDB *backend.TaskEventRepo, depDB *backend.TaskDependencyRepo,
 	tplDB *backend.TaskTemplateRepo, sfDB *backend.SavedFilterRepo,
-	whDB *backend.WebhookRepo, whDisp *webhook.Dispatcher,
+	whDB *backend.WebhookRepo, whDisp *webhook.Dispatcher, cmtDB *backend.TaskCommentRepo,
 	sch *scheduler.Scheduler, h *hub.Hub,
 	relayRepo relay.Repo,
 ) *APIServer {
@@ -82,7 +83,7 @@ func NewAPIServer(
 		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, setDB: setDB, evalDB: evalDB,
 		agentDB: agentDB, eventDB: eventDB, depDB: depDB,
 		tplDB: tplDB, sfDB: sfDB,
-		whDB: whDB, whDisp: whDisp,
+		whDB: whDB, whDisp: whDisp, cmtDB: cmtDB,
 		sch: sch, hub: h,
 		relayHandler: relay.NewRelayHandler(relayRepo),
 		mux: http.NewServeMux(), running: map[string]context.CancelFunc{},
@@ -182,6 +183,7 @@ func (s *APIServer) routes() {
 	agentMux.HandleFunc("POST /api/agents/{id}/heartbeat", s.handleAgentHeartbeat)
 	agentMux.HandleFunc("POST /api/tasks/{id}/claim", s.handleTaskClaim)
 	agentMux.HandleFunc("POST /api/tasks/{id}/report", s.handleTaskReport)
+	agentMux.HandleFunc("POST /api/tasks/claim-next", s.handleTaskClaimNext)
 	// agent API 套上速率限制 middleware（默认 60/min，可由 RATE_LIMIT_PER_MIN 调整；0 = 禁用）
 	{
 		var agentHandler http.Handler = agentMux
@@ -194,6 +196,7 @@ func (s *APIServer) routes() {
 		mux.Handle("POST /api/agents/{id}/heartbeat", agentHandler)
 		mux.Handle("POST /api/tasks/{id}/claim", agentHandler)
 		mux.Handle("POST /api/tasks/{id}/report", agentHandler)
+		mux.Handle("POST /api/tasks/claim-next", agentHandler)
 	}
 
 	// 审计 + 依赖
@@ -223,6 +226,14 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("PUT /api/webhooks/{id}", s.handleWebhookUpdate)
 	mux.HandleFunc("DELETE /api/webhooks/{id}", s.handleWebhookDelete)
 	mux.HandleFunc("POST /api/webhooks/{id}/test", s.handleWebhookTest)
+
+	// 评论
+	mux.HandleFunc("GET /api/tasks/{id}/comments", s.handleCommentList)
+	mux.HandleFunc("POST /api/tasks/{id}/comments", s.handleCommentCreate)
+	mux.HandleFunc("PUT /api/comments/{id}", s.handleCommentUpdate)
+	mux.HandleFunc("DELETE /api/comments/{id}", s.handleCommentDelete)
+
+	// 任务优先级队列：claim-next（自动领下一个最高优先级任务）
 }
 
 func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -255,6 +266,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Acceptance   string   `json:"acceptance"`
 		Module       string   `json:"module"`
 		TaskType     string   `json:"task_type"` // 'manual'|'scheduled'|'remote'，默认 'manual'
+		Priority     int      `json:"priority"`  // 数字越大越优先，默认 5
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -271,6 +283,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Version:      "v0.0.1",
 		CreatedAt:    time.Now(),
 		TaskType:     req.TaskType,
+		Priority:     req.Priority,
 	}
 	if err := s.db.Create(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -1651,9 +1664,10 @@ func main() {
 	sfRepo := backend.NewSavedFilterRepo(db)
 	whRepo := backend.NewWebhookRepo(db)
 	whDisp := webhook.NewDispatcher(whRepo)
+	cmtRepo := backend.NewTaskCommentRepo(db)
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
 		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, agentRepo,
-		eventRepo, depRepo, tplRepo, sfRepo, whRepo, whDisp, sch, h, relayRepo)
+		eventRepo, depRepo, tplRepo, sfRepo, whRepo, whDisp, cmtRepo, sch, h, relayRepo)
 
 	// 后台 goroutine：心跳超时检测
 	// Agent >30s 未心跳 → 标记为 offline，并把该 agent 手上未完成的任务还回 pending 池
@@ -2558,4 +2572,131 @@ func (s *APIServer) handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 		"webhook_id": wh.ID, "message": "Hello from xworkbench webhook test!",
 	})
 	writeJSON(w, map[string]string{"status": "test_dispatched"})
+}
+
+// ---- Comment Handlers ----
+
+func (s *APIServer) handleCommentList(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("id")
+	cmts, err := s.cmtDB.ListByTask(taskID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cmts)
+}
+
+func (s *APIServer) handleCommentCreate(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("id")
+	var req struct {
+		Author   string `json:"author"`
+		Content  string `json:"content"`
+		Mentions string `json:"mentions"`
+		ParentID string `json:"parent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Content == "" {
+		writeErr(w, http.StatusBadRequest, "content is required")
+		return
+	}
+	if req.Author == "" { req.Author = "user" }
+	c := &backend.TaskComment{
+		TaskID: taskID, Author: req.Author, Content: req.Content,
+		Mentions: req.Mentions, ParentID: req.ParentID,
+	}
+	if err := s.cmtDB.Create(c); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// 审计
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: taskID, EventType: "commented",
+		Actor: req.Author, CreatedAt: time.Now(),
+	})
+	// Webhook
+	s.whDisp.Dispatch("task.commented", map[string]any{"task_id": taskID, "author": req.Author, "comment_id": c.ID})
+	writeJSON(w, c)
+}
+
+func (s *APIServer) handleCommentUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	c, err := s.cmtDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var req struct {
+		Content  string `json:"content"`
+		Mentions string `json:"mentions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Content != "" { c.Content = req.Content }
+	c.Mentions = req.Mentions
+	if err := s.cmtDB.Update(c); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, c)
+}
+
+func (s *APIServer) handleCommentDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.cmtDB.Delete(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+// handleTaskClaimNext 任务优先级队列：自动领下一个最高优先级任务。
+// 找不到可领任务时返回 204。
+// (在 agentHandler 注册时被 ratelimit 包裹)
+func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) {
+	token := extractBearerToken(r)
+	if token == "" {
+		writeErr(w, http.StatusUnauthorized, "missing token")
+		return
+	}
+	var req struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a, err := s.agentDB.GetByToken(token)
+	if err != nil || a.ID != req.AgentID {
+		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
+		return
+	}
+	// 找下一个可领任务
+	taskID, err := s.db.NextClaimable(req.AgentID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if taskID == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	// 尝试 claim
+	if err := s.db.ClaimTask(taskID, req.AgentID); err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	task, _ := s.db.Get(taskID)
+	// 审计
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: taskID, EventType: "claimed_via_priority",
+		Actor: "agent:" + req.AgentID, CreatedAt: time.Now(),
+	})
+	// Webhook
+	s.whDisp.Dispatch("task.claimed", map[string]any{"task_id": taskID, "agent_id": req.AgentID, "via": "claim-next"})
+	writeJSON(w, map[string]any{"status": "claimed", "task": task})
 }
