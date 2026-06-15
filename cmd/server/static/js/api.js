@@ -54,7 +54,7 @@ async function fetchJSON(url, opts) {
 }
 
 function statusTag(status) {
-  const labels = {pending: '待认领', in_progress: '进行中', archived: '已完成', exception: '异常'};
+  const labels = {pending: '待认领', in_progress: '进行中', archived: '已完成', exception: '异常', waiting_input: '待交互'};
   return `<span class="status-pill status-${status}">${labels[status] || status}</span>`;
 }
 

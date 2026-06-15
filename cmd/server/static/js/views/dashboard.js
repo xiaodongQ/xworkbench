@@ -10,6 +10,7 @@ async function loadDashboard() {
     ]);
     document.getElementById('stat-pending').textContent = stats.pending_tasks;
     document.getElementById('stat-in_progress').textContent = stats.in_progress_tasks;
+    document.getElementById('stat-waiting_input').textContent = stats.waiting_input_tasks;
     document.getElementById('stat-archived').textContent = stats.archived_tasks;
     document.getElementById('stat-exception').textContent = stats.exception_tasks;
     renderChart(stats.daily_stats || []);

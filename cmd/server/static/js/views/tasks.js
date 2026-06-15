@@ -331,6 +331,15 @@ function viewTask(id) {
   document.getElementById('task-acceptance').value = t.acceptance || '';
   document.getElementById('task-acceptance').readOnly = true;
   document.getElementById('task-submit-btn').classList.add('hidden');
+  // 待交互内容展示
+  const waitingSection = document.getElementById('task-waiting-input-section');
+  const waitingContent = document.getElementById('task-waiting-input-content');
+  if (t.status === 'waiting_input' && t.waiting_input) {
+    waitingSection.classList.remove('hidden');
+    waitingContent.textContent = t.waiting_input;
+  } else {
+    waitingSection.classList.add('hidden');
+  }
   // 经验库：展示 chip 列表（不可编辑）
   _selectedExps = [];
   if (t.experience_id) {

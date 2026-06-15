@@ -419,12 +419,13 @@ func (s *APIServer) handleExpDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 	type Stats struct {
-		TotalTasks       int `json:"total_tasks"`
-		PendingTasks     int `json:"pending_tasks"`
-		InProgressTasks  int `json:"in_progress_tasks"`
-		ArchivedTasks int `json:"archived_tasks"`
-		ExceptionTasks   int `json:"exception_tasks"`
-		TotalExp         int `json:"total_exp"`
+		TotalTasks        int `json:"total_tasks"`
+		PendingTasks      int `json:"pending_tasks"`
+		InProgressTasks   int `json:"in_progress_tasks"`
+		WaitingInputTasks int `json:"waiting_input_tasks"`
+		ArchivedTasks     int `json:"archived_tasks"`
+		ExceptionTasks    int `json:"exception_tasks"`
+		TotalExp          int `json:"total_exp"`
 	}
 	all, _ := s.db.List(backend.TaskFilter{Limit: 10000, Offset: 0})
 	st := Stats{TotalTasks: len(all)}
@@ -432,6 +433,7 @@ func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 		switch t.Status {
 		case backend.TaskStatusPending: st.PendingTasks++
 		case backend.TaskStatusInProgress: st.InProgressTasks++
+		case backend.TaskStatusWaitingInput: st.WaitingInputTasks++
 		case backend.TaskStatusArchived: st.ArchivedTasks++
 		case backend.TaskStatusException: st.ExceptionTasks++
 		}
@@ -543,8 +545,8 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		slog.String("cmd", exec.Command),
 	)
 
-	// 异步跑
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	// 异步跑，10min 超时
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	s.mu.Lock()
 	s.running[id] = cancel
 	s.mu.Unlock()
@@ -1933,6 +1935,7 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		ResultOutput  string   `json:"result_output"`
 		EvaluationScore *float64 `json:"evaluation_score"`
 		LastError     string   `json:"last_error"`
+		WaitingInput  string   `json:"waiting_input"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -1947,11 +1950,19 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 	if req.Status == "" {
 		req.Status = backend.TaskStatusArchived
 	}
-	if err := s.db.ReportTask(taskID, req.AgentID, req.Status, req.ResultOutput, req.EvaluationScore, req.LastError); err != nil {
+	if err := s.db.ReportTask(taskID, req.AgentID, req.Status, req.ResultOutput, req.EvaluationScore, req.LastError, req.WaitingInput); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	slog.Info("task report received", "task_id", taskID, "agent_id", req.AgentID, "status", req.Status)
+	// WebSocket 广播任务状态变更
+	task, _ := s.db.Get(taskID)
+	s.hub.Broadcast(wsmsg.ChannelTask, map[string]any{
+		"task_id":       taskID,
+		"status":        req.Status,
+		"waiting_input": req.WaitingInput,
+		"task":          task,
+	})
 	writeJSON(w, map[string]any{"ok": true, "task_id": taskID})
 }
 

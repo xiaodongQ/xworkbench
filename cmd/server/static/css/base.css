@@ -178,6 +178,7 @@ body {
 .stat-value { font-size: 32px; font-weight: 600; }
 .stat-pending .stat-value { color: var(--warning); }
 .stat-in_progress .stat-value { color: var(--primary); }
+.stat-waiting .stat-value { color: #ca8a04; }
 .stat-archived .stat-value { color: var(--success); }
 .stat-exception .stat-value { color: var(--danger); }
 
@@ -268,6 +269,7 @@ tr:last-child td { border-bottom: none; }
 .status-in_progress { background: rgba(37,99,235,0.1); color: var(--primary); }
 .status-archived { background: rgba(22,163,74,0.1); color: var(--success); }
 .status-exception { background: rgba(220,38,38,0.1); color: var(--danger); }
+.status-waiting_input { background: rgba(234,179,8,0.15); color: #ca8a04; }
 
 /* ===== 工具栏 / 按钮 ===== */
 .toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }

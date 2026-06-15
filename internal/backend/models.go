@@ -6,10 +6,11 @@ import (
 
 // TaskStatus values
 const (
-	TaskStatusPending    = "pending"
-	TaskStatusInProgress = "in_progress"
-	TaskStatusArchived   = "archived"
-	TaskStatusException  = "exception"
+	TaskStatusPending       = "pending"
+	TaskStatusInProgress    = "in_progress"
+	TaskStatusArchived      = "archived"
+	TaskStatusException     = "exception"
+	TaskStatusWaitingInput  = "waiting_input"
 )
 
 // TaskType values
@@ -52,6 +53,8 @@ type Task struct {
 	ClaimerAgentID   string   `json:"claimer_agent_id,omitempty"`
 	ResultOutput     string   `json:"result_output,omitempty"`
 	EvaluationScore *float64 `json:"evaluation_score,omitempty"`
+	WaitingInput     string   `json:"waiting_input,omitempty"`   // 待交互的提示内容
+	ExecutionID      string   `json:"execution_id,omitempty"`    // 当前执行的 execution id
 }
 
 type Experience struct {

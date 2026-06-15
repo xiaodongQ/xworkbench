@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
 <link rel="stylesheet" href="/static/css/base.css">
+<script src="/static/js/ws-client.js"></script>
 <script>
   if (navigator.userAgent.includes('Windows')) {
     document.body.classList.add('windows');
@@ -108,6 +109,10 @@
         <div class="stat-label">进行中</div>
         <div class="stat-value" id="stat-in_progress">-</div>
       </div>
+      <div class="stat-card stat-waiting" onclick="switchTab('tasks');document.getElementById('filter-status').value='waiting_input';loadTasks()" style="cursor:pointer">
+        <div class="stat-label">待交互</div>
+        <div class="stat-value" id="stat-waiting_input">-</div>
+      </div>
       <div class="stat-card stat-archived">
         <div class="stat-label">已完成</div>
         <div class="stat-value" id="stat-archived">-</div>
@@ -158,6 +163,7 @@
         <option value="">全部状态</option>
         <option value="pending">待认领</option>
         <option value="in_progress">进行中</option>
+        <option value="waiting_input">待交互</option>
         <option value="archived">已完成</option>
         <option value="exception">异常</option>
       </select>
@@ -385,6 +391,11 @@
       <div class="form-group"><label>资源链接 <span class="field-hint">仓库或文档</span></label><input id="task-resources" placeholder="仓库地址或文档链接"></div>
     </div>
     <div class="form-group"><label>验收标准 <span class="field-hint">正向+反向用例</span></label><textarea id="task-acceptance" class="code" placeholder="正向用例:\n输入... → 输出...\n\n反向用例:\n输入... → 预期行为..."></textarea></div>
+    <!-- 待交互内容（waiting_input 状态时显示） -->
+    <div id="task-waiting-input-section" class="form-group hidden">
+      <label>⚠️ 待交互内容 <span class="field-hint" style="background:rgba(202,138,4,0.15);color:#ca8a04">需要人工介入</span></label>
+      <div id="task-waiting-input-content" style="background:#fff8e1;border:1px solid #ffc107;border-radius:4px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:150px;overflow-y:auto;"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTaskModal()">取消</button>
       <button id="task-submit-btn" class="btn btn-primary" onclick="submitTask()">创建</button>
