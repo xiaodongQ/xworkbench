@@ -34,7 +34,9 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 		slog.String("model", model),
 		slog.Int("prompt_chars", len(prompt)),
 	)
-	o := &buildOpts{}
+	o := &buildOpts{
+		allowedTools: []string{"Bash", "Write", "Edit", "Read", "Grep"},
+	}
 	for _, opt := range opts {
 		opt(o)
 	}
