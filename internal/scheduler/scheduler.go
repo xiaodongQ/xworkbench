@@ -152,7 +152,10 @@ func (s *Scheduler) makeHandler(t *backend.ScheduledTask) func() {
 }
 
 func (s *Scheduler) execute(t *backend.ScheduledTask) {
-	cmd, cleanup, err := runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt, runner.WithActionReport())
+	cmd, cleanup, err := runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
+		runner.WithActionReport(),
+		runner.WithAllowedTools("Bash", "Write", "Edit", "Read"),
+	)
 	if err != nil {
 		slog.Error("scheduler: build command failed", "task", t.Name, "err", err)
 		_ = s.repo.UpdateAfterRun(t.ID, "build_error", "")

@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/xiaodongQ/xworkbench/internal/config"
@@ -124,6 +125,19 @@ func OpenTerminal(termType, dir, binPath string) error {
 		slog.Any("args", args),
 		slog.String("at", "terminal.go:113"))
 	cmd := exec.Command(bin, args...)
+	if runtime.GOOS == "windows" {
+		// 用 cmd /C start 创建完全独立的新窗口
+		// start "" 表示空标题，/D 设置工作目录
+		parts := []string{bin}
+		parts = append(parts, args...)
+		rawCmd := fmt.Sprintf(`cmd /C start "" /D "%s" %s`, dir, strings.Join(parts, " "))
+		cmd = exec.Command("cmd", "/C", rawCmd)
+		// 备选方案（需要 syscall）：
+		// cmd = exec.Command("cmd")
+		// cmd.SysProcAttr = &syscall.SysProcAttr{
+		// 	CmdLine: rawCmd,
+		// }
+	}
 	return cmd.Start()
 }
 

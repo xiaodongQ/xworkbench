@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -1537,6 +1538,17 @@ func main() {
 			}
 		}
 
+	// 日志默认写入文件
+	logDir := filepath.Join(filepath.Dir(dbPath), "logs")
+	if err := os.MkdirAll(logDir, 0755); err == nil {
+		logFile := filepath.Join(logDir, "xworkbench.log")
+		f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err == nil {
+			slog.SetDefault(slog.New(slog.NewJSONHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo})))
+			log.Printf("日志写入文件: %s", logFile)
+		}
+	}
+
 	taskRepo := backend.NewTaskRepo(db)
 	expRepo := backend.NewExperienceRepo(db)
 	execRepo := backend.NewExecutionRepo(db)
@@ -1563,7 +1575,7 @@ func main() {
 
 	addr := os.Getenv("ADDR")
 	if addr == "" {
-		addr = ":8901"
+		addr = ":8902"
 	}
 	// SO_REUSEADDR：服务重启时避免 "address already in use" 等 TIME_WAIT
 	ln, err := net.Listen("tcp", addr)

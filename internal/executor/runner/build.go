@@ -47,6 +47,9 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 		if sessionID != "" {
 			cmd = append(cmd, "--session-id", sessionID)
 		}
+		if len(o.allowedTools) > 0 {
+			cmd = append(cmd, "--allowedTools", strings.Join(o.allowedTools, ","))
+		}
 		finalPrompt := prompt
 		if o.actionReport {
 			finalPrompt = prompt + ActionReportSuffix
@@ -140,6 +143,14 @@ const ActionReportSuffix = `
 // WithActionReport 返回一个选项，启用动作清单自报后缀（仅对 claude/cbc 生效）。
 func WithActionReport() func(*buildOpts) { return func(o *buildOpts) { o.actionReport = true } }
 
+// WithAllowedTools 返回一个选项，设置允许的工具列表（仅对 claude 生效）。
+func WithAllowedTools(tools ...string) func(*buildOpts) {
+	return func(o *buildOpts) {
+		o.allowedTools = tools
+	}
+}
+
 type buildOpts struct {
 	actionReport bool
+	allowedTools []string
 }
