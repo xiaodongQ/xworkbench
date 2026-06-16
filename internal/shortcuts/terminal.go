@@ -75,40 +75,39 @@ func DefaultTerminal() string {
 	return cfg.Terminal.DefaultType
 }
 
-// OpenRemoteDirShortcut 用配置的终端软件打开远程目录（通过 SSH）。
-// 支持 password 和 key 两种认证方式。
-// dir: 本地 DirShortcut 对象，Type=="remote" 时使用。
-// termType: 终端类型（wezterm/wt/terminal 等）
-// binPath: 终端二进制路径（可选）
+// OpenRemoteDirShortcut 用系统默认方式打开远程 SSH 连接。
+// macOS 使用 open 命令，会调用用户配置的终端 app。
 func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) error {
 	if dir.Type != backend.DirShortcutTypeRemote {
 		return fmt.Errorf("not a remote shortcut: type=%s", dir.Type)
 	}
-	// 构建 SSH 目标: user@host
 	sshTarget := dir.RemoteHost
 	if dir.RemoteUser != "" {
 		sshTarget = dir.RemoteUser + "@" + dir.RemoteHost
 	}
-	// 构建 ssh 参数
-	sshArgs := []string{}
+	sshURL := "ssh://" + sshTarget
 	if dir.AuthMethod == "key" && dir.KeyPath != "" {
-		sshArgs = append(sshArgs, "-i", dir.KeyPath)
+		// SSH key 认证：将 key 路径传给 ssh 命令
+		sshArgs := []string{"-i", dir.KeyPath, sshTarget}
+		var sshCmd string
+		if dir.Path != "" {
+			sshCmd = "cd '" + dir.Path + "' && exec $SHELL"
+		} else {
+			sshCmd = "exec $SHELL"
+		}
+		sshArgs = append(sshArgs, "-t", "--", "sh", "-c", sshCmd)
+		logger.Infow("[OpenRemoteDirShortcut] ssh command", "target", sshTarget, "auth", dir.AuthMethod, "sshArgs", sshArgs)
+		go func() {
+			cmd := exec.Command("ssh", sshArgs...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Run()
+		}()
+		return nil
 	}
-	sshArgs = append(sshArgs, sshTarget)
-	// 登录后 cd 到目标目录并启动 shell（本地 path 对远程无意义，仅 cd 到用户主目录）
-	var cdCmd string
-	if dir.Path != "" {
-		cdCmd = "cd '" + dir.Path + "' && exec $SHELL"
-	} else {
-		cdCmd = "exec $SHELL"
-	}
-	sshArgs = append(sshArgs, "--", "sh", "-c", cdCmd)
-	logger.Infow("[OpenRemoteDirShortcut] ssh command", "target", sshTarget, "auth", dir.AuthMethod, "sshArgs", sshArgs)
-	// 先用 ssh 检测连通性（不阻塞）
-	go func() {
-		exec.Command("ssh", sshArgs...).Start()
-	}()
-	return nil
+	logger.Infow("[OpenRemoteDirShortcut] opening", "url", sshURL, "binPath", binPath)
+	return exec.Command("open", sshURL).Start()
 }
 
 // OpenRemoteTerminal 打开远程终端（简化版：用 ssh 命令，URL 风格）
