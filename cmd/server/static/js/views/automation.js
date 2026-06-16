@@ -248,13 +248,15 @@ async function editScheduled(id) {
   document.getElementById('sched-name').value = s.name;
   document.getElementById('sched-cron').value = s.cron_expr;
   document.getElementById('sched-type').value = s.command_type;
-  document.getElementById('sched-model').value = s.model || '';
   document.getElementById('sched-prompt').value = s.prompt;
   document.getElementById('sched-timeout').value = s.timeout_sec || '';
   document.getElementById('sched-enabled').checked = s.enabled;
   document.getElementById('sched-submit-btn').textContent = '保存';
   document.getElementById('scheduled-modal').classList.remove('hidden');
+  // 编辑时：先设置已有模型值，再更新下拉框选项，最后恢复已有值（避免被全局默认值覆盖）
+  const savedModel = s.model || '';
   onSchedTypeChange();
+  document.getElementById('sched-model').value = savedModel;
 }
 function submitScheduled() {
   const id = document.getElementById('sched-id').value;

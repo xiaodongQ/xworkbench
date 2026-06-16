@@ -17,6 +17,16 @@
         "plate": "Windows",
         "path": ""
       },
+      "gnome": {
+        "bin": "gnome-terminal",
+        "args": [
+          "--",
+          "--working-directory={dir}"
+        ],
+        "name": "GNOME Terminal",
+        "plate": "linux",
+        "path": ""
+      },
       "powershell": {
         "bin": "powershell.exe",
         "args": [
@@ -36,6 +46,17 @@
           "cd '{dir}'"
         ],
         "name": "PowerShell Core",
+        "plate": "all",
+        "path": ""
+      },
+      "pwsh7": {
+        "bin": "pwsh",
+        "args": [
+          "-NoExit",
+          "-c",
+          "cd '{dir}'"
+        ],
+        "name": "PowerShell 7",
         "plate": "all",
         "path": ""
       },
@@ -70,12 +91,22 @@
         "name": "Windows Terminal",
         "plate": "Windows",
         "path": ""
+      },
+      "xterm": {
+        "bin": "xterm",
+        "args": [
+          "-e",
+          "bash -c 'cd {dir}; exec bash'"
+        ],
+        "name": "xterm",
+        "plate": "linux",
+        "path": ""
       }
     }
   },
   "models": {
     "cbc": {
-      "default": "glm-5.0",
+      "default": "glm-4.7",
       "options": [
         {
           "value": "glm-5.1",

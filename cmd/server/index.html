@@ -644,7 +644,6 @@
         <option value="sonnet" selected>sonnet（推荐 · 准确）</option>
         <option value="opus">opus（最强 · 贵）</option>
       </select>
-      <script>document.getElementById('run-task-model').innerHTML = buildModelOptions('claude');</script>
     </div>
     <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-secondary" onclick="closeRunTaskModal()">取消</button>
@@ -711,6 +710,8 @@ loadDirs();
 loadTodo();
 loadDashboard();
 loadCLIModels(); // 提前加载模型列表，供各处下拉使用
+// 初始化 run-task-model 下拉框
+document.getElementById('run-task-model').innerHTML = buildModelOptions('claude');
 
 // 恢复上次停留的 tab（必须在所有 view JS 加载完之后，否则 switchTab 内的 loadTasks/loadExps 等都是 undefined）
 (function restoreTab() {

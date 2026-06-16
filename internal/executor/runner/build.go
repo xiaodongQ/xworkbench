@@ -46,15 +46,16 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 	}
 	switch typ {
 	case "claude":
-		cmd := []string{"claude", "-p", "--output-format", "json"}
+		cmd := []string{"claude", "-p"}
+		if len(o.allowedTools) > 0 {
+			cmd = append(cmd, "--allowedTools", strings.Join(o.allowedTools, ","))
+		}
+		cmd = append(cmd, "--output-format", "json")
 		if model != "" {
 			cmd = append(cmd, "--model", model)
 		}
 		if sessionID != "" {
 			cmd = append(cmd, "--session-id", sessionID)
-		}
-		if len(o.allowedTools) > 0 {
-			cmd = append(cmd, "--allowedTools", strings.Join(o.allowedTools, ","))
 		}
 		finalPrompt := prompt
 		if o.actionReport {
@@ -72,6 +73,10 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 			}
 		}
 		cmd := []string{bin, "-p"}
+		if len(o.allowedTools) > 0 {
+			cmd = append(cmd, "--allowedTools", strings.Join(o.allowedTools, ","))
+		}
+		cmd = append(cmd, "--output-format", "json")
 		if model != "" {
 			cmd = append(cmd, "--model", model)
 		}
