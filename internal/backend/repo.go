@@ -237,6 +237,9 @@ func InitSchema(db *sql.DB) error {
 	if err := migrateDirShortcutsColumns(db); err != nil {
 		return err
 	}
+	if err := migrateExperiencesColumns(db); err != nil {
+		return err
+	}
 	if err := migrateAgentsTable(db); err != nil {
 		return err
 	}
@@ -353,6 +356,38 @@ func migrateDirShortcutsColumns(db *sql.DB) error {
 		{"terminal_cmd", "terminal_cmd TEXT"},
 		{"created_at", "created_at DATETIME"},
 		{"last_accessed_at", "last_accessed_at DATETIME"},
+	}
+	for _, a := range add {
+		if err := addCol(a.n, a.d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateExperiencesColumns(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(experiences)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	addCol := func(name, decl string) error {
+		if cols[name] {
+			return nil
+		}
+		_, err := db.Exec(`ALTER TABLE experiences ADD COLUMN ` + decl)
+		return err
+	}
+	add := []struct{ n, d string }{
+		{"auto_eval_enabled", "auto_eval_enabled INTEGER DEFAULT 0"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
