@@ -992,6 +992,7 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		Type           string `json:"type"`
 		RemoteHost     string `json:"remote_host"`
 		RemoteUser     string `json:"remote_user"`
+		RemotePath     string `json:"remote_path"`
 		RemotePassword string `json:"remote_password"`
 		AuthMethod     string `json:"auth_method"`
 		KeyPath        string `json:"key_path"`
@@ -1006,6 +1007,8 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		"path", req.Path,
 		"type", req.Type,
 		"remote_host", req.RemoteHost,
+		"remote_user", req.RemoteUser,
+		"remote_path", req.RemotePath,
 	)
 	if req.Name == "" {
 		writeErr(w, http.StatusBadRequest, "name is required")
