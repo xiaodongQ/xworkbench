@@ -35,6 +35,7 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/httplog"
 	"github.com/xiaodongQ/xworkbench/internal/relay"
 	"github.com/xiaodongQ/xworkbench/internal/wsmsg"
+	loglib "github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
 var logger *zap.SugaredLogger
@@ -818,8 +819,11 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 	if req.TimeoutSec <= 0 {
 		req.TimeoutSec = 120
 	}
-	// 找 task prompt：用 BuildTaskPrompt 注入完整 task + 多 experience 信息
-	prompt := exec.Command
+	// 找 task prompt：优先用 execution.prompt（scheduled task），其次 BuildTaskPrompt（普通 task）
+	prompt := exec.Prompt
+	if prompt == "" {
+		prompt = exec.Command
+	}
 	if exec.TaskID != "" {
 		if t, err := s.db.Get(exec.TaskID); err == nil {
 			prompt = taskpkg.BuildTaskPrompt(t, s.loadExperiencesForTask(t)...)
@@ -1033,6 +1037,7 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		Type:            req.Type,
 		RemoteHost:      req.RemoteHost,
 		RemoteUser:      req.RemoteUser,
+		RemotePath:      req.RemotePath,
 		RemotePassword:  req.RemotePassword,
 		AuthMethod:      req.AuthMethod,
 		KeyPath:         req.KeyPath,
@@ -1742,6 +1747,9 @@ func main() {
 			logger.Infow("日志写入文件", "path", logFile)
 		}
 	}
+
+	// 把统一配置的 logger 注入各内部包，避免各自 init 写 stderr
+	loglib.Set(logger)
 
 	taskRepo := backend.NewTaskRepo(db)
 	expRepo := backend.NewExperienceRepo(db)
