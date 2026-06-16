@@ -147,6 +147,9 @@ function onDirTypeChange() {
   if (type === 'remote') {
     remoteFields.classList.remove('hidden');
     localPathGroup.classList.add('hidden');
+    // 远程目录默认填充 root 用户
+    const remoteUserInput = document.getElementById('dir-remote-user');
+    if (!remoteUserInput.value) remoteUserInput.value = 'root';
   } else {
     remoteFields.classList.add('hidden');
     localPathGroup.classList.remove('hidden');
