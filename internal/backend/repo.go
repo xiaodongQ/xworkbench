@@ -350,6 +350,7 @@ func migrateDirShortcutsColumns(db *sql.DB) error {
 		{"type", "type TEXT DEFAULT 'local'"},
 		{"remote_host", "remote_host TEXT"},
 		{"remote_user", "remote_user TEXT"},
+		{"remote_path", "remote_path TEXT"},
 		{"remote_password", "remote_password TEXT"},
 		{"auth_method", "auth_method TEXT DEFAULT 'password'"},
 		{"key_path", "key_path TEXT"},
@@ -1065,9 +1066,9 @@ func NewDirShortcutRepo(db *sql.DB) *DirShortcutRepo { return &DirShortcutRepo{d
 
 func (r *DirShortcutRepo) Create(d *DirShortcut) error {
 	if d.Type == "" { d.Type = DirShortcutTypeLocal }
-	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,type,remote_host,remote_user,remote_password,auth_method,key_path,terminal_cmd,created_at)
-		    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-	_, err := r.db.Exec(q, d.ID, d.Name, d.Path, d.SortOrder, d.Type, d.RemoteHost, d.RemoteUser,
+	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,terminal_cmd,created_at)
+		    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.Exec(q, d.ID, d.Name, d.Path, d.SortOrder, d.Type, d.RemoteHost, d.RemoteUser, d.RemotePath,
 		d.RemotePassword, d.AuthMethod, d.KeyPath, d.TerminalCmd, d.CreatedAt)
 	if err != nil {
 		logger.Errorw("dir_shortcuts create failed", "id", d.ID, "name", d.Name, "path", d.Path, "error", err.Error())
@@ -1099,6 +1100,8 @@ func (r *DirShortcutRepo) Update(d *DirShortcut) error {
 	args = append(args, d.RemoteHost)
 	set = append(set, "remote_user=?")
 	args = append(args, d.RemoteUser)
+	set = append(set, "remote_path=?")
+	args = append(args, d.RemotePath)
 	set = append(set, "remote_password=?")
 	args = append(args, d.RemotePassword)
 	set = append(set, "auth_method=?")

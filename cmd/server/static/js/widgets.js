@@ -127,6 +127,7 @@ function showDirModal() {
   document.getElementById('dir-path').value = '';
   document.getElementById('dir-remote-host').value = '';
   document.getElementById('dir-remote-user').value = '';
+  document.getElementById('dir-remote-path').value = '';
   document.getElementById('dir-auth-method').value = 'password';
   document.getElementById('dir-remote-password').value = '';
   document.getElementById('dir-key-path').value = '';
@@ -243,6 +244,7 @@ async function editDir(id) {
   document.getElementById('dir-path').value = d.path || '';
   document.getElementById('dir-remote-host').value = d.remote_host || '';
   document.getElementById('dir-remote-user').value = d.remote_user || '';
+  document.getElementById('dir-remote-path').value = d.remote_path || '';
   document.getElementById('dir-auth-method').value = d.auth_method || 'password';
   document.getElementById('dir-remote-password').value = d.remote_password || '';
   document.getElementById('dir-key-path').value = d.key_path || '';
@@ -262,6 +264,7 @@ function submitDir() {
   const path = document.getElementById('dir-path').value.trim();
   const remoteHost = document.getElementById('dir-remote-host').value.trim();
   const remoteUser = document.getElementById('dir-remote-user').value.trim();
+  const remotePath = document.getElementById('dir-remote-path').value.trim();
   const authMethod = document.getElementById('dir-auth-method').value;
   const remotePassword = document.getElementById('dir-remote-password').value;
   const keyPath = document.getElementById('dir-key-path').value.trim();
@@ -269,7 +272,7 @@ function submitDir() {
   if (!name) { alert('名称必填'); return; }
   if (type === 'local' && !path) { alert('本地目录路径必填'); return; }
   if (type === 'remote' && (!remoteHost || !remoteUser)) { alert('主机和用户名必填'); return; }
-  const payload = { name, type, path, remote_host: remoteHost, remote_user: remoteUser, auth_method: authMethod, remote_password: remotePassword, key_path: keyPath, terminal_cmd: terminalCmd };
+  const payload = { name, type, path, remote_host: remoteHost, remote_user: remoteUser, remote_path: remotePath, auth_method: authMethod, remote_password: remotePassword, key_path: keyPath, terminal_cmd: terminalCmd };
   if (id) {
     fetch('/api/dir-shortcuts/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(payload)})

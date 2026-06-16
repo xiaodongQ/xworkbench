@@ -157,6 +157,7 @@ type DirShortcut struct {
 	// 远程连接配置（Type=remote 时使用）
 	RemoteHost     string `json:"remote_host,omitempty"`    // IP 或域名
 	RemoteUser     string `json:"remote_user,omitempty"`    // 用户名
+	RemotePath     string `json:"remote_path,omitempty"`    // 远程目录路径（默认空 = 主目录）
 	RemotePassword string `json:"remote_password,omitempty"` // 密码（仅演示/内部用，生产建议用 key）
 	AuthMethod     string `json:"auth_method,omitempty"`    // "password" | "key"，默认 "password"
 	KeyPath        string `json:"key_path,omitempty"`       // 私钥路径（AuthMethod=key 时使用）

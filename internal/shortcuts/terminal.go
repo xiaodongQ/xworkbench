@@ -75,8 +75,8 @@ func DefaultTerminal() string {
 	return cfg.Terminal.DefaultType
 }
 
-// OpenRemoteDirShortcut 用系统默认方式打开远程 SSH 连接。
-// macOS 使用 open 命令，会调用用户配置的终端 app。
+// OpenRemoteDirShortcut 用 ssh 命令打开远程目录。
+// 支持 key 和 password 认证，连接后 cd 到 remote_path（默认主目录）。
 func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) error {
 	if dir.Type != backend.DirShortcutTypeRemote {
 		return fmt.Errorf("not a remote shortcut: type=%s", dir.Type)
@@ -85,29 +85,21 @@ func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) e
 	if dir.RemoteUser != "" {
 		sshTarget = dir.RemoteUser + "@" + dir.RemoteHost
 	}
-	sshURL := "ssh://" + sshTarget
+	var sshArgs []string
 	if dir.AuthMethod == "key" && dir.KeyPath != "" {
-		// SSH key 认证：将 key 路径传给 ssh 命令
-		sshArgs := []string{"-i", dir.KeyPath, sshTarget}
-		var sshCmd string
-		if dir.Path != "" {
-			sshCmd = "cd '" + dir.Path + "' && exec $SHELL"
-		} else {
-			sshCmd = "exec $SHELL"
-		}
-		sshArgs = append(sshArgs, "-t", "--", "sh", "-c", sshCmd)
-		logger.Infow("[OpenRemoteDirShortcut] ssh command", "target", sshTarget, "auth", dir.AuthMethod, "sshArgs", sshArgs)
-		go func() {
-			cmd := exec.Command("ssh", sshArgs...)
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			cmd.Run()
-		}()
-		return nil
+		sshArgs = append(sshArgs, "-i", dir.KeyPath)
 	}
-	logger.Infow("[OpenRemoteDirShortcut] opening", "url", sshURL, "binPath", binPath)
-	return exec.Command("open", sshURL).Start()
+	sshArgs = append(sshArgs, sshTarget)
+	// 远程目录：cd 到 remote_path（默认主目录）
+	var sshCmd string
+	if dir.RemotePath != "" {
+		sshCmd = "cd '" + dir.RemotePath + "' && exec $SHELL -l"
+	} else {
+		sshCmd = "exec $SHELL -l"
+	}
+	sshArgs = append(sshArgs, "-t", "--", "sh", "-c", sshCmd)
+	logger.Infow("[OpenRemoteDirShortcut] ssh command", "target", sshTarget, "auth", dir.AuthMethod, "sshArgs", sshArgs)
+	return exec.Command("ssh", sshArgs...).Start()
 }
 
 // OpenRemoteTerminal 打开远程终端（简化版：用 ssh 命令，URL 风格）
