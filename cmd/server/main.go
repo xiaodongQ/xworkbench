@@ -2017,7 +2017,8 @@ func (s *APIServer) handleTaskClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task, _ := s.db.Get(taskID)
-task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
+	task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
+	experiences := s.loadExperiencesForTask(task)
 	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: taskID, EventType: "claimed",
@@ -2025,7 +2026,7 @@ task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
 	})
 	// Webhook
 	s.whDisp.Dispatch("task.claimed", map[string]any{"task_id": taskID, "agent_id": req.AgentID})
-	writeJSON(w, map[string]any{"status": "claimed", "task": task})
+	writeJSON(w, map[string]any{"status": "claimed", "task": task, "experiences": experiences})
 }
 
 // handleTaskReport 远程 Agent 上报执行结果。
@@ -2716,7 +2717,8 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	task, _ := s.db.Get(taskID)
-task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
+	task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
+	experiences := s.loadExperiencesForTask(task)
 	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: taskID, EventType: "claimed_via_priority",
@@ -2724,5 +2726,5 @@ task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
 	})
 	// Webhook
 	s.whDisp.Dispatch("task.claimed", map[string]any{"task_id": taskID, "agent_id": req.AgentID, "via": "claim-next"})
-	writeJSON(w, map[string]any{"status": "claimed", "task": task})
+	writeJSON(w, map[string]any{"status": "claimed", "task": task, "experiences": experiences})
 }
