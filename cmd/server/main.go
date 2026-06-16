@@ -1004,8 +1004,16 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		"type", req.Type,
 		"remote_host", req.RemoteHost,
 	)
-	if req.Name == "" || req.Path == "" {
-		writeErr(w, http.StatusBadRequest, "name and path are required")
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.Type == "remote" && req.RemoteHost == "" {
+		writeErr(w, http.StatusBadRequest, "remote_host is required for remote shortcuts")
+		return
+	}
+	if req.Type != "remote" && req.Path == "" {
+		writeErr(w, http.StatusBadRequest, "path is required for local shortcuts")
 		return
 	}
 	if req.SortOrder == 0 {
