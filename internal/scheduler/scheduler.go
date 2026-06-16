@@ -3,18 +3,25 @@ package scheduler
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
+	"go.uber.org/zap"
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/executor"
 	"github.com/xiaodongQ/xworkbench/internal/executor/runner"
 	"github.com/xiaodongQ/xworkbench/internal/hub"
 	"github.com/xiaodongQ/xworkbench/internal/wsmsg"
 )
+
+var logger *zap.SugaredLogger
+
+func init() {
+	l, _ := zap.NewProduction()
+	logger = l.Sugar()
+}
 
 const schedulerEnabledKey = "scheduler.enabled"
 
@@ -66,14 +73,14 @@ func (s *Scheduler) Start() error {
 	}
 	s.mu.Unlock()
 	if err := s.Reload(); err != nil {
-		slog.Error("scheduler: reload failed on start", "err", err)
+		logger.Errorw("scheduler: reload failed on start", "err", err)
 		return err
 	}
 	s.cron.Start()
 	s.mu.Lock()
 	s.running = true
 	s.mu.Unlock()
-	slog.Info("scheduler: started")
+	logger.Info("scheduler: started")
 	// 持久化状态
 	if s.settings != nil {
 		_ = s.settings.Set(schedulerEnabledKey, "true")
@@ -92,7 +99,7 @@ func (s *Scheduler) Stop() {
 	ctx := s.cron.Stop()
 	<-ctx.Done()
 	s.running = false
-	slog.Info("scheduler: stopped")
+	logger.Info("scheduler: stopped")
 	// 持久化状态
 	if s.settings != nil {
 		_ = s.settings.Set(schedulerEnabledKey, "false")
@@ -104,7 +111,7 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) Reload() error {
 	tasks, err := s.repo.ListEnabled()
 	if err != nil {
-		slog.Error("scheduler: list enabled tasks failed", "err", err)
+		logger.Errorw("scheduler: list enabled tasks failed", "err", err)
 		return err
 	}
 	// robfig/cron 没有 RemoveAll 公开方法；重建
@@ -116,10 +123,10 @@ func (s *Scheduler) Reload() error {
 	for _, t := range tasks {
 		id, err := s.cron.AddFunc(t.CronExpr, s.makeHandler(t))
 		if err != nil {
-			slog.Warn("scheduler: parse cron expr failed", "task", t.Name, "cron", t.CronExpr, "err", err)
+			logger.Warnw("scheduler: parse cron expr failed", "task", t.Name, "cron", t.CronExpr, "err", err)
 			continue
 		}
-		slog.Info("scheduler: task loaded", "task", t.Name, "cron", t.CronExpr, "next", s.cron.Entry(id).Next)
+		logger.Infow("scheduler: task loaded", "task", t.Name, "cron", t.CronExpr, "next", s.cron.Entry(id).Next)
 	}
 	wasRunning := s.running
 	if wasRunning {
@@ -157,7 +164,7 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 		runner.WithAllowedTools("Bash", "Write", "Edit", "Read"),
 	)
 	if err != nil {
-		slog.Error("scheduler: build command failed", "task", t.Name, "err", err)
+		logger.Errorw("scheduler: build command failed", "task", t.Name, "err", err)
 		_ = s.repo.UpdateAfterRun(t.ID, "build_error", "")
 		return
 	}
@@ -173,7 +180,7 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 		StartedAt: time.Now(),
 	}
 	if err := s.execDB.Create(exec); err != nil {
-		slog.Error("scheduler: create execution record failed", "task", t.Name, "exec_id", exec.ID, "err", err)
+		logger.Errorw("scheduler: create execution record failed", "task", t.Name, "exec_id", exec.ID, "err", err)
 		return
 	}
 	s.hub.Broadcast(wsmsg.ChannelScheduled, map[string]any{
@@ -191,7 +198,7 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 			timeout = 60 * 60 // 1小时
 		}
 	}
-	slog.Info("scheduler: task execution started", "task", t.Name, "exec_id", exec.ID, "timeout_sec", timeout)
+	logger.Infow("scheduler: task execution started", "task", t.Name, "exec_id", exec.ID, "timeout_sec", timeout)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
@@ -217,7 +224,7 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 	}
 	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode)
 	_ = s.repo.UpdateAfterRun(t.ID, status, exec.ID)
-	slog.Info("scheduler: task finished", "task", t.Name, "exec_id", exec.ID, "status", status, "exit_code", exitCode)
+	logger.Infow("scheduler: task finished", "task", t.Name, "exec_id", exec.ID, "status", status, "exit_code", exitCode)
 	s.hub.Broadcast(wsmsg.ChannelScheduled, map[string]any{
 		"scheduled_task_id": t.ID,
 		"execution_id":      exec.ID,

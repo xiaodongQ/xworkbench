@@ -6,17 +6,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
+
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/executor"
 	"github.com/xiaodongQ/xworkbench/internal/executor/runner"
 )
+
+var logger *zap.SugaredLogger
+
+func init() {
+	l, _ := zap.NewProduction()
+	logger = l.Sugar()
+}
 
 // 评分 prompt：要求 claude 基于"指令 vs AI 自报动作清单 vs Claude 执行元数据 vs 实际 stdout"四方对照打分。
 const evalPromptTpl = `你是一个严格的 AI 任务结果评估员。请基于"原始指令"、"AI 自报的动作清单"、"Claude 执行元数据(JSON 解析)"和"实际 stdout"四方对照，判断任务是否真正完成。
@@ -183,18 +191,18 @@ func truncate(s string, n int) string {
 // RunAndSave 评估并把结果存 evaluations 表。返回 evaluation id。
 func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *backend.ExecutionRepo, exec *backend.Execution, taskPrompt, cliType, model string) (string, error) {
 	started := time.Now()
-	slog.Info("evaluator: run start",
-		slog.String("execution_id", exec.ID),
-		slog.String("task_id", exec.TaskID),
-		slog.String("cli", cliType),
-		slog.String("model", model),
+	logger.Infow("evaluator: run start",
+		"execution_id", exec.ID,
+		"task_id", exec.TaskID,
+		"cli", cliType,
+		"model", model,
 	)
 	res, err := Evaluate(ctx, exec, taskPrompt, cliType, model)
 	if err != nil {
-		slog.Error("evaluator: run failed",
-			slog.String("execution_id", exec.ID),
-			slog.String("err", err.Error()),
-			slog.Int64("dur_ms", time.Since(started).Milliseconds()),
+		logger.Errorw("evaluator: run failed",
+			"execution_id", exec.ID,
+			"err", err.Error(),
+			"dur_ms", time.Since(started).Milliseconds(),
 		)
 		return "", err
 	}
@@ -208,17 +216,17 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		CreatedAt:      time.Now(),
 	}
 	if err := evalDB.Create(ev); err != nil {
-		slog.Error("evaluator: save failed",
-			slog.String("execution_id", exec.ID),
-			slog.String("err", err.Error()),
+		logger.Errorw("evaluator: save failed",
+			"execution_id", exec.ID,
+			"err", err.Error(),
 		)
 		return "", fmt.Errorf("save evaluation: %w", err)
 	}
-	slog.Info("evaluator: run done",
-		slog.String("execution_id", exec.ID),
-		slog.Int("score", res.Score),
-		slog.String("model", cliType+"/"+model),
-		slog.Int64("dur_ms", time.Since(started).Milliseconds()),
+	logger.Infow("evaluator: run done",
+		"execution_id", exec.ID,
+		"score", res.Score,
+		"model", cliType+"/"+model,
+		"dur_ms", time.Since(started).Milliseconds(),
 	)
 	return ev.ID, nil
 }

@@ -5,12 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 )
+
+var logger *zap.SugaredLogger
+
+func init() {
+	l, _ := zap.NewProduction()
+	logger = l.Sugar()
+}
 
 // ProxyRequest describes an HTTP request to be proxied through xworkbench.
 type ProxyRequest struct {
@@ -83,11 +91,11 @@ func (h *RelayHandler) HandleRelayProxy(w http.ResponseWriter, r *http.Request) 
 
 	client := &http.Client{Timeout: timeout}
 	started := time.Now()
-	slog.Info("relay: proxy start",
-		slog.String("method", method),
-		slog.String("url", req.URL),
-		slog.Int("timeout_ms", req.TimeoutMs),
-		slog.Int("req_bytes", len(req.Body)),
+	logger.Infow("relay: proxy start",
+		"method", method,
+		"url", req.URL,
+		"timeout_ms", req.TimeoutMs,
+		"req_bytes", len(req.Body),
 	)
 	resp, err := client.Do(httpReq)
 	durMs := time.Since(started).Milliseconds()
@@ -121,18 +129,24 @@ func (h *RelayHandler) HandleRelayProxy(w http.ResponseWriter, r *http.Request) 
 		logEntry.ResponseSize = len(body)
 	}
 
-	lvl := slog.LevelInfo
 	if err != nil || proxyResp.StatusCode >= 400 {
-		lvl = slog.LevelError
+		logger.Errorw("relay: proxy done",
+			"method", method,
+			"url", req.URL,
+			"status", proxyResp.StatusCode,
+			"dur_ms", durMs,
+			"err", proxyResp.Error,
+			"resp_bytes", len(proxyResp.Body),
+		)
+	} else {
+		logger.Infow("relay: proxy done",
+			"method", method,
+			"url", req.URL,
+			"status", proxyResp.StatusCode,
+			"dur_ms", durMs,
+			"resp_bytes", len(proxyResp.Body),
+		)
 	}
-	slog.LogAttrs(nil, lvl, "relay: proxy done",
-		slog.String("method", method),
-		slog.String("url", req.URL),
-		slog.Int("status", proxyResp.StatusCode),
-		slog.Int64("dur_ms", durMs),
-		slog.String("err", proxyResp.Error),
-		slog.Int("resp_bytes", len(proxyResp.Body)),
-	)
 
 	if h.repo != nil {
 		_ = h.repo.Log(logEntry)

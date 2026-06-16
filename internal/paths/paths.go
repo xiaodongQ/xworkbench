@@ -4,10 +4,18 @@ package paths
 import (
 	"errors"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
+
+	"go.uber.org/zap"
 )
+
+var logger *zap.SugaredLogger
+
+func init() {
+	l, _ := zap.NewProduction()
+	logger = l.Sugar()
+}
 
 // ResolveDBPath 返回 SQLite 数据库文件应使用的绝对路径。
 //
@@ -53,12 +61,12 @@ func maybeMigrateLegacy(newPath string) string {
 		return newPath // 新位置已有，不动
 	}
 	if err := copyFile(legacy, newPath); err != nil {
-		slog.Warn("paths: legacy DB found but copy failed; continuing with new path",
-			slog.String("from", legacy), slog.String("to", newPath), slog.String("err", err.Error()))
+		logger.Warnw("paths: legacy DB found but copy failed; continuing with new path",
+			"from", legacy, "to", newPath, "err", err.Error())
 		return newPath
 	}
-	slog.Warn("paths: migrated legacy DB",
-		slog.String("from", legacy), slog.String("to", newPath))
+	logger.Warnw("paths: migrated legacy DB",
+		"from", legacy, "to", newPath)
 	return newPath
 }
 

@@ -124,9 +124,10 @@ func mergeConfig(dst, src *Config) {
 			dst.Terminal.Types[k] = v
 		}
 	}
-	// relay
-	if src.Relay.APIKey != "" {
-		dst.Relay.APIKey = src.Relay.APIKey
+	// relay（直接赋值，空字符串也可覆盖默认值）
+	dst.Relay.APIKey = src.Relay.APIKey
+	if dst.Relay.APIKey == "" {
+		dst.Relay.APIKey = "xworkbench"
 	}
 	// models
 	for cliType, srcGroup := range src.Models {
@@ -182,6 +183,9 @@ func DefaultConfig() *Config {
 				"xterm":      {Bin: "xterm", Args: []string{"-e", "bash -c 'cd {dir}; exec bash'"}, Name: "xterm", Plate: "linux", Path: ""},
 				"cmd":        {Bin: "cmd.exe", Args: []string{"/K", "cd /d {dir}"}, Name: "cmd.exe", Plate: "windows", Path: ""},
 			},
+		},
+		Relay: RelayConfig{
+			APIKey: "xworkbench",
 		},
 		Models: ModelsConfig{
 			"claude": {Default: "sonnet", Options: []ModelOption{

@@ -4,13 +4,21 @@ package executor
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
+
+var logger *zap.SugaredLogger
+
+func init() {
+	l, _ := zap.NewProduction()
+	logger = l.Sugar()
+}
 
 // Result 一次执行的完整结果。
 type Result struct {
@@ -46,10 +54,7 @@ func Run(ctx context.Context, cmd []string, dir string, onChunk func(string)) (*
 	if err := c.Start(); err != nil {
 		return nil, err
 	}
-	slog.Debug("executor: process started",
-		slog.String("cmd", truncateCmd(cmd)),
-		slog.Int("pid", c.Process.Pid),
-	)
+	logger.Debugw("executor: process started", "cmd", truncateCmd(cmd), "pid", c.Process.Pid)
 
 	var out, errBuf strings.Builder
 	var wg sync.WaitGroup
@@ -106,18 +111,25 @@ func Run(ctx context.Context, cmd []string, dir string, onChunk func(string)) (*
 		// ctx 超时返回的 error 带 "signal: killed"
 		res.Err = waitErr
 	}
-	lvl := slog.LevelInfo
 	if exit != 0 || waitErr != nil {
-		lvl = slog.LevelError
+		logger.Errorw("executor: process exited",
+			"cmd", truncateCmd(cmd),
+			"exit_code", exit,
+			"dur_ms", time.Since(started).Milliseconds(),
+			"err", errStr(waitErr),
+			"stdout_bytes", len(res.Output),
+			"stderr_bytes", len(res.ErrorOut),
+		)
+	} else {
+		logger.Infow("executor: process exited",
+			"cmd", truncateCmd(cmd),
+			"exit_code", exit,
+			"dur_ms", time.Since(started).Milliseconds(),
+			"err", errStr(waitErr),
+			"stdout_bytes", len(res.Output),
+			"stderr_bytes", len(res.ErrorOut),
+		)
 	}
-	slog.LogAttrs(context.Background(), lvl, "executor: process exited",
-		slog.String("cmd", truncateCmd(cmd)),
-		slog.Int("exit_code", exit),
-		slog.Int64("dur_ms", time.Since(started).Milliseconds()),
-		slog.String("err", errStr(waitErr)),
-		slog.Int("stdout_bytes", len(res.Output)),
-		slog.Int("stderr_bytes", len(res.ErrorOut)),
-	)
 	return res, nil
 }
 

@@ -22,9 +22,11 @@ set -euo pipefail
 # === 配置 ===
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TMP_BIN="/tmp/xw-e2e-$$"
-TMP_DB="/tmp/xw-e2e-$$.db"
-TMP_LOG="/tmp/xw-e2e-$$.log"
+E2E_TMP="$ROOT/tmp-e2e-test"
+mkdir -p "$E2E_TMP"
+TMP_BIN="$E2E_TMP/xw-e2e-$$"
+TMP_DB="$E2E_TMP/xw-e2e-$$.db"
+TMP_LOG="$E2E_TMP/xw-e2e-$$.log"
 TMP_PORT=$((19000 + RANDOM % 1000))   # 19000-19999 临时端口
 SCRIPT_CMD_TYPE="${SCRIPT_CMD_TYPE:-claude}"   # 可被环境变量覆盖
 SCRIPT_MODEL="${SCRIPT_MODEL:-haiku}"
@@ -49,6 +51,7 @@ cleanup() {
   # 顺手清可能残留的同端口进程
   lsof -ti :$TMP_PORT 2>/dev/null | xargs kill -9 2>/dev/null
   rm -f "$TMP_BIN" "$TMP_DB" "$TMP_DB-shm" "$TMP_DB-wal" "$TMP_LOG"
+  rm -rf "$E2E_TMP"
 }
 trap cleanup EXIT
 

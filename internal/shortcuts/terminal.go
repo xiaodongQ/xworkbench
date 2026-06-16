@@ -2,16 +2,24 @@ package shortcuts
 
 import (
 	"fmt"
-	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
 )
+
+var logger *zap.SugaredLogger
+
+func init() {
+	l, _ := zap.NewProduction()
+	logger = l.Sugar()
+}
 
 // IsSupportedTerminal 检查终端类型是否支持
 func IsSupportedTerminal(termType string) bool {
@@ -90,10 +98,7 @@ func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) e
 	// 登录后 cd 到目标目录并启动 shell
 	cdCmd := "cd '" + dir.Path + "' && exec $SHELL"
 	sshArgs = append(sshArgs, "--", "sh", "-c", cdCmd)
-	slog.Info("[OpenRemoteDirShortcut] ssh command",
-		slog.String("target", sshTarget),
-		slog.String("auth", dir.AuthMethod),
-		slog.Any("sshArgs", sshArgs))
+	logger.Infow("[OpenRemoteDirShortcut] ssh command", "target", sshTarget, "auth", dir.AuthMethod, "sshArgs", sshArgs)
 	// 先用 ssh 检测连通性（不阻塞）
 	go func() {
 		exec.Command("ssh", sshArgs...).Start()
@@ -144,21 +149,13 @@ func OpenTerminal(termType, dir, binPath string) error {
 	if binPath != "" {
 		bin = binPath
 	}
-	slog.Info("[OpenTerminal]",
-		slog.String("termType", termType),
-		slog.String("dir", dir),
-		slog.String("bin", bin),
-		slog.String("binPath", binPath),
-		slog.String("at", "terminal.go:93"))
+	logger.Infow("[OpenTerminal]", "termType", termType, "dir", dir, "bin", bin, "binPath", binPath, "at", "terminal.go:93")
 	// 构建 args，替换 {dir} 占位符
 	args := make([]string, len(typeDef.Args))
 	for i, a := range typeDef.Args {
 		args[i] = strings.ReplaceAll(a, "{dir}", dir)
 	}
-	slog.Info("[OpenTerminal] exec",
-		slog.String("bin", bin),
-		slog.Any("args", args),
-		slog.String("at", "terminal.go:113"))
+	logger.Infow("[OpenTerminal] exec", "bin", bin, "args", args, "at", "terminal.go:113")
 	cmd := exec.Command(bin, args...)
 	if runtime.GOOS == "windows" {
 		// 用 cmd /C start 创建完全独立的新窗口

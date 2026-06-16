@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -18,6 +18,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
 	"github.com/xiaodongQ/xworkbench/internal/evaluator"
@@ -35,6 +37,8 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/relay"
 	"github.com/xiaodongQ/xworkbench/internal/wsmsg"
 )
+
+var logger *zap.SugaredLogger
 
 //go:embed index.html static
 var FS embed.FS
@@ -564,9 +568,9 @@ func (s *APIServer) loadExperiencesForTask(t *backend.Task) []*backend.Experienc
 		if id == "" { continue }
 		exp, err := s.expDB.Get(id)
 		if err != nil {
-			slog.Warn("loadExperiencesForTask: missing experience",
-				slog.String("task_id", t.ID),
-				slog.String("experience_id", id),
+			logger.Warnw("loadExperiencesForTask: missing experience",
+				"task_id", t.ID,
+				"experience_id", id,
 			)
 			continue
 		}
@@ -607,9 +611,9 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		// 没用 body.prompt,自动从 task + 多 experience 组装
 		prompt = taskpkg.BuildTaskPrompt(task, s.loadExperiencesForTask(task)...)
 		if prompt == "" {
-			slog.Warn("task run rejected: empty prompt after BuildTaskPrompt",
-				slog.String("task_id", id),
-				slog.String("command_type", req.CommandType),
+			logger.Warnw("task run rejected: empty prompt after BuildTaskPrompt",
+				"task_id", id,
+				"command_type", req.CommandType,
 			)
 			writeErr(w, http.StatusBadRequest, "task has no description and no experience content")
 			return
@@ -641,13 +645,13 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.db.UpdateStatus(id, backend.TaskStatusInProgress, "factory-agent")
 
-	slog.Info("task run started",
-		slog.String("task_id", id),
-		slog.String("execution_id", exec.ID),
-		slog.String("command_type", req.CommandType),
-		slog.String("model", req.Model),
-		slog.Int("prompt_chars", len(req.Prompt)),
-		slog.String("cmd", exec.Command),
+	logger.Infow("task run started",
+		"task_id", id,
+		"execution_id", exec.ID,
+		"command_type", req.CommandType,
+		"model", req.Model,
+		"prompt_chars", len(req.Prompt),
+		"cmd", exec.Command,
 	)
 
 	// 异步跑，10min 超时
@@ -690,18 +694,25 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			"done":         true,
 			"exit_code":    exitCode,
 		})
-		lvl := slog.LevelInfo
 		if exitCode != 0 || runErr != nil {
-			lvl = slog.LevelError
+			logger.Errorw("task run finished",
+				"task_id", id,
+				"execution_id", exec.ID,
+				"exit_code", exitCode,
+				"status", status,
+				"dur_ms", time.Since(started).Milliseconds(),
+				"err", errStr(runErr),
+			)
+		} else {
+			logger.Infow("task run finished",
+				"task_id", id,
+				"execution_id", exec.ID,
+				"exit_code", exitCode,
+				"status", status,
+				"dur_ms", time.Since(started).Milliseconds(),
+				"err", errStr(runErr),
+			)
 		}
-		slog.LogAttrs(context.Background(), lvl, "task run finished",
-			slog.String("task_id", id),
-			slog.String("execution_id", exec.ID),
-			slog.Int("exit_code", exitCode),
-			slog.String("status", status),
-			slog.Int64("dur_ms", time.Since(started).Milliseconds()),
-			slog.String("err", errStr(runErr)),
-		)
 	}()
 
 	writeJSON(w, map[string]any{
@@ -813,10 +824,10 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 	}
 	// 异步执行（避免 HTTP 阻塞 30s+）
 	go func() {
-		slog.Info("evaluator: dispatched",
-			slog.String("execution_id", id),
-			slog.String("cli", req.CliType),
-			slog.String("model", req.Model),
+		logger.Infow("evaluator: dispatched",
+			"execution_id", id,
+			"cli", req.CliType,
+			"model", req.Model,
 		)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
@@ -987,6 +998,12 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	logger.Infow("dir-shortcut create request",
+		"name", req.Name,
+		"path", req.Path,
+		"type", req.Type,
+		"remote_host", req.RemoteHost,
+	)
 	if req.Name == "" || req.Path == "" {
 		writeErr(w, http.StatusBadRequest, "name and path are required")
 		return
@@ -1080,6 +1097,13 @@ func (s *APIServer) handleDirShortcutOpen(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusNotFound, "shortcut not found")
 		return
 	}
+	logger.Infow("dir-shortcut open",
+		"id", id,
+		"name", entry.Name,
+		"path", entry.Path,
+		"type", entry.Type,
+		"remote_host", entry.RemoteHost,
+	)
 	if entry.Type == backend.DirShortcutTypeRemote {
 		writeErr(w, http.StatusBadRequest, "remote shortcut: use /open-terminal to open with SSH")
 		return
@@ -1099,10 +1123,10 @@ func (s *APIServer) handleDirShortcutOpenTerminal(w http.ResponseWriter, r *http
 	if termType == "" {
 		termType = shortcuts.DefaultTerminal()
 	}
-	slog.Info("[handleDirShortcutOpenTerminal]",
-		slog.String("id", id),
-		slog.String("termType", termType),
-		slog.String("at", "main.go:928"))
+	logger.Infow("[handleDirShortcutOpenTerminal]",
+		"id", id,
+		"termType", termType,
+		"at", "main.go:928")
 
 	list, err := s.dirDB.List()
 	if err != nil {
@@ -1135,12 +1159,12 @@ func (s *APIServer) handleDirShortcutOpenTerminal(w http.ResponseWriter, r *http
 		writeErr(w, http.StatusBadRequest, "unsupported terminal type: "+termType)
 		return
 	}
-	slog.Info("[handleDirShortcutOpenTerminal] opening",
-		slog.String("dir", path),
-		slog.String("termType", termType),
-		slog.String("binPath", typeDef.Path),
-		slog.String("bin", typeDef.Bin),
-		slog.String("at", "main.go:964"))
+	logger.Infow("[handleDirShortcutOpenTerminal] opening",
+		"dir", path,
+		"termType", termType,
+		"binPath", typeDef.Path,
+		"bin", typeDef.Bin,
+		"at", "main.go:964")
 	
 		binPath := typeDef.Path
 		var openErr error
@@ -1351,7 +1375,7 @@ func (s *APIServer) handleScheduledCreate(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	slog.Info("handler: scheduled task created", "id", t.ID, "name", t.Name, "cron", t.CronExpr)
+	logger.Infow("handler: scheduled task created", "id", t.ID, "name", t.Name, "cron", t.CronExpr)
 	_ = s.sch.Reload() // 热加载
 	writeJSON(w, t)
 }
@@ -1395,7 +1419,7 @@ func (s *APIServer) handleScheduledDelete(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	slog.Info("handler: scheduled task deleted", "id", id)
+	logger.Infow("handler: scheduled task deleted", "id", id)
 	_ = s.sch.Reload()
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
 }
@@ -1423,7 +1447,7 @@ func (s *APIServer) handleScheduledRunNow(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	slog.Info("handler: scheduled task run-now triggered", "id", id)
+	logger.Infow("handler: scheduled task run-now triggered", "id", id)
 	writeJSON(w, map[string]string{"id": id, "status": "triggered"})
 }
 
@@ -1434,13 +1458,13 @@ func (s *APIServer) handleSchedulerStart(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	slog.Info("handler: scheduler started")
+	logger.Infow("handler: scheduler started")
 	writeJSON(w, map[string]string{"status": "running"})
 }
 
 func (s *APIServer) handleSchedulerStop(w http.ResponseWriter, r *http.Request) {
 	s.sch.Stop()
-	slog.Info("handler: scheduler stopped")
+	logger.Infow("handler: scheduler stopped")
 	writeJSON(w, map[string]string{"status": "stopped"})
 }
 
@@ -1613,16 +1637,13 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
-	slog.LogAttrs(nil,
-		func() slog.Level {
-			if code >= 500 { return slog.LevelError }
-			if code >= 400 { return slog.LevelWarn }
-			return slog.LevelInfo
-		}(),
-		"http error",
-		slog.Int("status", code),
-		slog.String("msg", msg),
-	)
+	if code >= 500 {
+		logger.Errorw("http error", "status", code, "msg", msg)
+	} else if code >= 400 {
+		logger.Warnw("http error", "status", code, "msg", msg)
+	} else {
+		logger.Infow("http error", "status", code, "msg", msg)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
@@ -1650,11 +1671,15 @@ func errStr(err error) string {
 }
 
 func main() {
+	// 初始化默认 logger（后续可根据配置重新初始化）
+	zapLogger, _ := zap.NewProduction()
+	logger = zapLogger.Sugar()
+
 	dbPath := paths.ResolveDBPath()
 	if cwd, err := os.Getwd(); err == nil {
-		slog.Info("db path", slog.String("path", dbPath), slog.String("cwd", cwd))
+		logger.Infow("db path", "path", dbPath, "cwd", cwd)
 	} else {
-		slog.Info("db path", slog.String("path", dbPath))
+		logger.Infow("db path", "path", dbPath)
 	}
 
 	db, err := backend.OpenDB(dbPath)
@@ -1681,17 +1706,21 @@ func main() {
 			if err := config.LoadFromPath(*cfgPath); err != nil {
 				log.Printf("[config] load from %s failed: %v", *cfgPath, err)
 			} else {
-				slog.Info("config loaded", slog.String("path", *cfgPath))
+				logger.Infow("config loaded", "path", *cfgPath)
 			}
 		}
 
-	// 日志默认写入文件
+	// 日志默认写入文件（传统文本格式，包含源文件行号）
 	logDir := filepath.Join(filepath.Dir(dbPath), "logs")
 	if err := os.MkdirAll(logDir, 0755); err == nil {
 		logFile := filepath.Join(logDir, "xworkbench.log")
 		f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err == nil {
-			slog.SetDefault(slog.New(slog.NewJSONHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo})))
+			ws := io.MultiWriter(f, os.Stderr)
+			enc := zapcore.NewConsoleEncoder(zap.NewProductionEncoderConfig())
+			core := zapcore.NewCore(enc, zapcore.AddSync(ws), zapcore.InfoLevel)
+			zapLogger := zap.New(core)
+			logger = zapLogger.Sugar()
 			log.Printf("日志写入文件: %s", logFile)
 		}
 	}
@@ -2008,7 +2037,7 @@ func (s *APIServer) handleAgentRegister(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	slog.Info("agent registered", "agent_id", agentID, "name", req.Name)
+	logger.Infow("agent registered", "agent_id", agentID, "name", req.Name)
 	writeJSON(w, map[string]any{
 		"agent_id":  agentID,
 		"token":    token, // 仅此时返回，之后不再暴露
@@ -2120,7 +2149,7 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	slog.Info("task report received", "task_id", taskID, "agent_id", req.AgentID, "status", req.Status)
+	logger.Infow("task report received", "task_id", taskID, "agent_id", req.AgentID, "status", req.Status)
 	// 审计
 	scoreStr := "null"
 	if req.EvaluationScore != nil { scoreStr = fmt.Sprintf("%v", *req.EvaluationScore) }
@@ -2156,7 +2185,7 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 				CreatedAt:      time.Now(),
 			})
 			s.db.UpdateEvalScore(taskID, autoScore)
-			slog.Info("auto-eval triggered", "task_id", taskID, "score", autoScore)
+			logger.Infow("auto-eval triggered", "task_id", taskID, "score", autoScore)
 		}
 	}
 	writeJSON(w, map[string]any{"ok": true, "task_id": taskID})
@@ -2182,15 +2211,15 @@ func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.
 			// 1) agent 心跳超时
 			stale, err := agentRepo.ListStaleAgents(int(hbTimeout.Seconds()))
 			if err != nil {
-				slog.Error("list stale agents failed", "err", err)
+				logger.Errorw("list stale agents failed", "err", err)
 			} else {
 				for _, agentID := range stale {
 					if err := agentRepo.SetStatusOffline(agentID); err != nil {
-						slog.Error("set agent offline failed", "agent_id", agentID, "err", err)
+						logger.Errorw("set agent offline failed", "agent_id", agentID, "err", err)
 						continue
 					}
 					released, _ := taskRepo.ReleaseTasksFromAgent(agentID)
-					slog.Warn("agent heartbeat timeout", "agent_id", agentID, "released_tasks", released)
+					logger.Warnw("agent heartbeat timeout", "agent_id", agentID, "released_tasks", released)
 					eventRepo.Record(&backend.TaskEvent{
 						TaskID: "", EventType: "heartbeat_lost",
 						Actor: "system:" + agentID,
@@ -2206,9 +2235,9 @@ func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.
 			// 2) 任务超时
 			released, err := taskRepo.ReleaseStaleTasks(int(taskTimeout.Seconds()))
 			if err != nil {
-				slog.Error("release stale tasks failed", "err", err)
+				logger.Errorw("release stale tasks failed", "err", err)
 			} else if released > 0 {
-				slog.Warn("released stale tasks", "count", released, "timeout_sec", int(taskTimeout.Seconds()))
+				logger.Warnw("released stale tasks", "count", released, "timeout_sec", int(taskTimeout.Seconds()))
 				eventRepo.Record(&backend.TaskEvent{
 					TaskID: "", EventType: "task_timeout",
 					Actor: "system",

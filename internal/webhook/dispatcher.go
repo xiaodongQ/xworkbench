@@ -9,14 +9,22 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 )
+
+var logger *zap.SugaredLogger
+
+func init() {
+	l, _ := zap.NewProduction()
+	logger = l.Sugar()
+}
 
 type Dispatcher struct {
 	repo *backend.WebhookRepo
@@ -39,7 +47,7 @@ func (d *Dispatcher) Dispatch(eventType string, payload any) {
 func (d *Dispatcher) deliver(eventType string, payload any) {
 	hooks, err := d.repo.ListEnabled()
 	if err != nil {
-		slog.Error("webhook list failed", "err", err)
+		logger.Errorw("webhook list failed", "err", err)
 		return
 	}
 	for _, h := range hooks {
@@ -57,7 +65,7 @@ func (d *Dispatcher) deliverOne(h *backend.Webhook, eventType string, payload an
 		"payload":   payload,
 	})
 	if err != nil {
-		slog.Error("webhook marshal failed", "err", err)
+		logger.Errorw("webhook marshal failed", "err", err)
 		return
 	}
 	// 3 次重试，指数退避
@@ -65,14 +73,14 @@ func (d *Dispatcher) deliverOne(h *backend.Webhook, eventType string, payload an
 		err := d.sendOnce(h, eventType, body)
 		if err == nil {
 			d.repo.MarkTriggered(h.ID)
-			slog.Info("webhook delivered", "id", h.ID, "event", eventType, "attempt", attempt)
+			logger.Infow("webhook delivered", "id", h.ID, "event", eventType, "attempt", attempt)
 			return
 		}
-		slog.Warn("webhook attempt failed", "id", h.ID, "event", eventType, "attempt", attempt, "err", err)
+		logger.Warnw("webhook attempt failed", "id", h.ID, "event", eventType, "attempt", attempt, "err", err)
 		time.Sleep(time.Duration(1<<attempt) * time.Second)
 	}
 	d.repo.IncrementFail(h.ID)
-	slog.Error("webhook permanently failed", "id", h.ID, "event", eventType)
+	logger.Errorw("webhook permanently failed", "id", h.ID, "event", eventType)
 }
 
 func (d *Dispatcher) sendOnce(h *backend.Webhook, eventType string, body []byte) error {

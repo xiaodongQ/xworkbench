@@ -3,6 +3,8 @@ data/
 *.db-journal
 *.db
 bin/
+tmp-e2e-test/
+config.json
 .codegraph
 # server 二进制（避免误忽略 cmd/server/static/ 等前端资源）
 cmd/server/server

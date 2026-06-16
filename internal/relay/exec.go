@@ -4,14 +4,16 @@ package relay
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/executor"
+	"go.uber.org/zap"
 )
+
+var _ *zap.SugaredLogger // logger 类型引用，定义在 handler.go
 
 // ExecRequest 是 /api/exec 的请求结构。
 type ExecRequest struct {
@@ -51,10 +53,10 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	cmdArgs := parseShell(req.Command)
-	slog.Info("relay: exec start",
-		slog.String("cwd", req.Cwd),
-		slog.Int("timeout_ms", req.TimeoutMs),
-		slog.String("cmd", truncateRelayCmd(cmdArgs)),
+	logger.Infow("relay: exec start",
+		"cwd", req.Cwd,
+		"timeout_ms", req.TimeoutMs,
+		"cmd", truncateRelayCmd(cmdArgs),
 	)
 	result, err := executor.Run(ctx, cmdArgs, req.Cwd, nil)
 
@@ -70,18 +72,25 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 		resp.ExitCode = result.ExitCode
 	}
 
-	lvl := slog.LevelInfo
 	if err != nil || (result != nil && result.ExitCode != 0) {
-		lvl = slog.LevelError
+		logger.Errorw("relay: exec done",
+			"cmd", truncateRelayCmd(cmdArgs),
+			"exit_code", resp.ExitCode,
+			"dur_ms", resp.DurationMs,
+			"err", resp.Error,
+			"stdout_bytes", len(resp.Output),
+			"stderr_bytes", len(resp.ErrorOut),
+		)
+	} else {
+		logger.Infow("relay: exec done",
+			"cmd", truncateRelayCmd(cmdArgs),
+			"exit_code", resp.ExitCode,
+			"dur_ms", resp.DurationMs,
+			"err", resp.Error,
+			"stdout_bytes", len(resp.Output),
+			"stderr_bytes", len(resp.ErrorOut),
+		)
 	}
-	slog.LogAttrs(context.Background(), lvl, "relay: exec done",
-		slog.String("cmd", truncateRelayCmd(cmdArgs)),
-		slog.Int("exit_code", resp.ExitCode),
-		slog.Int64("dur_ms", resp.DurationMs),
-		slog.String("err", resp.Error),
-		slog.Int("stdout_bytes", len(resp.Output)),
-		slog.Int("stderr_bytes", len(resp.ErrorOut)),
-	)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

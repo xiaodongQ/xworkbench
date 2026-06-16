@@ -5,10 +5,18 @@
 package httplog
 
 import (
-	"log/slog"
 	"net/http"
 	"time"
+
+	"go.uber.org/zap"
 )
+
+var logger *zap.SugaredLogger
+
+func init() {
+	l, _ := zap.NewProduction()
+	logger = l.Sugar()
+}
 
 // Middleware 包装 next，记录每次请求的处理结果。
 // 对于需要 WebSocket 升级的路径（/api/pty, /ws），直接放行以避免
@@ -26,13 +34,13 @@ func Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(rw, r)
 		switch {
 		case rw.status >= 500:
-			slog.Error("http", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Int("status", rw.status), slog.Int64("dur_ms", time.Since(start).Milliseconds()))
+			logger.Errorw("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
 		case rw.status >= 400:
-			slog.Warn("http", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Int("status", rw.status), slog.Int64("dur_ms", time.Since(start).Milliseconds()))
+			logger.Warnw("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
 		case r.Method == http.MethodGet:
-			slog.Debug("http", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Int("status", rw.status), slog.Int64("dur_ms", time.Since(start).Milliseconds()))
+			logger.Debugw("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
 		default:
-			slog.Info("http", slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Int("status", rw.status), slog.Int64("dur_ms", time.Since(start).Milliseconds()))
+			logger.Infow("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
 		}
 	})
 }

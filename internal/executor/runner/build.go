@@ -4,12 +4,20 @@ package runner
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"go.uber.org/zap"
 )
+
+var logger *zap.SugaredLogger
+
+func init() {
+	l, _ := zap.NewProduction()
+	logger = l.Sugar()
+}
 
 // BuildCommand 根据类型构造命令列表。
 //
@@ -29,11 +37,7 @@ import (
 // `;` / `&` / `|` / `$()` 等被 shell 二次解析，等于 shell 注入。
 // 改用临时脚本文件（一次写入，文件名安全），执行解释器直接喂文件。
 func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)) (cmd []string, cleanup func(), err error) {
-	slog.Debug("runner: BuildCommand",
-		slog.String("type", typ),
-		slog.String("model", model),
-		slog.Int("prompt_chars", len(prompt)),
-	)
+	logger.Debugw("runner: BuildCommand", "type", typ, "model", model, "prompt_chars", len(prompt))
 	o := &buildOpts{
 		allowedTools: []string{"Bash", "Write", "Edit", "Read", "Grep"},
 	}
@@ -119,7 +123,7 @@ func shellRunCommand(prompt string) ([]string, func(), error) {
 	}
 	cleanup := func() {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			slog.Warn("runner: remove temp script", slog.String("path", path), slog.String("err", err.Error()))
+			logger.Warnw("runner: remove temp script", "path", path, "err", err.Error())
 		}
 	}
 	return cmd, cleanup, nil
