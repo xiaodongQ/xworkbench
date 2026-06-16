@@ -107,7 +107,7 @@ func checkRelayAuth() func(http.HandlerFunc) http.HandlerFunc {
 					key = r.Header.Get("X-API-Key")
 				}
 				if key != cfg.Relay.APIKey {
-					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					http.Error(w, `{"error":"unauthorized","hint":"请在请求头中添加 Authorization: Bearer <api_key> 或 X-API-Key: <api_key>（默认 key：xworkbench）"}`, http.StatusUnauthorized)
 					return
 				}
 			}
