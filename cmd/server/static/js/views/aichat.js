@@ -2,7 +2,7 @@
 // 依赖 api.js
 
 let term;
-let ws;
+let ptyWs;
 let termReady = false;
 
 // onCliChange 保存用户选择的 CLI 到后端（下次连接时生效）
@@ -20,61 +20,67 @@ async function onCliChange(value) {
 
 function initTerminal() {
   if (term) return;
-  term = new Terminal({
-    fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace",
-    fontSize: 13,
-    theme: { background: '#0f172a', foreground: '#e2e8f0', cursor: '#22d3ee' },
-    cursorBlink: true,
-    scrollback: 10000,
-  });
-  term.open(document.getElementById('terminal'));
+  const termContainer = document.getElementById('terminal');
+  if (!termContainer) return;
+  // 等待 DOM 完全渲染后再 open（避免 #page-aichat 从 hidden 切换时 term.open 在不可见状态调用）
+  requestAnimationFrame(() => {
+    if (term) return; // double-check after frame
+    term = new Terminal({
+      fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace",
+      fontSize: 13,
+      theme: { background: '#0f172a', foreground: '#e2e8f0', cursor: '#22d3ee' },
+      cursorBlink: true,
+      scrollback: 10000,
+    });
+    term.open(termContainer);
 
-  ws = new WebSocket('ws://' + window.location.host + '/api/pty');
-  ws.binaryType = 'arraybuffer';
+    ptyWs = new WebSocket('ws://' + window.location.host + '/api/pty');
+    ptyWs.binaryType = 'arraybuffer';
 
-  ws.onopen = () => {
-    termReady = true;
-    term.writeln('\x1b[32m[xworkbench] 连接就绪\x1b[0m\r\n');
-  };
+    ptyWs.onopen = () => {
+      termReady = true;
+      term.writeln('\x1b[32m[xworkbench] 连接就绪\x1b[0m\r\n');
+    };
 
-  ws.onmessage = (e) => {
-    if (!termReady) return;
-    if (e.data instanceof ArrayBuffer) {
-      // PTY 二进制输出
-      term.write(new Uint8Array(e.data));
-    } else {
-      // 文本消息：可能是 JSON 控制消息(auth_required)或普通字符串
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'auth_required') {
-          term.writeln('\r\n\x1b[33m[xworkbench] 需要授权: ' + (msg.extra || '') + '\x1b[0m\r\n');
+    ptyWs.onmessage = (e) => {
+      if (!termReady) return;
+      if (e.data instanceof ArrayBuffer) {
+        // PTY 二进制输出
+        term.write(new Uint8Array(e.data));
+      } else {
+        // 文本消息：可能是 JSON 控制消息(auth_required)或普通字符串
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'auth_required') {
+            term.writeln('\r\n\x1b[33m[xworkbench] 需要授权: ' + (msg.extra || '') + '\x1b[0m\r\n');
+          }
+          // 其它 JSON 消息忽略(暂时没有其它类型)
+        } catch {
+          // 非 JSON 文本(例如 PTY 启动 banner)直接写
+          term.write(e.data);
         }
-        // 其它 JSON 消息忽略(暂时没有其它类型)
-      } catch {
-        // 非 JSON 文本(例如 PTY 启动 banner)直接写
-        term.write(e.data);
       }
-    }
-  };
+    };
 
-  ws.onclose = () => {
-    term.writeln('\r\n\x1b[33m[连接已关闭] 刷新页面重连\x1b[0m');
-    termReady = false;
-  };
-  ws.onerror = () => {
-    term.writeln('\r\n\x1b[31m[WebSocket 错误]\x1b[0m');
-  };
+    ptyWs.onclose = () => {
+      term.writeln('\r\n\x1b[33m[连接已关闭] 刷新页面重连\x1b[0m');
+      termReady = false;
+    };
+    ptyWs.onerror = () => {
+      term.writeln('\r\n\x1b[31m[WebSocket 错误]\x1b[0m');
+    };
 
-  // PTY 输入 → WS
-  term.onData(data => { if (ws && ws.readyState === 1) ws.send(data); });
-  term.onResize(() => {
-    if (ws && ws.readyState === 1) {
-      ws.send('resize,' + term.cols + ',' + term.rows);
-    }
+    // PTY 输入 → WS
+    term.onData(data => { if (ptyWs && ptyWs.readyState === 1) ptyWs.send(data); });
+    term.onResize(() => {
+      if (ptyWs && ptyWs.readyState === 1) {
+        ptyWs.send('resize,' + term.cols + ',' + term.rows);
+      }
+    });
+
+    // 终端初始化后加载 CLI 设置（确保下拉框值先恢复）
+    if (typeof loadCliSetting === 'function') loadCliSetting();
   });
-
-  // 终端初始化后加载 CLI 设置（确保下拉框值先恢复）
-  if (typeof loadCliSetting === 'function') loadCliSetting();
 }
 
 // 加载保存的 CLI 选择（页面加载时恢复下拉框值）

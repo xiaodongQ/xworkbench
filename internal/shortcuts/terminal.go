@@ -95,8 +95,13 @@ func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) e
 		sshArgs = append(sshArgs, "-i", dir.KeyPath)
 	}
 	sshArgs = append(sshArgs, sshTarget)
-	// 登录后 cd 到目标目录并启动 shell
-	cdCmd := "cd '" + dir.Path + "' && exec $SHELL"
+	// 登录后 cd 到目标目录并启动 shell（本地 path 对远程无意义，仅 cd 到用户主目录）
+	var cdCmd string
+	if dir.Path != "" {
+		cdCmd = "cd '" + dir.Path + "' && exec $SHELL"
+	} else {
+		cdCmd = "exec $SHELL"
+	}
 	sshArgs = append(sshArgs, "--", "sh", "-c", cdCmd)
 	logger.Infow("[OpenRemoteDirShortcut] ssh command", "target", sshTarget, "auth", dir.AuthMethod, "sshArgs", sshArgs)
 	// 先用 ssh 检测连通性（不阻塞）
