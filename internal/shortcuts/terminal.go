@@ -8,18 +8,13 @@ import (
 	"runtime"
 	"strings"
 
-	"go.uber.org/zap"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
+	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
-var logger *zap.SugaredLogger
 
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l.Sugar()
-}
 
 // IsSupportedTerminal 检查终端类型是否支持
 func IsSupportedTerminal(termType string) bool {
@@ -85,7 +80,7 @@ func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) e
 	if dir.RemoteUser != "" {
 		sshTarget = dir.RemoteUser + "@" + dir.RemoteHost
 	}
-	logger.Infow("[OpenRemoteDirShortcut] opening", "termType", termType, "bin", binPath, "target", sshTarget)
+	logger.Logger.Infow("[OpenRemoteDirShortcut] opening", "termType", termType, "bin", binPath, "target", sshTarget, "remotePath", dir.RemotePath)
 	switch termType {
 	case "wezterm":
 		// wezterm ssh user@host -- bash -c "cd /path && exec $SHELL"
@@ -157,13 +152,13 @@ func OpenTerminal(termType, dir, binPath string) error {
 	if binPath != "" {
 		bin = binPath
 	}
-	logger.Infow("[OpenTerminal]", "termType", termType, "dir", dir, "bin", bin, "binPath", binPath, "at", "terminal.go:93")
+	logger.Logger.Infow("[OpenTerminal]", "termType", termType, "dir", dir, "bin", bin, "binPath", binPath, "at", "terminal.go:93")
 	// 构建 args，替换 {dir} 占位符
 	args := make([]string, len(typeDef.Args))
 	for i, a := range typeDef.Args {
 		args[i] = strings.ReplaceAll(a, "{dir}", dir)
 	}
-	logger.Infow("[OpenTerminal] exec", "bin", bin, "args", args, "at", "terminal.go:113")
+	logger.Logger.Infow("[OpenTerminal] exec", "bin", bin, "args", args, "at", "terminal.go:113")
 	cmd := exec.Command(bin, args...)
 	if runtime.GOOS == "windows" {
 		// 用 cmd /C start 创建完全独立的新窗口
