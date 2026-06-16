@@ -9,15 +9,11 @@ import (
 	"runtime"
 	"strings"
 
-	"go.uber.org/zap"
+	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
-var logger *zap.SugaredLogger
 
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l.Sugar()
-}
+// SetLogger 供 server 注 入已配置好的 logger，避免各自初始化写到 stderr。
 
 // BuildCommand 根据类型构造命令列表。
 //
@@ -37,7 +33,7 @@ func init() {
 // `;` / `&` / `|` / `$()` 等被 shell 二次解析，等于 shell 注入。
 // 改用临时脚本文件（一次写入，文件名安全），执行解释器直接喂文件。
 func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)) (cmd []string, cleanup func(), err error) {
-	logger.Debugw("runner: BuildCommand", "type", typ, "model", model, "prompt_chars", len(prompt))
+	logger.Logger.Debugw("runner: BuildCommand", "type", typ, "model", model, "prompt_chars", len(prompt))
 	o := &buildOpts{
 		allowedTools: []string{"Bash", "Write", "Edit", "Read", "Grep"},
 	}
@@ -128,7 +124,7 @@ func shellRunCommand(prompt string) ([]string, func(), error) {
 	}
 	cleanup := func() {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			logger.Warnw("runner: remove temp script", "path", path, "err", err.Error())
+			logger.Logger.Warnw("runner: remove temp script", "path", path, "err", err.Error())
 		}
 	}
 	return cmd, cleanup, nil

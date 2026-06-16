@@ -12,19 +12,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/executor"
 	"github.com/xiaodongQ/xworkbench/internal/executor/runner"
+	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
-
-var logger *zap.SugaredLogger
-
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l.Sugar()
-}
 
 // 评分 prompt：要求 claude 基于"指令 vs AI 自报动作清单 vs Claude 执行元数据 vs 实际 stdout"四方对照打分。
 const evalPromptTpl = `你是一个严格的 AI 任务结果评估员。请基于"原始指令"、"AI 自报的动作清单"、"Claude 执行元数据(JSON 解析)"和"实际 stdout"四方对照，判断任务是否真正完成。
@@ -89,8 +82,20 @@ func Evaluate(ctx context.Context, exec *backend.Execution, taskPrompt, cliType,
 	if model == "" {
 		model = "haiku" // 默认用 haiku 快+便宜
 	}
+	// stdout 超过 100KB 则截取末尾 100KB（动作清单在末尾），并在评语里注明
+	const maxEvalOutput = 100 * 1024
 	stdout := exec.Output
 	stderr := exec.Error
+	truncated := false
+	if len(stdout) > maxEvalOutput {
+		logger.Logger.Warnw("evaluator: stdout truncated for evaluation",
+			"execution_id", exec.ID,
+			"original_bytes", len(stdout),
+			"kept_bytes", maxEvalOutput,
+		)
+		stdout = "...[stdout truncated, last " + strconv.Itoa(maxEvalOutput) + " of " + strconv.Itoa(len(stdout)) + " bytes]\n" + stdout[len(stdout)-maxEvalOutput:]
+		truncated = true
+	}
 	report := ExtractActionReport(stdout)
 
 	// 把动作清单渲染成可读文本注入 prompt
@@ -136,6 +141,9 @@ func Evaluate(ctx context.Context, exec *backend.Execution, taskPrompt, cliType,
 		stderr,
 		exec.ExitCode,
 	))
+	if truncated {
+		prompt += "\n\n[注意：任务 stdout 因超过 100KB 被截断，以上内容为末尾 100KB，评估时请以此为准]"
+	}
 
 	cmd, cleanup, err := runner.BuildCommand(cliType, model, "", prompt)
 	if err != nil {
@@ -191,11 +199,13 @@ func truncate(s string, n int) string {
 // RunAndSave 评估并把结果存 evaluations 表。返回 evaluation id。
 func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *backend.ExecutionRepo, exec *backend.Execution, taskPrompt, cliType, model string) (string, error) {
 	started := time.Now()
-	logger.Infow("evaluator: run start",
+	logger.Logger.Infow("evaluator: run start",
 		"execution_id", exec.ID,
 		"task_id", exec.TaskID,
 		"cli", cliType,
 		"model", model,
+		"prompt_len", len(taskPrompt),
+		"prompt_preview", func() string { if len(taskPrompt) > 200 { return taskPrompt[:200] + "..."; }; return taskPrompt }(),
 	)
 	res, err := Evaluate(ctx, exec, taskPrompt, cliType, model)
 	// 无论成功失败都保存评估记录，便于查看历史和失败原因
@@ -212,12 +222,12 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		ev.Score = -1
 		ev.Comments = "评估失败: " + err.Error()
 		if evalDB.Create(ev) != nil {
-			logger.Errorw("evaluator: save failed record",
+			logger.Logger.Errorw("evaluator: save failed record",
 				"execution_id", exec.ID,
 				"err", err.Error(),
 			)
 		}
-		logger.Errorw("evaluator: run failed",
+		logger.Logger.Errorw("evaluator: run failed",
 			"execution_id", exec.ID,
 			"err", err.Error(),
 			"dur_ms", ev.DurationMs,
@@ -227,13 +237,13 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 	ev.Score = float64(res.Score)
 	ev.Comments = res.Comments
 	if err = evalDB.Create(ev); err != nil {
-		logger.Errorw("evaluator: save failed",
+		logger.Logger.Errorw("evaluator: save failed",
 			"execution_id", exec.ID,
 			"err", err.Error(),
 		)
 		return "", fmt.Errorf("save evaluation: %w", err)
 	}
-	logger.Infow("evaluator: run done",
+	logger.Logger.Infow("evaluator: run done",
 		"execution_id", exec.ID,
 		"score", res.Score,
 		"model", cliType+"/"+model,

@@ -10,10 +10,9 @@ import (
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/executor"
-	"go.uber.org/zap"
+	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
-var _ *zap.SugaredLogger // logger 类型引用，定义在 handler.go
 
 // ExecRequest 是 /api/exec 的请求结构。
 type ExecRequest struct {
@@ -53,7 +52,7 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	cmdArgs := parseShell(req.Command)
-	logger.Infow("relay: exec start",
+	logger.Logger.Infow("relay: exec start",
 		"cwd", req.Cwd,
 		"timeout_ms", req.TimeoutMs,
 		"cmd", truncateRelayCmd(cmdArgs),
@@ -73,7 +72,7 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil || (result != nil && result.ExitCode != 0) {
-		logger.Errorw("relay: exec done",
+		logger.Logger.Errorw("relay: exec done",
 			"cmd", truncateRelayCmd(cmdArgs),
 			"exit_code", resp.ExitCode,
 			"dur_ms", resp.DurationMs,
@@ -82,7 +81,7 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 			"stderr_bytes", len(resp.ErrorOut),
 		)
 	} else {
-		logger.Infow("relay: exec done",
+		logger.Logger.Infow("relay: exec done",
 			"cmd", truncateRelayCmd(cmdArgs),
 			"exit_code", resp.ExitCode,
 			"dur_ms", resp.DurationMs,

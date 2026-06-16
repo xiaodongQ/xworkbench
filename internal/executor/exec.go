@@ -10,15 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"go.uber.org/zap"
+	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
-var logger *zap.SugaredLogger
 
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l.Sugar()
-}
+// SetLogger 供 server 注 入已配置好的 logger，避免各自初始化写到 stderr。
 
 // Result 一次执行的完整结果。
 type Result struct {
@@ -54,7 +50,7 @@ func Run(ctx context.Context, cmd []string, dir string, onChunk func(string)) (*
 	if err := c.Start(); err != nil {
 		return nil, err
 	}
-	logger.Debugw("executor: process started", "cmd", truncateCmd(cmd), "pid", c.Process.Pid)
+	logger.Logger.Debugw("executor: process started", "cmd", truncateCmd(cmd), "pid", c.Process.Pid)
 
 	var out, errBuf strings.Builder
 	var wg sync.WaitGroup
@@ -112,7 +108,7 @@ func Run(ctx context.Context, cmd []string, dir string, onChunk func(string)) (*
 		res.Err = waitErr
 	}
 	if exit != 0 || waitErr != nil {
-		logger.Errorw("executor: process exited",
+		logger.Logger.Errorw("executor: process exited",
 			"cmd", truncateCmd(cmd),
 			"exit_code", exit,
 			"dur_ms", time.Since(started).Milliseconds(),
@@ -121,7 +117,7 @@ func Run(ctx context.Context, cmd []string, dir string, onChunk func(string)) (*
 			"stderr_bytes", len(res.ErrorOut),
 		)
 	} else {
-		logger.Infow("executor: process exited",
+		logger.Logger.Infow("executor: process exited",
 			"cmd", truncateCmd(cmd),
 			"exit_code", exit,
 			"dur_ms", time.Since(started).Milliseconds(),

@@ -10,15 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"go.uber.org/zap"
+	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
-var logger *zap.SugaredLogger
 
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l.Sugar()
-}
 
 // ProxyRequest describes an HTTP request to be proxied through xworkbench.
 type ProxyRequest struct {
@@ -91,7 +86,7 @@ func (h *RelayHandler) HandleRelayProxy(w http.ResponseWriter, r *http.Request) 
 
 	client := &http.Client{Timeout: timeout}
 	started := time.Now()
-	logger.Infow("relay: proxy start",
+	logger.Logger.Infow("relay: proxy start",
 		"method", method,
 		"url", req.URL,
 		"timeout_ms", req.TimeoutMs,
@@ -130,7 +125,7 @@ func (h *RelayHandler) HandleRelayProxy(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err != nil || proxyResp.StatusCode >= 400 {
-		logger.Errorw("relay: proxy done",
+		logger.Logger.Errorw("relay: proxy done",
 			"method", method,
 			"url", req.URL,
 			"status", proxyResp.StatusCode,
@@ -139,7 +134,7 @@ func (h *RelayHandler) HandleRelayProxy(w http.ResponseWriter, r *http.Request) 
 			"resp_bytes", len(proxyResp.Body),
 		)
 	} else {
-		logger.Infow("relay: proxy done",
+		logger.Logger.Infow("relay: proxy done",
 			"method", method,
 			"url", req.URL,
 			"status", proxyResp.StatusCode,

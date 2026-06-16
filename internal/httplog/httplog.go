@@ -8,15 +8,10 @@ import (
 	"net/http"
 	"time"
 
-	"go.uber.org/zap"
+	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
-var logger *zap.SugaredLogger
 
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l.Sugar()
-}
 
 // Middleware 包装 next，记录每次请求的处理结果。
 // 对于需要 WebSocket 升级的路径（/api/pty, /ws），直接放行以避免
@@ -34,13 +29,13 @@ func Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(rw, r)
 		switch {
 		case rw.status >= 500:
-			logger.Errorw("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
+			logger.Logger.Errorw("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
 		case rw.status >= 400:
-			logger.Warnw("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
+			logger.Logger.Warnw("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
 		case r.Method == http.MethodGet:
-			logger.Debugw("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
+			logger.Logger.Debugw("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
 		default:
-			logger.Infow("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
+			logger.Logger.Infow("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds())
 		}
 	})
 }

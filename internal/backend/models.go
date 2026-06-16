@@ -108,6 +108,7 @@ type Execution struct {
 	ScheduledTaskID string    `json:"scheduled_task_id,omitempty"`
 	Source         string     `json:"source"` // 'manual' | 'scheduled' | 'retry'
 	Command        string     `json:"command"`
+	Prompt         string     `json:"prompt,omitempty"` // 原始 prompt（scheduled task 用，评估时优先用这个）
 	Model          string     `json:"model,omitempty"`
 	StartedAt      time.Time  `json:"started_at"`
 	CompletedAt    *time.Time `json:"completed_at,omitempty"`

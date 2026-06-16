@@ -7,15 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"go.uber.org/zap"
+	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
-var logger *zap.SugaredLogger
 
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l.Sugar()
-}
 
 // ResolveDBPath 返回 SQLite 数据库文件应使用的绝对路径。
 //
@@ -61,11 +56,11 @@ func maybeMigrateLegacy(newPath string) string {
 		return newPath // 新位置已有，不动
 	}
 	if err := copyFile(legacy, newPath); err != nil {
-		logger.Warnw("paths: legacy DB found but copy failed; continuing with new path",
+		logger.Logger.Warnw("paths: legacy DB found but copy failed; continuing with new path",
 			"from", legacy, "to", newPath, "err", err.Error())
 		return newPath
 	}
-	logger.Warnw("paths: migrated legacy DB",
+	logger.Logger.Warnw("paths: migrated legacy DB",
 		"from", legacy, "to", newPath)
 	return newPath
 }
