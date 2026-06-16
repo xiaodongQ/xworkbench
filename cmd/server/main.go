@@ -2017,6 +2017,7 @@ func (s *APIServer) handleTaskClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task, _ := s.db.Get(taskID)
+task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
 	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: taskID, EventType: "claimed",
@@ -2715,6 +2716,7 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	task, _ := s.db.Get(taskID)
+task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
 	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: taskID, EventType: "claimed_via_priority",
