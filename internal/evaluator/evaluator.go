@@ -206,6 +206,7 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		EvaluatorModel: cliType + "/" + model,
 		CreatedAt:      time.Now(),
 	}
+	ev.DurationMs = time.Since(started).Milliseconds()
 	if err != nil {
 		// 失败时保存错误信息，score=-1 表示无法解析
 		ev.Score = -1
@@ -219,7 +220,7 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		logger.Errorw("evaluator: run failed",
 			"execution_id", exec.ID,
 			"err", err.Error(),
-			"dur_ms", time.Since(started).Milliseconds(),
+			"dur_ms", ev.DurationMs,
 		)
 		return "", err
 	}
@@ -236,7 +237,7 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		"execution_id", exec.ID,
 		"score", res.Score,
 		"model", cliType+"/"+model,
-		"dur_ms", time.Since(started).Milliseconds(),
+		"dur_ms", ev.DurationMs,
 	)
 	return ev.ID, nil
 }

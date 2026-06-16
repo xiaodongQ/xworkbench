@@ -804,8 +804,9 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req struct {
-		CliType string `json:"cli_type"`
-		Model   string `json:"model"`
+		CliType    string `json:"cli_type"`
+		Model      string `json:"model"`
+		TimeoutSec int    `json:"timeout_sec"` // 评估超时时间，默认120秒
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	if req.CliType == "" {
@@ -813,6 +814,9 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 	}
 	if req.Model == "" {
 		req.Model = "sonnet"
+	}
+	if req.TimeoutSec <= 0 {
+		req.TimeoutSec = 120
 	}
 	// 找 task prompt：用 BuildTaskPrompt 注入完整 task + 多 experience 信息
 	prompt := exec.Command
@@ -828,7 +832,7 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 			"cli", req.CliType,
 			"model", req.Model,
 		)
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(req.TimeoutSec)*time.Second)
 		defer cancel()
 		_, err := evaluator.RunAndSave(ctx, s.evalDB, s.execDB, exec, prompt, req.CliType, req.Model)
 		if err != nil {

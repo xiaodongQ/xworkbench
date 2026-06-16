@@ -447,10 +447,13 @@ function renderEvalCard(ev) {
     : 'font-size:13px';
   // 从评语里解析 num_turns / permission_denials 客观证据（sonnet 评语里常含）
   const evidence = parseEvalEvidence(ev.comments || '');
+  // 耗时显示
+  const durMs = ev.duration_ms || 0;
+  const durDisplay = durMs >= 1000 ? (durMs / 1000).toFixed(1) + 's' : durMs + 'ms';
   return `
     <div style="${cardStyle}">
       📊 AI 评估: <b style="color:${color};font-size:18px">${scoreDisplay}</b>
-      <span style="color:var(--text-secondary);font-size:11px;margin-left:8px">${esc(ev.evaluator_model || '')} · ${esc(new Date(ev.created_at).toLocaleString())}</span>
+      <span style="color:var(--text-secondary);font-size:11px;margin-left:8px">${esc(ev.evaluator_model || '')} · ${durDisplay} · ${esc(new Date(ev.created_at).toLocaleString())}</span>
       ${evidence.numTurnsBadge}
     </div>
     ${ev.comments ? `<div style="margin-top:6px;color:var(--text-secondary);font-size:12px;white-space:pre-wrap">${esc(ev.comments)}</div>` : ''}
@@ -490,12 +493,14 @@ async function runEvaluation(id) {
   // 评估时禁用 select 避免反复改
   const sel = document.getElementById('eval-model-select');
   if (sel) sel.disabled = true;
+  const timeoutInput = document.getElementById('eval-timeout');
+  const timeoutSec = timeoutInput ? parseInt(timeoutInput.value) || 120 : 120;
   const btn = event && event.target;
   const oldText = btn && btn.textContent;
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   _markEvaluating(execId, true);
   try {
-    await fetchJSON('/api/executions/' + execId + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cli_type: getEvalCliType(), model: getEvalModel()})});
+    await fetchJSON('/api/executions/' + execId + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cli_type: getEvalCliType(), model: getEvalModel(), timeout_sec: timeoutSec})});
     // 评估中状态：弹窗 + 列表徽章（_markEvaluating 已刷列表）
     if (currentExecId === execId) {
       const card = document.getElementById('exec-detail-eval');
@@ -506,7 +511,7 @@ async function runEvaluation(id) {
       await new Promise(r => setTimeout(r, 2000));
       const evals = await fetchJSON('/api/executions/' + execId + '/evaluations');
       if (evals && evals.length > 0) {
-        if (currentExecId === execId) renderEvalCard(evals[0]);
+        if (currentExecId === execId) renderEvalHistory(evals);
         _markEvaluating(execId, false);
         // 刷新列表（评分可能影响渲染）
         loadRecentExecutions();
