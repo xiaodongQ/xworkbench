@@ -473,12 +473,31 @@
 <!-- Dir Modal -->
 <div id="dir-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeDirModal()">
   <div class="modal">
-    <h2>添加目录</h2>
+    <h2 id="dir-modal-title">添加目录</h2>
+    <div class="form-group"><label>类型</label>
+      <select id="dir-type" onchange="onDirTypeChange()" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
+        <option value="local">本地目录</option>
+        <option value="remote">远程 SSH</option>
+      </select>
+    </div>
     <div class="form-group"><label>名称 <span class="field-hint">必填</span></label><input id="dir-name" placeholder="如 代码"></div>
-    <div class="form-group"><label>路径 <span class="field-hint">必填 · 本地绝对路径</span></label><input id="dir-path" placeholder="/Users/me/code"></div>
+    <div class="form-group" id="dir-local-path-group"><label>路径 <span class="field-hint">必填 · 本地绝对路径</span></label><input id="dir-path" placeholder="/Users/me/code"></div>
+    <div id="dir-remote-fields" class="hidden">
+      <div class="form-group"><label>主机 <span class="field-hint">必填 · IP 或域名</span></label><input id="dir-remote-host" placeholder="192.168.1.100"></div>
+      <div class="form-group"><label>用户名 <span class="field-hint">必填</span></label><input id="dir-remote-user" placeholder="root"></div>
+      <div class="form-group"><label>认证方式</label>
+        <select id="dir-auth-method" onchange="onAuthMethodChange()" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
+          <option value="password">密码</option>
+          <option value="key">密钥</option>
+        </select>
+      </div>
+      <div class="form-group" id="dir-password-group"><label>密码</label><input id="dir-remote-password" type="password" placeholder="演示/内部用"></div>
+      <div class="form-group hidden" id="dir-key-path-group"><label>密钥路径</label><input id="dir-key-path" placeholder="~/.ssh/id_rsa"></div>
+    </div>
+    <div class="form-group"><label>终端命令</label><input id="dir-terminal-cmd" placeholder="留空使用默认终端"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeDirModal()">取消</button>
-      <button class="btn btn-primary" onclick="submitDir()">添加</button>
+      <button class="btn btn-primary" onclick="submitDir()" id="dir-submit-btn">添加</button>
     </div>
   </div>
 </div>

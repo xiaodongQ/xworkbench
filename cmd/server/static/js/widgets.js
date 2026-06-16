@@ -108,14 +108,14 @@ async function loadDirs() {
     return;
   }
   el.innerHTML = list.map((d, idx) =>
-    `<div class="dir-item" draggable="true" data-id="${d.id}" data-idx="${idx}"
+    `<div class="dir-item${d.type === 'remote' ? ' dir-remote' : ''}" draggable="true" data-id="${d.id}" data-idx="${idx}"
         ondragstart="widgetDragStart(event, 'dir-shortcuts')" ondragover="widgetDragOver(event)" ondrop="widgetDrop(event, 'dir-shortcuts', loadDirs)" ondragleave="widgetDragLeave(event)">
       <span class="drag-handle" title="拖动排序"></span>
-      <span class="dir-icon" onclick="openDir('${d.id}')">📁</span>
+      <span class="dir-icon" onclick="openDir('${d.id}')">${d.type === 'remote' ? '🌐' : '📁'}</span>
       <span class="dir-term" onclick="event.stopPropagation();openDirTerminal('${d.id}')" title="打开终端">⬢</span>
       <span class="dir-text" onclick="openDir('${d.id}')">
         <span class="dir-name">${esc(d.name)}</span>
-        <span class="dir-path" title="${esc(d.path)}">${esc(d.path)}</span>
+        <span class="dir-path" title="${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}">${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}</span>
       </span>
       <span class="dir-edit" onclick="event.stopPropagation();editDir('${d.id}')" title="编辑">✎</span>
       <span class="dir-del" onclick="event.stopPropagation();deleteDir('${d.id}')" title="删除">×</span>
@@ -123,12 +123,40 @@ async function loadDirs() {
 }
 function showDirModal() {
   document.getElementById('dir-name').value = '';
+  document.getElementById('dir-type').value = 'local';
   document.getElementById('dir-path').value = '';
+  document.getElementById('dir-remote-host').value = '';
+  document.getElementById('dir-remote-user').value = '';
+  document.getElementById('dir-auth-method').value = 'password';
+  document.getElementById('dir-remote-password').value = '';
+  document.getElementById('dir-key-path').value = '';
+  document.getElementById('dir-terminal-cmd').value = '';
   document.getElementById('dir-modal').dataset.editId = '';
   document.getElementById('dir-modal').classList.remove('hidden');
+  document.getElementById('dir-modal-title').textContent = '添加目录';
+  document.getElementById('dir-submit-btn').textContent = '添加';
+  onDirTypeChange();
+  onAuthMethodChange();
   setTimeout(() => document.getElementById('dir-name').focus(), 50);
 }
 function closeDirModal() { document.getElementById('dir-modal').classList.add('hidden'); }
+function onDirTypeChange() {
+  const type = document.getElementById('dir-type').value;
+  const remoteFields = document.getElementById('dir-remote-fields');
+  const localPathGroup = document.getElementById('dir-local-path-group');
+  if (type === 'remote') {
+    remoteFields.classList.remove('hidden');
+    localPathGroup.classList.add('hidden');
+  } else {
+    remoteFields.classList.add('hidden');
+    localPathGroup.classList.remove('hidden');
+  }
+}
+function onAuthMethodChange() {
+  const method = document.getElementById('dir-auth-method').value;
+  document.getElementById('dir-password-group').classList.toggle('hidden', method === 'key');
+  document.getElementById('dir-key-path-group').classList.toggle('hidden', method !== 'key');
+}
 function showDirSettingsModal() {
   fetchJSON('/api/config').then(data => {
     const term = data.terminal;
@@ -208,24 +236,43 @@ async function editDir(id) {
   const d = list.find(x => x.id === id);
   if (!d) return;
   document.getElementById('dir-name').value = d.name || '';
+  document.getElementById('dir-type').value = d.type || 'local';
   document.getElementById('dir-path').value = d.path || '';
+  document.getElementById('dir-remote-host').value = d.remote_host || '';
+  document.getElementById('dir-remote-user').value = d.remote_user || '';
+  document.getElementById('dir-auth-method').value = d.auth_method || 'password';
+  document.getElementById('dir-remote-password').value = d.remote_password || '';
+  document.getElementById('dir-key-path').value = d.key_path || '';
+  document.getElementById('dir-terminal-cmd').value = d.terminal_cmd || '';
+  onDirTypeChange();
+  onAuthMethodChange();
   document.getElementById('dir-modal').dataset.editId = id;
   document.getElementById('dir-modal').classList.remove('hidden');
+  document.getElementById('dir-modal-title').textContent = '编辑目录';
+  document.getElementById('dir-submit-btn').textContent = '保存';
   setTimeout(() => document.getElementById('dir-name').focus(), 50);
 }
 function submitDir() {
   const id = document.getElementById('dir-modal').dataset.editId;
   const name = document.getElementById('dir-name').value.trim();
+  const type = document.getElementById('dir-type').value;
   const path = document.getElementById('dir-path').value.trim();
-  if (!name || !path) { alert('名称和路径必填'); return; }
+  const remoteHost = document.getElementById('dir-remote-host').value.trim();
+  const remoteUser = document.getElementById('dir-remote-user').value.trim();
+  const authMethod = document.getElementById('dir-auth-method').value;
+  const remotePassword = document.getElementById('dir-remote-password').value;
+  const keyPath = document.getElementById('dir-key-path').value.trim();
+  const terminalCmd = document.getElementById('dir-terminal-cmd').value.trim();
+  if (!name) { alert('名称必填'); return; }
+  if (type === 'local' && !path) { alert('本地目录路径必填'); return; }
+  if (type === 'remote' && (!remoteHost || !remoteUser)) { alert('主机和用户名必填'); return; }
+  const payload = { name, type, path, remote_host: remoteHost, remote_user: remoteUser, auth_method: authMethod, remote_password: remotePassword, key_path: keyPath, terminal_cmd: terminalCmd };
   if (id) {
-    // 更新
     fetch('/api/dir-shortcuts/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name, path})})
+      body: JSON.stringify(payload)})
       .then(() => { closeDirModal(); loadDirs(); });
   } else {
-    // 新建
-    fetch('/api/dir-shortcuts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name,path})})
+    fetch('/api/dir-shortcuts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
       .then(r => r.json().then(d => ({ok: r.ok, body: d})))
       .then(({ok, body}) => {
         if (!ok) { alert('添加失败：' + (body.error || '未知错误')); return; }
