@@ -26,7 +26,7 @@ type ExecResponse struct {
 	Output     string `json:"output"`
 	ErrorOut  string `json:"error_out"`
 	ExitCode  int    `json:"exit_code"`
-	DurationMs int64 `json:"duration_ms"`
+	DurationS int64 `json:"duration_s"`
 	Error     string `json:"error,omitempty"`
 }
 
@@ -60,7 +60,7 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 	result, err := executor.Run(ctx, cmdArgs, req.Cwd, nil)
 
 	resp := ExecResponse{
-		DurationMs: time.Since(start).Milliseconds(),
+		DurationS: int64(time.Since(start).Seconds()),
 	}
 	if err != nil {
 		resp.Error = err.Error()
@@ -75,7 +75,7 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 		logger.Logger.Errorw("relay: exec done",
 			"cmd", truncateRelayCmd(cmdArgs),
 			"exit_code", resp.ExitCode,
-			"dur_ms", resp.DurationMs,
+			"dur_ms", resp.DurationS,
 			"err", resp.Error,
 			"stdout_bytes", len(resp.Output),
 			"stderr_bytes", len(resp.ErrorOut),
@@ -84,7 +84,7 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 		logger.Logger.Infow("relay: exec done",
 			"cmd", truncateRelayCmd(cmdArgs),
 			"exit_code", resp.ExitCode,
-			"dur_ms", resp.DurationMs,
+			"dur_ms", resp.DurationS,
 			"err", resp.Error,
 			"stdout_bytes", len(resp.Output),
 			"stderr_bytes", len(resp.ErrorOut),

@@ -124,7 +124,7 @@ func Evaluate(ctx context.Context, exec *backend.Execution, taskPrompt, cliType,
 		fmt.Fprintf(&b, "- num_turns: %d（>= 2 表示调过工具）\n", meta.NumTurns)
 		fmt.Fprintf(&b, "- is_error: %v\n", meta.IsError)
 		fmt.Fprintf(&b, "- stop_reason: %s\n", meta.StopReason)
-		fmt.Fprintf(&b, "- duration_ms: %d\n", meta.DurationMs)
+		fmt.Fprintf(&b, "- duration_s: %d\n", meta.DurationS)
 		if len(meta.PermissionDenials) > 0 {
 			fmt.Fprintf(&b, "- permission_denials: %v（被拒的工具调用）\n", meta.PermissionDenials)
 		} else {
@@ -216,7 +216,7 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		EvaluatorModel: cliType + "/" + model,
 		CreatedAt:      time.Now(),
 	}
-	ev.DurationMs = time.Since(started).Milliseconds()
+	ev.DurationS = int64(time.Since(started).Seconds())
 	if err != nil {
 		// 失败时保存错误信息，score=-1 表示无法解析
 		ev.Score = -1
@@ -230,7 +230,7 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		logger.Logger.Errorw("evaluator: run failed",
 			"execution_id", exec.ID,
 			"err", err.Error(),
-			"dur_ms", ev.DurationMs,
+			"dur_ms", ev.DurationS,
 		)
 		return "", err
 	}
@@ -247,7 +247,7 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		"execution_id", exec.ID,
 		"score", res.Score,
 		"model", cliType+"/"+model,
-		"dur_ms", ev.DurationMs,
+		"dur_ms", ev.DurationS,
 	)
 	return ev.ID, nil
 }
@@ -343,7 +343,7 @@ type ExecutionMeta struct {
 	NumTurns          int
 	Result            string // AI 文本回答（替代原来 stdout 的"全部内容"）
 	StopReason        string
-	DurationMs        int
+	DurationS        int64
 	PermissionDenials []string // 被拒的工具名列表
 }
 
@@ -359,7 +359,7 @@ func ParseJSONExecution(stdout string) (*ExecutionMeta, bool) {
 		NumTurns          int      `json:"num_turns"`
 		Result            string   `json:"result"`
 		StopReason        string   `json:"stop_reason"`
-		DurationMs        int      `json:"duration_ms"`
+		DurationS        int      `json:"duration_s"`
 		PermissionDenials []string `json:"permission_denials"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
@@ -370,7 +370,7 @@ func ParseJSONExecution(stdout string) (*ExecutionMeta, bool) {
 		NumTurns:          raw.NumTurns,
 		Result:            raw.Result,
 		StopReason:        raw.StopReason,
-		DurationMs:        raw.DurationMs,
+		DurationS:        int64(raw.DurationS),
 		PermissionDenials: raw.PermissionDenials,
 	}, true
 }

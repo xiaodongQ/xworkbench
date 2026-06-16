@@ -89,7 +89,7 @@ func InitSchema(db *sql.DB) error {
 		evaluator_model TEXT,
 		score REAL,
 		comments TEXT,
-		duration_ms INTEGER,
+		duration_s INTEGER,
 		created_at DATETIME
 	);
 	CREATE TABLE IF NOT EXISTS web_links (
@@ -455,7 +455,7 @@ func migrateEvaluationsColumns(db *sql.DB) error {
 		return err
 	}
 	add := []struct{ n, d string }{
-		{"duration_ms", "INTEGER"},
+		{"duration_s", "duration_s INTEGER"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
@@ -1420,14 +1420,14 @@ type EvaluationRepo struct{ db *sql.DB }
 func NewEvaluationRepo(db *sql.DB) *EvaluationRepo { return &EvaluationRepo{db: db} }
 
 func (r *EvaluationRepo) Create(e *Evaluation) error {
-	_, err := r.db.Exec(`INSERT INTO evaluations (id,task_id,execution_id,evaluator_model,score,comments,duration_ms,created_at)
+	_, err := r.db.Exec(`INSERT INTO evaluations (id,task_id,execution_id,evaluator_model,score,comments,duration_s,created_at)
 	        VALUES (?,?,?,?,?,?,?,?)`,
-		e.ID, e.TaskID, e.ExecutionID, e.EvaluatorModel, e.Score, e.Comments, e.DurationMs, e.CreatedAt)
+		e.ID, e.TaskID, e.ExecutionID, e.EvaluatorModel, e.Score, e.Comments, e.DurationS, e.CreatedAt)
 	return err
 }
 
 func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
-	rows, err := r.db.Query(`SELECT id,task_id,execution_id,evaluator_model,score,comments,duration_ms,created_at
+	rows, err := r.db.Query(`SELECT id,task_id,execution_id,evaluator_model,score,comments,duration_s,created_at
 	        FROM evaluations WHERE task_id=? ORDER BY created_at DESC`, taskID)
 	if err != nil {
 		return nil, err
@@ -1437,7 +1437,7 @@ func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
 	for rows.Next() {
 		var e Evaluation
 		var taskID, execID, model, comments sql.NullString
-		if err := rows.Scan(&e.ID, &taskID, &execID, &model, &e.Score, &comments, &e.DurationMs, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &taskID, &execID, &model, &e.Score, &comments, &e.DurationS, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
@@ -1451,7 +1451,7 @@ func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
 
 // ListByExecution 查某次 execution 的所有 evaluation（按时间倒序）。
 func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
-	rows, err := r.db.Query(`SELECT id,task_id,execution_id,evaluator_model,score,comments,duration_ms,created_at
+	rows, err := r.db.Query(`SELECT id,task_id,execution_id,evaluator_model,score,comments,duration_s,created_at
 	        FROM evaluations WHERE execution_id=? ORDER BY created_at DESC`, execID)
 	if err != nil {
 		return nil, err
@@ -1461,7 +1461,7 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 	for rows.Next() {
 		var e Evaluation
 		var taskID, execModel, model, comments sql.NullString
-		if err := rows.Scan(&e.ID, &taskID, &execModel, &model, &e.Score, &comments, &e.DurationMs, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &taskID, &execModel, &model, &e.Score, &comments, &e.DurationS, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
