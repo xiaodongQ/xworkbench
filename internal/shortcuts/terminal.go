@@ -76,7 +76,7 @@ func DefaultTerminal() string {
 }
 
 // OpenRemoteDirShortcut 用配置的终端软件打开远程 SSH 连接。
-// 支持 wezterm/wt/terminal 等终端，连接后 cd 到 remote_path（默认主目录）。
+// 支持 wezterm 等终端，连接后 cd 到 remote_path（默认主目录）。
 func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) error {
 	if dir.Type != backend.DirShortcutTypeRemote {
 		return fmt.Errorf("not a remote shortcut: type=%s", dir.Type)
@@ -85,29 +85,32 @@ func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) e
 	if dir.RemoteUser != "" {
 		sshTarget = dir.RemoteUser + "@" + dir.RemoteHost
 	}
-	// 构建 SSH 命令
-	sshCmd := "ssh "
-	if dir.AuthMethod == "key" && dir.KeyPath != "" {
-		sshCmd += "-i '" + dir.KeyPath + "' "
-	}
-	if dir.RemotePath != "" {
-		sshCmd += sshTarget + " 'cd \"" + dir.RemotePath + "\" && exec $SHELL -l'"
-	} else {
-		sshCmd += sshTarget + " 'exec $SHELL -l'"
-	}
-	logger.Infow("[OpenRemoteDirShortcut] opening", "termType", termType, "bin", binPath, "cmd", sshCmd)
-	// 根据终端类型选择打开方式
+	logger.Infow("[OpenRemoteDirShortcut] opening", "termType", termType, "bin", binPath, "target", sshTarget)
 	switch termType {
 	case "wezterm":
-		return exec.Command(binPath, "start", "--cwd", ".",
-			"--class", "xworkbench-remote",
-			"--", "sh", "-c", sshCmd).Start()
-	case "wt", "windows-terminal":
-		// Windows Terminal
-		return exec.Command(binPath, "new-tab", "--suppressApplicationTitle", "--", "sh", "-c", sshCmd).Start()
+		// wezterm ssh user@host -- bash -c "cd /path && exec $SHELL"
+		args := []string{"ssh", sshTarget}
+		if dir.RemotePath != "" {
+			args = append(args, "--", "bash", "-c", "cd '"+dir.RemotePath+"' && exec $SHELL -l")
+		} else {
+			args = append(args, "--", "bash", "-c", "exec $SHELL -l")
+		}
+		return exec.Command(binPath, args...).Start()
 	default:
-		// 其他终端直接用系统 open 命令
-		return exec.Command("open", "-a", binPath).Start()
+		// 其他终端用 ssh 命令
+		sshArgs := []string{}
+		if dir.AuthMethod == "key" && dir.KeyPath != "" {
+			sshArgs = append(sshArgs, "-i", dir.KeyPath)
+		}
+		sshArgs = append(sshArgs, sshTarget)
+		var sshCmd string
+		if dir.RemotePath != "" {
+			sshCmd = "cd '" + dir.RemotePath + "' && exec $SHELL -l"
+		} else {
+			sshCmd = "exec $SHELL -l"
+		}
+		sshArgs = append(sshArgs, "-t", "--", "sh", "-c", sshCmd)
+		return exec.Command("ssh", sshArgs...).Start()
 	}
 }
 
