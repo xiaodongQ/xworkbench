@@ -93,6 +93,29 @@ func NewAPIServer(
 	return s
 }
 
+// checkRelayAuth returns a middleware that checks API key for relay endpoints.
+// Skips auth when Relay.APIKey is empty (disabled).
+func checkRelayAuth() func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cfg := config.AppConfig
+			if cfg != nil && cfg.Relay.APIKey != "" {
+				key := r.Header.Get("Authorization")
+				if len(key) > 7 && key[:7] == "Bearer " {
+					key = key[7:]
+				} else {
+					key = r.Header.Get("X-API-Key")
+				}
+				if key != cfg.Relay.APIKey {
+					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func (s *APIServer) routes() {
 	mux := s.mux
 	mux.HandleFunc("GET /api/tasks", s.handleTasks)
@@ -170,10 +193,11 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/settings", s.handleSettingsList)
 	mux.HandleFunc("PUT /api/settings/{key}", s.handleSettingsSet)
 
-	// relay 代理功能
-	mux.HandleFunc("POST /api/exec", relay.HandleExec)
-	mux.HandleFunc("POST /api/relay/proxy", s.relayHandler.HandleRelayProxy)
-	mux.HandleFunc("GET /api/relay/stats", s.relayHandler.HandleRelayStats)
+	// relay 代理功能（带 API key 认证）
+	relayAuth := checkRelayAuth()
+	mux.HandleFunc("POST /api/exec", relayAuth(relay.HandleExec))
+	mux.HandleFunc("POST /api/relay/proxy", relayAuth(s.relayHandler.HandleRelayProxy))
+	mux.HandleFunc("GET /api/relay/stats", relayAuth(s.relayHandler.HandleRelayStats))
 
 	// 远程 Agent API（带速率限制）
 	// 注意：单独一个 sub-mux 给 agent 路由，避免与主 mux 冲突

@@ -16,6 +16,11 @@ var configFilePath string
 type Config struct {
 	Terminal TerminalConfig `json:"terminal"`
 	Models   ModelsConfig   `json:"models"`
+	Relay    RelayConfig    `json:"relay"`
+}
+
+type RelayConfig struct {
+	APIKey string `json:"api_key"` // 空=关闭认证，非空=Bearer token（X-API-Key 头也支持）
 }
 
 type TerminalConfig struct {
@@ -118,6 +123,10 @@ func mergeConfig(dst, src *Config) {
 		if v.Bin != "" || len(v.Args) > 0 || v.Path != "" {
 			dst.Terminal.Types[k] = v
 		}
+	}
+	// relay
+	if src.Relay.APIKey != "" {
+		dst.Relay.APIKey = src.Relay.APIKey
 	}
 	// models
 	for cliType, srcGroup := range src.Models {
