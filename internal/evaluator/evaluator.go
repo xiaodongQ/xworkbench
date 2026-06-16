@@ -198,7 +198,24 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		"model", model,
 	)
 	res, err := Evaluate(ctx, exec, taskPrompt, cliType, model)
+	// 无论成功失败都保存评估记录，便于查看历史和失败原因
+	ev := &backend.Evaluation{
+		ID:             uuid.New().String(),
+		TaskID:         exec.TaskID,
+		ExecutionID:    exec.ID,
+		EvaluatorModel: cliType + "/" + model,
+		CreatedAt:      time.Now(),
+	}
 	if err != nil {
+		// 失败时保存错误信息，score=-1 表示无法解析
+		ev.Score = -1
+		ev.Comments = "评估失败: " + err.Error()
+		if evalDB.Create(ev) != nil {
+			logger.Errorw("evaluator: save failed record",
+				"execution_id", exec.ID,
+				"err", err.Error(),
+			)
+		}
 		logger.Errorw("evaluator: run failed",
 			"execution_id", exec.ID,
 			"err", err.Error(),
@@ -206,16 +223,9 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		)
 		return "", err
 	}
-	ev := &backend.Evaluation{
-		ID:             uuid.New().String(),
-		TaskID:         exec.TaskID,
-		ExecutionID:    exec.ID,
-		EvaluatorModel: cliType + "/" + model,
-		Score:          float64(res.Score),
-		Comments:       res.Comments,
-		CreatedAt:      time.Now(),
-	}
-	if err := evalDB.Create(ev); err != nil {
+	ev.Score = float64(res.Score)
+	ev.Comments = res.Comments
+	if err = evalDB.Create(ev); err != nil {
 		logger.Errorw("evaluator: save failed",
 			"execution_id", exec.ID,
 			"err", err.Error(),

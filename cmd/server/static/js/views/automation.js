@@ -419,10 +419,10 @@ async function viewExecutionDetail(id) {
       if (evalBtn) { evalBtn.disabled = false; evalBtn.textContent = '📊 AI 评估'; }
       if (evalSel) evalSel.disabled = false;
     }
-    // 拉已有评估
+    // 拉已有评估（展示所有历史）
     try {
       const evals = await fetchJSON('/api/executions/' + id + '/evaluations');
-      if (evals && evals.length > 0) renderEvalCard(evals[0]);
+      renderEvalHistory(evals);
     } catch (e) { /* 忽略 */ }
     document.getElementById('exec-detail-modal').classList.remove('hidden');
   } catch (e) {
@@ -447,7 +447,7 @@ function renderEvalCard(ev) {
     : 'font-size:13px';
   // 从评语里解析 num_turns / permission_denials 客观证据（sonnet 评语里常含）
   const evidence = parseEvalEvidence(ev.comments || '');
-  document.getElementById('exec-detail-eval').innerHTML = `
+  return `
     <div style="${cardStyle}">
       📊 AI 评估: <b style="color:${color};font-size:18px">${scoreDisplay}</b>
       <span style="color:var(--text-secondary);font-size:11px;margin-left:8px">${esc(ev.evaluator_model || '')} · ${esc(new Date(ev.created_at).toLocaleString())}</span>
@@ -455,6 +455,20 @@ function renderEvalCard(ev) {
     </div>
     ${ev.comments ? `<div style="margin-top:6px;color:var(--text-secondary);font-size:12px;white-space:pre-wrap">${esc(ev.comments)}</div>` : ''}
   `;
+}
+
+function renderEvalHistory(evals) {
+  const container = document.getElementById('exec-detail-eval');
+  if (!evals || evals.length === 0) {
+    container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">暂无评估记录，点下方"📊 AI 评估"按钮开始评估</span>';
+    return;
+  }
+  // 最新在前的历史列表
+  const cards = evals.map((ev, i) => {
+    const badge = i === 0 ? ' <span style="background:var(--info,#3b82f6);color:#fff;font-size:10px;padding:1px 6px;border-radius:8px">最新</span>' : '';
+    return renderEvalCard(ev).replace('</div>', badge + '</div>');
+  }).join('<div style="border-top:1px dashed var(--border);margin:8px 0"></div>');
+  container.innerHTML = cards;
 }
 
 // parseEvalEvidence 从评语里 grep num_turns=N / permission_denials=[...] 等客观证据。
