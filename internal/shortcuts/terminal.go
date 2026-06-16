@@ -75,8 +75,8 @@ func DefaultTerminal() string {
 	return cfg.Terminal.DefaultType
 }
 
-// OpenRemoteDirShortcut 用 ssh 命令打开远程目录。
-// 支持 key 和 password 认证，连接后 cd 到 remote_path（默认主目录）。
+// OpenRemoteDirShortcut 用配置的终端软件打开远程 SSH 连接。
+// 支持 wezterm/wt/terminal 等终端，连接后 cd 到 remote_path（默认主目录）。
 func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) error {
 	if dir.Type != backend.DirShortcutTypeRemote {
 		return fmt.Errorf("not a remote shortcut: type=%s", dir.Type)
@@ -85,21 +85,30 @@ func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) e
 	if dir.RemoteUser != "" {
 		sshTarget = dir.RemoteUser + "@" + dir.RemoteHost
 	}
-	var sshArgs []string
+	// 构建 SSH 命令
+	sshCmd := "ssh "
 	if dir.AuthMethod == "key" && dir.KeyPath != "" {
-		sshArgs = append(sshArgs, "-i", dir.KeyPath)
+		sshCmd += "-i '" + dir.KeyPath + "' "
 	}
-	sshArgs = append(sshArgs, sshTarget)
-	// 远程目录：cd 到 remote_path（默认主目录）
-	var sshCmd string
 	if dir.RemotePath != "" {
-		sshCmd = "cd '" + dir.RemotePath + "' && exec $SHELL -l"
+		sshCmd += sshTarget + " 'cd \"" + dir.RemotePath + "\" && exec $SHELL -l'"
 	} else {
-		sshCmd = "exec $SHELL -l"
+		sshCmd += sshTarget + " 'exec $SHELL -l'"
 	}
-	sshArgs = append(sshArgs, "-t", "--", "sh", "-c", sshCmd)
-	logger.Infow("[OpenRemoteDirShortcut] ssh command", "target", sshTarget, "auth", dir.AuthMethod, "sshArgs", sshArgs)
-	return exec.Command("ssh", sshArgs...).Start()
+	logger.Infow("[OpenRemoteDirShortcut] opening", "termType", termType, "bin", binPath, "cmd", sshCmd)
+	// 根据终端类型选择打开方式
+	switch termType {
+	case "wezterm":
+		return exec.Command(binPath, "start", "--cwd", ".",
+			"--class", "xworkbench-remote",
+			"--", "sh", "-c", sshCmd).Start()
+	case "wt", "windows-terminal":
+		// Windows Terminal
+		return exec.Command(binPath, "new-tab", "--suppressApplicationTitle", "--", "sh", "-c", sshCmd).Start()
+	default:
+		// 其他终端直接用系统 open 命令
+		return exec.Command("open", "-a", binPath).Start()
+	}
 }
 
 // OpenRemoteTerminal 打开远程终端（简化版：用 ssh 命令，URL 风格）
