@@ -268,7 +268,7 @@
         <span style="font-size:11px;color:var(--text-secondary)">▶ 点击展开 API 说明</span>
       </div>
       <div id="exec-api" class="hidden" style="margin-bottom:12px;padding:10px;background:var(--hover);border-radius:6px;font-size:12px;line-height:1.6">
-        <div style="margin-bottom:8px"><strong>接口：</strong><code>POST http://xworkbench:8901/api/exec</code></div>
+        <div style="margin-bottom:8px"><strong>接口：</strong><code>POST http://xworkbench:8902/api/exec</code> <span style="font-size:10px;color:var(--text-secondary)">（端口为服务实际监听端口，即登录页地址中的端口）</span></div>
         <div style="margin-bottom:8px"><strong>功能：</strong>在 xworkbench 所在机器上执行指定命令，返回 stdout/stderr/exit_code</div>
         <div style="margin-bottom:8px"><strong>应用场景：</strong>远程触发脚本执行（如备份、重启服务、部署）、调用本地工具（python/go/二进制工具）</div>
         <div style="margin-bottom:8px"><strong>参数说明：</strong></div>
@@ -278,7 +278,7 @@
           <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>timeout_ms</code></td><td style="padding:4px 8px">超时时间（毫秒）</td><td style="padding:4px 8px">可选，默认 30000</td></tr>
         </table>
         <div style="margin-bottom:8px"><strong>请求示例：</strong></div>
-        <pre style="margin:0;padding:8px;background:var(--card-bg);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all">curl -X POST http://xworkbench:8901/api/exec \
+        <pre style="margin:0;padding:8px;background:var(--card-bg);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all">curl -X POST http://xworkbench:8902/api/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "python /opt/scripts/backup.py --target db1", "cwd": "/opt", "timeout_ms": 60000}'</pre>
         <div style="margin-top:8px"><strong>响应字段：</strong><code>output</code>（stdout）、<code>error_out</code>（stderr）、<code>exit_code</code>、<code>duration_ms</code></div>
@@ -310,7 +310,7 @@
         <span style="font-size:11px;color:var(--text-secondary)">▶ 点击展开 API 说明</span>
       </div>
       <div id="proxy-api" class="hidden" style="margin-bottom:12px;padding:10px;background:var(--hover);border-radius:6px;font-size:12px;line-height:1.6">
-        <div style="margin-bottom:8px"><strong>接口：</strong><code>POST http://xworkbench:8901/api/relay/proxy</code></div>
+        <div style="margin-bottom:8px"><strong>接口：</strong><code>POST http://xworkbench:8902/api/relay/proxy</code> <span style="font-size:10px;color:var(--text-secondary)">（端口为服务实际监听端口，即登录页地址中的端口）</span></div>
         <div style="margin-bottom:8px"><strong>功能：</strong>透传 HTTP 请求到目标 URL，自动携带 authorization/x-api-key/x-auth-token/cookie 等认证头</div>
         <div style="margin-bottom:8px"><strong>应用场景：</strong>跨网络调用第三方 API（如内部服务无外网权限、通过 xworkbench 代理访问）、聚合多个 API 请求</div>
         <div style="margin-bottom:8px"><strong>参数说明：</strong></div>
@@ -322,7 +322,7 @@
           <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>timeout_ms</code></td><td style="padding:4px 8px">超时时间（毫秒）</td><td style="padding:4px 8px">可选，默认 30000</td></tr>
         </table>
         <div style="margin-bottom:8px"><strong>请求示例：</strong></div>
-        <pre style="margin:0;padding:8px;background:var(--card-bg);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all">curl -X POST http://xworkbench:8901/api/relay/proxy \
+        <pre style="margin:0;padding:8px;background:var(--card-bg);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all">curl -X POST http://xworkbench:8902/api/relay/proxy \
   -H "Content-Type: application/json" \
   -d '{"method": "POST", "url": "https://api.internal.com/data", "body": "{\"key\":\"value\"}", "timeout_ms": 30000}'</pre>
         <div style="margin-top:8px"><strong>响应字段：</strong><code>status_code</code>、<code>headers</code>、<code>body</code>（响应体）、<code>error</code></div>
