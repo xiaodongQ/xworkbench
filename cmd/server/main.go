@@ -1052,6 +1052,7 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 		Type           string `json:"type"`
 		RemoteHost     string `json:"remote_host"`
 		RemoteUser     string `json:"remote_user"`
+		RemotePath     string `json:"remote_path"`
 		RemotePassword string `json:"remote_password"`
 		AuthMethod     string `json:"auth_method"`
 		KeyPath        string `json:"key_path"`
@@ -1069,6 +1070,7 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 		Type:            req.Type,
 		RemoteHost:      req.RemoteHost,
 		RemoteUser:      req.RemoteUser,
+		RemotePath:      req.RemotePath,
 		RemotePassword:  req.RemotePassword,
 		AuthMethod:      req.AuthMethod,
 		KeyPath:         req.KeyPath,
