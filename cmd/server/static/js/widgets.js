@@ -289,7 +289,12 @@ async function openDir(id) {
     const r = await fetch('/api/dir-shortcuts/' + id + '/open', {method:'POST'});
     if (!r.ok) {
       const body = await r.json().catch(() => ({}));
-      alert('打开失败：' + (body.error || r.statusText || '目录可能不存在或无权限'));
+      const msg = body.error || '';
+      if (msg.includes('remote shortcut')) {
+        alert('远程目录无法直接打开，请点击右侧 ⬢ 按钮用终端打开');
+        return;
+      }
+      alert('打开失败：' + (msg || r.statusText || '目录可能不存在或无权限'));
       return;
     }
   } catch (e) {
