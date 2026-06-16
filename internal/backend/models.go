@@ -142,12 +142,27 @@ type WebLink struct {
 }
 
 // DirShortcut 目录快捷
+// DirShortcutType values
+const (
+	DirShortcutTypeLocal  = "local"
+	DirShortcutTypeRemote = "remote"
+)
+
 type DirShortcut struct {
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	Path          string     `json:"path"`
-	SortOrder     int        `json:"sort_order"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	Path            string     `json:"path"`
+	SortOrder       int        `json:"sort_order"`
+	Type            string     `json:"type"` // "local" | "remote"，默认 "local"
+	// 远程连接配置（Type=remote 时使用）
+	RemoteHost     string `json:"remote_host,omitempty"`    // IP 或域名
+	RemoteUser     string `json:"remote_user,omitempty"`    // 用户名
+	RemotePassword string `json:"remote_password,omitempty"` // 密码（仅演示/内部用，生产建议用 key）
+	AuthMethod     string `json:"auth_method,omitempty"`    // "password" | "key"，默认 "password"
+	KeyPath        string `json:"key_path,omitempty"`       // 私钥路径（AuthMethod=key 时使用）
+	// 本地终端配置
+	TerminalCmd    string `json:"terminal_cmd,omitempty"`   // 启动终端的命令，默认从 AppSettings 读取
+	CreatedAt      time.Time  `json:"created_at"`
 	LastAccessedAt *time.Time `json:"last_accessed_at,omitempty"`
 }
 

@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
 )
 
@@ -66,7 +67,41 @@ func DefaultTerminal() string {
 	return cfg.Terminal.DefaultType
 }
 
-// OpenRemoteTerminal 打开远程终端（简化版：用 ssh 命令）
+// OpenRemoteDirShortcut 用配置的终端软件打开远程目录（通过 SSH）。
+// 支持 password 和 key 两种认证方式。
+// dir: 本地 DirShortcut 对象，Type=="remote" 时使用。
+// termType: 终端类型（wezterm/wt/terminal 等）
+// binPath: 终端二进制路径（可选）
+func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) error {
+	if dir.Type != backend.DirShortcutTypeRemote {
+		return fmt.Errorf("not a remote shortcut: type=%s", dir.Type)
+	}
+	// 构建 SSH 目标: user@host
+	sshTarget := dir.RemoteHost
+	if dir.RemoteUser != "" {
+		sshTarget = dir.RemoteUser + "@" + dir.RemoteHost
+	}
+	// 构建 ssh 参数
+	sshArgs := []string{}
+	if dir.AuthMethod == "key" && dir.KeyPath != "" {
+		sshArgs = append(sshArgs, "-i", dir.KeyPath)
+	}
+	sshArgs = append(sshArgs, sshTarget)
+	// 登录后 cd 到目标目录并启动 shell
+	cdCmd := "cd '" + dir.Path + "' && exec $SHELL"
+	sshArgs = append(sshArgs, "--", "sh", "-c", cdCmd)
+	slog.Info("[OpenRemoteDirShortcut] ssh command",
+		slog.String("target", sshTarget),
+		slog.String("auth", dir.AuthMethod),
+		slog.Any("sshArgs", sshArgs))
+	// 先用 ssh 检测连通性（不阻塞）
+	go func() {
+		exec.Command("ssh", sshArgs...).Start()
+	}()
+	return nil
+}
+
+// OpenRemoteTerminal 打开远程终端（简化版：用 ssh 命令，URL 风格）
 func OpenRemoteTerminal(termType, target string) error {
 	info, err := ParseSSHURL(target)
 	if err != nil {

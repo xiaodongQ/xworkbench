@@ -948,9 +948,16 @@ func (s *APIServer) handleDirShortcuts(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name      string `json:"name"`
-		Path      string `json:"path"`
-		SortOrder int    `json:"sort_order"`
+		Name           string `json:"name"`
+		Path           string `json:"path"`
+		SortOrder      int    `json:"sort_order"`
+		Type           string `json:"type"`
+		RemoteHost     string `json:"remote_host"`
+		RemoteUser     string `json:"remote_user"`
+		RemotePassword string `json:"remote_password"`
+		AuthMethod     string `json:"auth_method"`
+		KeyPath        string `json:"key_path"`
+		TerminalCmd    string `json:"terminal_cmd"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -964,11 +971,18 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		req.SortOrder = s.dirDB.NextSortOrder()
 	}
 	d := &backend.DirShortcut{
-		ID:        uuid.New().String(),
-		Name:      req.Name,
-		Path:      req.Path,
-		SortOrder: req.SortOrder,
-		CreatedAt: time.Now(),
+		ID:              uuid.New().String(),
+		Name:            req.Name,
+		Path:            req.Path,
+		SortOrder:       req.SortOrder,
+		Type:            req.Type,
+		RemoteHost:      req.RemoteHost,
+		RemoteUser:      req.RemoteUser,
+		RemotePassword:  req.RemotePassword,
+		AuthMethod:      req.AuthMethod,
+		KeyPath:         req.KeyPath,
+		TerminalCmd:     req.TerminalCmd,
+		CreatedAt:       time.Now(),
 	}
 	if err := s.dirDB.Create(d); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -980,15 +994,34 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req struct {
-		Name      string `json:"name"`
-		Path      string `json:"path"`
-		SortOrder int    `json:"sort_order"`
+		Name           string `json:"name"`
+		Path           string `json:"path"`
+		SortOrder      int    `json:"sort_order"`
+		Type           string `json:"type"`
+		RemoteHost     string `json:"remote_host"`
+		RemoteUser     string `json:"remote_user"`
+		RemotePassword string `json:"remote_password"`
+		AuthMethod     string `json:"auth_method"`
+		KeyPath        string `json:"key_path"`
+		TerminalCmd    string `json:"terminal_cmd"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	d := &backend.DirShortcut{ID: id, Name: req.Name, Path: req.Path, SortOrder: req.SortOrder}
+	d := &backend.DirShortcut{
+		ID:              id,
+		Name:            req.Name,
+		Path:            req.Path,
+		SortOrder:       req.SortOrder,
+		Type:            req.Type,
+		RemoteHost:      req.RemoteHost,
+		RemoteUser:      req.RemoteUser,
+		RemotePassword:  req.RemotePassword,
+		AuthMethod:      req.AuthMethod,
+		KeyPath:         req.KeyPath,
+		TerminalCmd:     req.TerminalCmd,
+	}
 	if err := s.dirDB.Update(d); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1007,29 +1040,32 @@ func (s *APIServer) handleDirShortcutDelete(w http.ResponseWriter, r *http.Reque
 
 func (s *APIServer) handleDirShortcutOpen(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	// 取 path
 	list, err := s.dirDB.List()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var path string
+	var entry *backend.DirShortcut
 	for _, d := range list {
 		if d.ID == id {
-			path = d.Path
+			entry = d
 			break
 		}
 	}
-	if path == "" {
+	if entry == nil {
 		writeErr(w, http.StatusNotFound, "shortcut not found")
 		return
 	}
-	if err := shortcuts.OpenDir(path); err != nil {
+	if entry.Type == backend.DirShortcutTypeRemote {
+		writeErr(w, http.StatusBadRequest, "remote shortcut: use /open-terminal to open with SSH")
+		return
+	}
+	if err := shortcuts.OpenDir(entry.Path); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	_ = s.dirDB.Touch(id)
-	writeJSON(w, map[string]string{"id": id, "status": "opened", "path": path})
+	writeJSON(w, map[string]any{"id": id, "status": "opened", "path": entry.Path})
 }
 
 // handleDirShortcutOpenTerminal 打开指定终端类型的工作目录
@@ -1081,19 +1117,18 @@ func (s *APIServer) handleDirShortcutOpenTerminal(w http.ResponseWriter, r *http
 		slog.String("binPath", typeDef.Path),
 		slog.String("bin", typeDef.Bin),
 		slog.String("at", "main.go:964"))
+	
 		binPath := typeDef.Path
-	var openErr error
-	if strings.HasPrefix(path, "ssh://") || strings.Contains(path, "@:") {
-		openErr = shortcuts.OpenRemoteTerminal(termType, path)
-	} else {
-		// 本地路径先检查目录是否存在
-		if _, err := os.Stat(path); err != nil {
-			writeErr(w, http.StatusBadRequest, "目录不存在或不可访问："+path)
-			return
+		var openErr error
+		if entry.Type == backend.DirShortcutTypeRemote {
+			openErr = shortcuts.OpenRemoteDirShortcut(entry, termType, binPath)
+		} else {
+			if _, err := os.Stat(path); err != nil {
+				writeErr(w, http.StatusBadRequest, "目录不存在或不可访问："+path)
+				return
+			}
+			openErr = shortcuts.OpenTerminal(termType, path, binPath)
 		}
-		openErr = shortcuts.OpenTerminal(termType, path, binPath)
-	}
-
 	if openErr != nil {
 		writeErr(w, http.StatusBadRequest, openErr.Error())
 		return

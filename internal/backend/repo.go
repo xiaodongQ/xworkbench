@@ -99,6 +99,13 @@ func InitSchema(db *sql.DB) error {
 		name TEXT NOT NULL,
 		path TEXT NOT NULL,
 		sort_order INTEGER DEFAULT 0,
+		type TEXT DEFAULT 'local',
+		remote_host TEXT,
+		remote_user TEXT,
+		remote_password TEXT,
+		auth_method TEXT DEFAULT 'password',
+		key_path TEXT,
+		terminal_cmd TEXT,
 		created_at DATETIME,
 		last_accessed_at DATETIME
 	);
@@ -875,12 +882,13 @@ type DirShortcutRepo struct{ db *sql.DB }
 func NewDirShortcutRepo(db *sql.DB) *DirShortcutRepo { return &DirShortcutRepo{db: db} }
 
 func (r *DirShortcutRepo) Create(d *DirShortcut) error {
-	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,created_at)
-	        VALUES (?,?,?,?,?)`
-	_, err := r.db.Exec(q, d.ID, d.Name, d.Path, d.SortOrder, d.CreatedAt)
+	if d.Type == "" { d.Type = DirShortcutTypeLocal }
+	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,type,remote_host,remote_user,remote_password,auth_method,key_path,terminal_cmd,created_at)
+		    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.Exec(q, d.ID, d.Name, d.Path, d.SortOrder, d.Type, d.RemoteHost, d.RemoteUser,
+		d.RemotePassword, d.AuthMethod, d.KeyPath, d.TerminalCmd, d.CreatedAt)
 	return err
 }
-
 func (r *DirShortcutRepo) Update(d *DirShortcut) error {
 	set := []string{}
 	args := []any{}
@@ -896,6 +904,22 @@ func (r *DirShortcutRepo) Update(d *DirShortcut) error {
 		set = append(set, "sort_order=?")
 		args = append(args, d.SortOrder)
 	}
+	if d.Type != "" {
+		set = append(set, "type=?")
+		args = append(args, d.Type)
+	}
+	set = append(set, "remote_host=?")
+	args = append(args, d.RemoteHost)
+	set = append(set, "remote_user=?")
+	args = append(args, d.RemoteUser)
+	set = append(set, "remote_password=?")
+	args = append(args, d.RemotePassword)
+	set = append(set, "auth_method=?")
+	args = append(args, d.AuthMethod)
+	set = append(set, "key_path=?")
+	args = append(args, d.KeyPath)
+	set = append(set, "terminal_cmd=?")
+	args = append(args, d.TerminalCmd)
 	if len(set) == 0 {
 		return nil
 	}
@@ -926,7 +950,7 @@ func (r *DirShortcutRepo) Touch(id string) error {
 }
 
 func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
-	rows, err := r.db.Query(`SELECT id,name,path,sort_order,created_at,last_accessed_at FROM dir_shortcuts ORDER BY sort_order ASC, created_at DESC`)
+	rows, err := r.db.Query(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_password,auth_method,key_path,terminal_cmd,created_at,last_accessed_at FROM dir_shortcuts ORDER BY sort_order ASC, created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -935,9 +959,10 @@ func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
 	for rows.Next() {
 		var d DirShortcut
 		var lastAcc sql.NullTime
-		if err := rows.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.CreatedAt, &lastAcc); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &d.RemoteHost, &d.RemoteUser, &d.RemotePassword, &d.AuthMethod, &d.KeyPath, &d.TerminalCmd, &d.CreatedAt, &lastAcc); err != nil {
 			return nil, err
 		}
+		if d.Type == "" { d.Type = DirShortcutTypeLocal }
 		if lastAcc.Valid {
 			d.LastAccessedAt = &lastAcc.Time
 		}
