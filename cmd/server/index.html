@@ -273,6 +273,7 @@
         <div style="margin-bottom:8px"><strong>应用场景：</strong>远程触发脚本执行（如备份、重启服务、部署）、调用本地工具（python/go/二进制工具）</div>
         <div style="margin-bottom:8px"><strong>参数说明：</strong></div>
         <table style="margin:0 0 8px 0;font-size:11px;border-collapse:collapse;width:100%">
+          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>Authorization</code></td><td style="padding:4px 8px">Bearer &lt;api_key&gt; 或 X-API-Key 头</td><td style="padding:4px 8px">必填（默认 key：xworkbench）</td></tr>
           <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>command</code></td><td style="padding:4px 8px">要执行的命令字符串</td><td style="padding:4px 8px">必填</td></tr>
           <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>cwd</code></td><td style="padding:4px 8px">工作目录（影响相对路径解析）</td><td style="padding:4px 8px">可选</td></tr>
           <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>timeout_ms</code></td><td style="padding:4px 8px">超时时间（毫秒）</td><td style="padding:4px 8px">可选，默认 30000</td></tr>
@@ -280,6 +281,7 @@
         <div style="margin-bottom:8px"><strong>请求示例：</strong></div>
         <pre style="margin:0;padding:8px;background:var(--card-bg);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all">curl -X POST http://xworkbench:8902/api/exec \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer xworkbench" \
   -d '{"command": "python /opt/scripts/backup.py --target db1", "cwd": "/opt", "timeout_ms": 60000}'</pre>
         <div style="margin-top:8px"><strong>响应字段：</strong><code>output</code>（stdout）、<code>error_out</code>（stderr）、<code>exit_code</code>、<code>duration_ms</code></div>
       </div>
@@ -315,6 +317,7 @@
         <div style="margin-bottom:8px"><strong>应用场景：</strong>跨网络调用第三方 API（如内部服务无外网权限、通过 xworkbench 代理访问）、聚合多个 API 请求</div>
         <div style="margin-bottom:8px"><strong>参数说明：</strong></div>
         <table style="margin:0 0 8px 0;font-size:11px;border-collapse:collapse;width:100%">
+          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>Authorization</code></td><td style="padding:4px 8px">Bearer &lt;api_key&gt; 或 X-API-Key 头</td><td style="padding:4px 8px">必填（默认 key：xworkbench）</td></tr>
           <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>url</code></td><td style="padding:4px 8px">目标 URL（必填，绝对路径）</td><td style="padding:4px 8px">必填</td></tr>
           <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>method</code></td><td style="padding:4px 8px">HTTP 方法 GET/POST/PUT/DELETE</td><td style="padding:4px 8px">可选，默认 GET</td></tr>
           <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>headers</code></td><td style="padding:4px 8px">自定义请求头（仅认证头会被转发）</td><td style="padding:4px 8px">可选</td></tr>
@@ -324,6 +327,7 @@
         <div style="margin-bottom:8px"><strong>请求示例：</strong></div>
         <pre style="margin:0;padding:8px;background:var(--card-bg);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all">curl -X POST http://xworkbench:8902/api/relay/proxy \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer xworkbench" \
   -d '{"method": "POST", "url": "https://api.internal.com/data", "body": "{\"key\":\"value\"}", "timeout_ms": 30000}'</pre>
         <div style="margin-top:8px"><strong>响应字段：</strong><code>status_code</code>、<code>headers</code>、<code>body</code>（响应体）、<code>error</code></div>
       </div>
