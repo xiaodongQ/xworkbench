@@ -9,15 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"go.uber.org/zap"
+	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
-var logger *zap.SugaredLogger
 
-func init() {
-	l, _ := zap.NewProduction()
-	logger = l.Sugar()
-}
 
 func InitSchema(db *sql.DB) error {
 	schema := `
@@ -77,6 +72,7 @@ func InitSchema(db *sql.DB) error {
 		scheduled_task_id TEXT,
 		source TEXT NOT NULL,
 		command TEXT NOT NULL,
+		prompt TEXT,
 		model TEXT,
 		started_at DATETIME,
 		completed_at DATETIME,
@@ -93,6 +89,7 @@ func InitSchema(db *sql.DB) error {
 		evaluator_model TEXT,
 		score REAL,
 		comments TEXT,
+		duration_ms INTEGER,
 		created_at DATETIME
 	);
 	CREATE TABLE IF NOT EXISTS web_links (
@@ -241,6 +238,12 @@ func InitSchema(db *sql.DB) error {
 		return err
 	}
 	if err := migrateAgentsTable(db); err != nil {
+		return err
+	}
+	if err := migrateExecutionsColumns(db); err != nil {
+		return err
+	}
+	if err := migrateEvaluationsColumns(db); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`PRAGMA user_version = 4`); err != nil {
@@ -398,6 +401,70 @@ func migrateExperiencesColumns(db *sql.DB) error {
 	return nil
 }
 
+func migrateExecutionsColumns(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(executions)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	addCol := func(name, decl string) error {
+		if cols[name] {
+			return nil
+		}
+		_, err := db.Exec(`ALTER TABLE executions ADD COLUMN ` + decl)
+		return err
+	}
+	add := []struct{ n, d string }{
+		{"prompt", "prompt TEXT"},
+	}
+	for _, a := range add {
+		if err := addCol(a.n, a.d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateEvaluationsColumns(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(evaluations)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	addCol := func(name, decl string) error {
+		if cols[name] {
+			return nil
+		}
+		_, err := db.Exec(`ALTER TABLE evaluations ADD COLUMN ` + decl)
+		return err
+	}
+	add := []struct{ n, d string }{
+		{"duration_ms", "INTEGER"},
+	}
+	for _, a := range add {
+		if err := addCol(a.n, a.d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // migrateAgentsTable 建 agents 表（如果是全新 schema，CREATE TABLE 会自动创建；如果是历史 db，尝试 ALTER）。
 // agents 表比较特殊：历史 db 没有这个表，需要用 ALTER TABLE ADD COLUMN 但 SQLite 对新表无效，
 // 所以这里用 CREATE TABLE IF NOT EXISTS 直接兼容（新旧 db 均安全）。
@@ -429,10 +496,10 @@ func (r *TaskRepo) Create(t *Task) error {
 	_, err := r.db.Exec(q, t.ID, t.Title, t.Description, t.Status,
 		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt, t.TaskType, t.Priority)
 	if err != nil {
-		logger.Errorw("tasks create failed", "id", t.ID, "error", err.Error())
+		logger.Logger.Errorw("tasks create failed", "id", t.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("tasks created", "id", t.ID)
+	logger.Logger.Infow("tasks created", "id", t.ID)
 	return nil
 }
 
@@ -487,10 +554,10 @@ func (r *TaskRepo) Update(t *Task) error {
 	_, err := r.db.Exec(q, t.Title, t.Description, t.ExperienceID, t.Resources, t.Acceptance,
 		t.TaskType, t.ClaimerAgentID, t.ResultOutput, t.EvaluationScore, t.ID)
 	if err != nil {
-		logger.Errorw("tasks update failed", "id", t.ID, "error", err.Error())
+		logger.Logger.Errorw("tasks update failed", "id", t.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("tasks updated", "id", t.ID)
+	logger.Logger.Infow("tasks updated", "id", t.ID)
 	return nil
 }
 
@@ -506,10 +573,10 @@ func (r *TaskRepo) Delete(id string) error {
 		return fmt.Errorf("delete task_experiences: %w", err)
 	}
 	if _, err := r.db.Exec(`DELETE FROM tasks WHERE id=?`, id); err != nil {
-		logger.Errorw("tasks delete failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("tasks delete failed", "id", id, "error", err.Error())
 		return fmt.Errorf("delete task: %w", err)
 	}
-	logger.Infow("tasks deleted", "id", id)
+	logger.Logger.Infow("tasks deleted", "id", id)
 	return nil
 }
 
@@ -526,16 +593,16 @@ func (r *TaskRepo) AttachExperiences(taskID string, expIDs []string) error {
 		if id == "" { continue }
 		if _, err := stmt.Exec(taskID, id, now); err != nil {
 			stmt.Close()
-			logger.Errorw("tasks attach experience failed", "task_id", taskID, "experience_id", id, "error", err.Error())
+			logger.Logger.Errorw("tasks attach experience failed", "task_id", taskID, "experience_id", id, "error", err.Error())
 			return err
 		}
 	}
 	stmt.Close()
 	if err := tx.Commit(); err != nil {
-		logger.Errorw("tasks attach experiences commit failed", "task_id", taskID, "error", err.Error())
+		logger.Logger.Errorw("tasks attach experiences commit failed", "task_id", taskID, "error", err.Error())
 		return err
 	}
-	logger.Infow("tasks attached experiences", "task_id", taskID, "experience_ids", expIDs)
+	logger.Logger.Infow("tasks attached experiences", "task_id", taskID, "experience_ids", expIDs)
 	return nil
 }
 
@@ -543,10 +610,10 @@ func (r *TaskRepo) AttachExperiences(taskID string, expIDs []string) error {
 func (r *TaskRepo) DetachExperience(taskID, expID string) error {
 	_, err := r.db.Exec(`DELETE FROM task_experiences WHERE task_id=? AND experience_id=?`, taskID, expID)
 	if err != nil {
-		logger.Errorw("tasks detach experience failed", "task_id", taskID, "experience_id", expID, "error", err.Error())
+		logger.Logger.Errorw("tasks detach experience failed", "task_id", taskID, "experience_id", expID, "error", err.Error())
 		return err
 	}
-	logger.Infow("tasks detached experience", "task_id", taskID, "experience_id", expID)
+	logger.Logger.Infow("tasks detached experience", "task_id", taskID, "experience_id", expID)
 	return nil
 }
 
@@ -556,7 +623,7 @@ func (r *TaskRepo) SetTaskExperiences(taskID string, expIDs []string) error {
 	if err != nil { return err }
 	defer tx.Rollback()
 	if _, err := tx.Exec(`DELETE FROM task_experiences WHERE task_id=?`, taskID); err != nil {
-		logger.Errorw("tasks set experiences delete failed", "task_id", taskID, "error", err.Error())
+		logger.Logger.Errorw("tasks set experiences delete failed", "task_id", taskID, "error", err.Error())
 		return err
 	}
 	if len(expIDs) > 0 {
@@ -567,17 +634,17 @@ func (r *TaskRepo) SetTaskExperiences(taskID string, expIDs []string) error {
 			if id == "" { continue }
 			if _, err := stmt.Exec(taskID, id, now); err != nil {
 				stmt.Close()
-				logger.Errorw("tasks set experiences insert failed", "task_id", taskID, "experience_id", id, "error", err.Error())
+				logger.Logger.Errorw("tasks set experiences insert failed", "task_id", taskID, "experience_id", id, "error", err.Error())
 				return err
 			}
 		}
 		stmt.Close()
 	}
 	if err := tx.Commit(); err != nil {
-		logger.Errorw("tasks set experiences commit failed", "task_id", taskID, "error", err.Error())
+		logger.Logger.Errorw("tasks set experiences commit failed", "task_id", taskID, "error", err.Error())
 		return err
 	}
-	logger.Infow("tasks set experiences", "task_id", taskID, "experience_ids", expIDs)
+	logger.Logger.Infow("tasks set experiences", "task_id", taskID, "experience_ids", expIDs)
 	return nil
 }
 
@@ -604,38 +671,38 @@ func (r *TaskRepo) UpdateStatus(id, status, maintainer string) error {
 		q := `UPDATE tasks SET status=?, maintainer=?, claimed_at=?, started_at=COALESCE(started_at, ?), last_heartbeat=? WHERE id=?`
 		_, err := r.db.Exec(q, status, maintainer, now, now, now, id)
 		if err != nil {
-			logger.Errorw("tasks update status failed", "id", id, "status", status, "error", err.Error())
+			logger.Logger.Errorw("tasks update status failed", "id", id, "status", status, "error", err.Error())
 			return err
 		}
-		logger.Infow("tasks status updated", "id", id, "status", status)
+		logger.Logger.Infow("tasks status updated", "id", id, "status", status)
 		return nil
 	case TaskStatusArchived:
 		q := `UPDATE tasks SET status=?, archived_at=?, completed_at=COALESCE(completed_at, ?) WHERE id=?`
 		_, err := r.db.Exec(q, status, now, now, id)
 		if err != nil {
-			logger.Errorw("tasks update status failed", "id", id, "status", status, "error", err.Error())
+			logger.Logger.Errorw("tasks update status failed", "id", id, "status", status, "error", err.Error())
 			return err
 		}
-		logger.Infow("tasks status updated", "id", id, "status", status)
+		logger.Logger.Infow("tasks status updated", "id", id, "status", status)
 		return nil
 	case TaskStatusPending:
 		// 取消认领：清空 maintainer/claimed_at/started_at/last_heartbeat
 		q := `UPDATE tasks SET status=?, maintainer='', claimed_at=NULL, started_at=NULL, last_heartbeat=NULL WHERE id=?`
 		_, err := r.db.Exec(q, status, id)
 		if err != nil {
-			logger.Errorw("tasks update status failed", "id", id, "status", status, "error", err.Error())
+			logger.Logger.Errorw("tasks update status failed", "id", id, "status", status, "error", err.Error())
 			return err
 		}
-		logger.Infow("tasks status updated", "id", id, "status", status)
+		logger.Logger.Infow("tasks status updated", "id", id, "status", status)
 		return nil
 	default:
 		q := `UPDATE tasks SET status=? WHERE id=?`
 		_, err := r.db.Exec(q, status, id)
 		if err != nil {
-			logger.Errorw("tasks update status failed", "id", id, "status", status, "error", err.Error())
+			logger.Logger.Errorw("tasks update status failed", "id", id, "status", status, "error", err.Error())
 			return err
 		}
-		logger.Infow("tasks status updated", "id", id, "status", status)
+		logger.Logger.Infow("tasks status updated", "id", id, "status", status)
 		return nil
 	}
 }
@@ -727,10 +794,10 @@ func (r *ExperienceRepo) Create(e *Experience) error {
 	_, err := r.db.Exec(q, e.ID, e.Module, e.Keywords, e.LogPaths,
 		e.ToolUsage, e.Scene, e.LogSamples, e.CodeSnippets, e.Version, e.CreatedAt, e.UpdatedAt, e.AutoEvalEnabled)
 	if err != nil {
-		logger.Errorw("experiences insert failed", "id", e.ID, "error", err.Error())
+		logger.Logger.Errorw("experiences insert failed", "id", e.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("experiences created", "id", e.ID)
+	logger.Logger.Infow("experiences created", "id", e.ID)
 	return nil
 }
 
@@ -766,20 +833,20 @@ func (r *ExperienceRepo) Update(e *Experience) error {
 	q := `UPDATE experiences SET keywords=?, log_paths=?, tool_usage=?, scene=?, log_samples=?, code_snippets=?, updated_at=?, auto_eval_enabled=? WHERE id=?`
 	_, err := r.db.Exec(q, e.Keywords, e.LogPaths, e.ToolUsage, e.Scene, e.LogSamples, e.CodeSnippets, time.Now(), e.AutoEvalEnabled, e.ID)
 	if err != nil {
-		logger.Errorw("experiences update failed", "id", e.ID, "error", err.Error())
+		logger.Logger.Errorw("experiences update failed", "id", e.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("experiences updated", "id", e.ID)
+	logger.Logger.Infow("experiences updated", "id", e.ID)
 	return nil
 }
 
 func (r *ExperienceRepo) Delete(id string) error {
 	_, err := r.db.Exec(`DELETE FROM experiences WHERE id=?`, id)
 	if err != nil {
-		logger.Errorw("experiences delete failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("experiences delete failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("experiences deleted", "id", id)
+	logger.Logger.Infow("experiences deleted", "id", id)
 	return nil
 }
 
@@ -787,10 +854,10 @@ func (r *ExperienceRepo) Delete(id string) error {
 func (r *ExperienceRepo) SetAutoEvalEnabled(id string, enabled bool) error {
 	_, err := r.db.Exec(`UPDATE experiences SET auto_eval_enabled=? WHERE id=?`, enabled, id)
 	if err != nil {
-		logger.Errorw("experiences update failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("experiences update failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("experiences updated", "id", id)
+	logger.Logger.Infow("experiences updated", "id", id)
 	return nil
 }
 
@@ -814,13 +881,13 @@ func (r *ExecutionRepo) Create(e *Execution) error {
 	// 显式插入所有字段，completed_at/output/error/exit_code 传 NULL/空/0，
 	// 避免"在跑中"行（未 Finish）这些字段为 NULL 时 ListRecent scan 炸。
 	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,model,started_at,completed_at,output,error,exit_code)
-	        VALUES (?,?,?,?,?,?,?,NULL,'','',0)`
-	_, err := r.db.Exec(q, e.ID, e.TaskID, e.ScheduledTaskID, e.Source, e.Command, e.Model, e.StartedAt)
+	        VALUES (?,?,?,?,?,?,?,?,NULL,'','',0)`
+	_, err := r.db.Exec(q, e.ID, e.TaskID, e.ScheduledTaskID, e.Source, e.Command, e.Prompt, e.Model, e.StartedAt)
 	if err != nil {
-		logger.Errorw("executions create failed", "id", e.ID, "error", err.Error())
+		logger.Logger.Errorw("executions create failed", "id", e.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("executions created", "id", e.ID)
+	logger.Logger.Infow("executions created", "id", e.ID)
 	return nil
 }
 
@@ -829,10 +896,10 @@ func (r *ExecutionRepo) Finish(id string, output, errOut string, exitCode int) e
 	_, err := r.db.Exec(`UPDATE executions SET completed_at=?, output=?, error=?, exit_code=? WHERE id=?`,
 		now, output, errOut, exitCode, id)
 	if err != nil {
-		logger.Errorw("executions finish failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("executions finish failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("executions finished", "id", id, "exit_code", exitCode)
+	logger.Logger.Infow("executions finished", "id", id, "exit_code", exitCode)
 	return nil
 }
 func (r *ExecutionRepo) Get(id string) (*Execution, error) {
@@ -979,10 +1046,10 @@ func (r *WebLinkRepo) Create(w *WebLink) error {
 	        VALUES (?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, w.ID, w.Name, w.URL, w.IconURL, w.SortOrder, w.CreatedAt)
 	if err != nil {
-		logger.Errorw("web_links insert failed", "id", w.ID, "error", err.Error())
+		logger.Logger.Errorw("web_links insert failed", "id", w.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("web_links created", "id", w.ID)
+	logger.Logger.Infow("web_links created", "id", w.ID)
 	return nil
 }
 
@@ -1012,20 +1079,20 @@ func (r *WebLinkRepo) Update(w *WebLink) error {
 	q := "UPDATE web_links SET " + strings.Join(set, ",") + " WHERE id=?"
 	_, err := r.db.Exec(q, args...)
 	if err != nil {
-		logger.Errorw("web_links update failed", "id", w.ID, "error", err.Error())
+		logger.Logger.Errorw("web_links update failed", "id", w.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("web_links updated", "id", w.ID)
+	logger.Logger.Infow("web_links updated", "id", w.ID)
 	return nil
 }
 
 func (r *WebLinkRepo) Delete(id string) error {
 	_, err := r.db.Exec(`DELETE FROM web_links WHERE id=?`, id)
 	if err != nil {
-		logger.Errorw("web_links delete failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("web_links delete failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("web_links deleted", "id", id)
+	logger.Logger.Infow("web_links deleted", "id", id)
 	return nil
 }
 
@@ -1071,10 +1138,10 @@ func (r *DirShortcutRepo) Create(d *DirShortcut) error {
 	_, err := r.db.Exec(q, d.ID, d.Name, d.Path, d.SortOrder, d.Type, d.RemoteHost, d.RemoteUser, d.RemotePath,
 		d.RemotePassword, d.AuthMethod, d.KeyPath, d.TerminalCmd, d.CreatedAt)
 	if err != nil {
-		logger.Errorw("dir_shortcuts create failed", "id", d.ID, "name", d.Name, "path", d.Path, "error", err.Error())
+		logger.Logger.Errorw("dir_shortcuts create failed", "id", d.ID, "name", d.Name, "path", d.Path, "error", err.Error())
 		return err
 	}
-	logger.Infow("dir_shortcuts created", "id", d.ID, "name", d.Name, "path", d.Path, "type", d.Type)
+	logger.Logger.Infow("dir_shortcuts created", "id", d.ID, "name", d.Name, "type", d.Type, "path", d.Path, "remote_host", d.RemoteHost, "remote_user", d.RemoteUser, "remote_path", d.RemotePath)
 	return nil
 }
 func (r *DirShortcutRepo) Update(d *DirShortcut) error {
@@ -1116,19 +1183,19 @@ func (r *DirShortcutRepo) Update(d *DirShortcut) error {
 	args = append(args, d.ID)
 	q := "UPDATE dir_shortcuts SET " + strings.Join(set, ",") + " WHERE id=?"
 	if _, err := r.db.Exec(q, args...); err != nil {
-		logger.Errorw("dir_shortcuts update failed", "id", d.ID, "error", err.Error())
+		logger.Logger.Errorw("dir_shortcuts update failed", "id", d.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("dir_shortcuts updated", "id", d.ID)
+	logger.Logger.Infow("dir_shortcuts updated", "id", d.ID, "name", d.Name, "type", d.Type, "path", d.Path, "remote_host", d.RemoteHost, "remote_user", d.RemoteUser, "remote_path", d.RemotePath)
 	return nil
 }
 
 func (r *DirShortcutRepo) Delete(id string) error {
 	if _, err := r.db.Exec(`DELETE FROM dir_shortcuts WHERE id=?`, id); err != nil {
-		logger.Errorw("dir_shortcuts delete failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("dir_shortcuts delete failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("dir_shortcuts deleted", "id", id)
+	logger.Logger.Infow("dir_shortcuts deleted", "id", id)
 	return nil
 }
 
@@ -1150,7 +1217,7 @@ func (r *DirShortcutRepo) Touch(id string) error {
 func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
 	rows, err := r.db.Query(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_password,auth_method,key_path,terminal_cmd,created_at,last_accessed_at FROM dir_shortcuts ORDER BY sort_order ASC, created_at DESC`)
 	if err != nil {
-		logger.Errorw("dir_shortcuts list query failed", "error", err.Error())
+		logger.Logger.Errorw("dir_shortcuts list query failed", "error", err.Error())
 		return nil, err
 	}
 	defer rows.Close()
@@ -1189,10 +1256,10 @@ func (r *ScheduledTaskRepo) Create(t *ScheduledTask) error {
 	_, err := r.db.Exec(q, t.ID, t.Name, t.CronExpr, t.CommandType, t.Model, t.Prompt,
 		t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, t.CreatedAt)
 	if err != nil {
-		logger.Errorw("scheduled_tasks insert failed", "id", t.ID, "error", err.Error())
+		logger.Logger.Errorw("scheduled_tasks insert failed", "id", t.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("scheduled_tasks created", "id", t.ID)
+	logger.Logger.Infow("scheduled_tasks created", "id", t.ID)
 	return nil
 }
 
@@ -1200,20 +1267,20 @@ func (r *ScheduledTaskRepo) Update(t *ScheduledTask) error {
 	_, err := r.db.Exec(`UPDATE scheduled_tasks SET name=?, cron_expr=?, command_type=?, model=?, prompt=?, working_dir=?, enabled=?, timeout_sec=? WHERE id=?`,
 		t.Name, t.CronExpr, t.CommandType, t.Model, t.Prompt, t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, t.ID)
 	if err != nil {
-		logger.Errorw("scheduled_tasks update failed", "id", t.ID, "error", err.Error())
+		logger.Logger.Errorw("scheduled_tasks update failed", "id", t.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("scheduled_tasks updated", "id", t.ID)
+	logger.Logger.Infow("scheduled_tasks updated", "id", t.ID)
 	return nil
 }
 
 func (r *ScheduledTaskRepo) Delete(id string) error {
 	_, err := r.db.Exec(`DELETE FROM scheduled_tasks WHERE id=?`, id)
 	if err != nil {
-		logger.Errorw("scheduled_tasks delete failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("scheduled_tasks delete failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("scheduled_tasks deleted", "id", id)
+	logger.Logger.Infow("scheduled_tasks deleted", "id", id)
 	return nil
 }
 
@@ -1287,10 +1354,10 @@ func (r *ScheduledTaskRepo) UpdateAfterRun(id, status, executionID string) error
 	_, err := r.db.Exec(`UPDATE scheduled_tasks SET last_run_at=?, last_status=?, last_execution_id=? WHERE id=?`,
 		time.Now(), status, executionID, id)
 	if err != nil {
-		logger.Errorw("scheduled_tasks update failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("scheduled_tasks update failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("scheduled_tasks updated", "id", id)
+	logger.Logger.Infow("scheduled_tasks updated", "id", id)
 	return nil
 }
 
@@ -1322,10 +1389,10 @@ func (r *AppSettingsRepo) Set(key, value string) error {
 	        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
 		key, value, now)
 	if err != nil {
-		logger.Errorw("[app_settings] set failed", "key", key, "error", err.Error())
+		logger.Logger.Errorw("[app_settings] set failed", "key", key, "error", err.Error())
 		return err
 	}
-	logger.Infow("[app_settings] set", "key", key)
+	logger.Logger.Infow("[app_settings] set", "key", key)
 	return nil
 }
 
@@ -1353,14 +1420,14 @@ type EvaluationRepo struct{ db *sql.DB }
 func NewEvaluationRepo(db *sql.DB) *EvaluationRepo { return &EvaluationRepo{db: db} }
 
 func (r *EvaluationRepo) Create(e *Evaluation) error {
-	_, err := r.db.Exec(`INSERT INTO evaluations (id,task_id,execution_id,evaluator_model,score,comments,created_at)
-	        VALUES (?,?,?,?,?,?,?)`,
-		e.ID, e.TaskID, e.ExecutionID, e.EvaluatorModel, e.Score, e.Comments, e.CreatedAt)
+	_, err := r.db.Exec(`INSERT INTO evaluations (id,task_id,execution_id,evaluator_model,score,comments,duration_ms,created_at)
+	        VALUES (?,?,?,?,?,?,?,?)`,
+		e.ID, e.TaskID, e.ExecutionID, e.EvaluatorModel, e.Score, e.Comments, e.DurationMs, e.CreatedAt)
 	return err
 }
 
 func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
-	rows, err := r.db.Query(`SELECT id,task_id,execution_id,evaluator_model,score,comments,created_at
+	rows, err := r.db.Query(`SELECT id,task_id,execution_id,evaluator_model,score,comments,duration_ms,created_at
 	        FROM evaluations WHERE task_id=? ORDER BY created_at DESC`, taskID)
 	if err != nil {
 		return nil, err
@@ -1370,7 +1437,7 @@ func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
 	for rows.Next() {
 		var e Evaluation
 		var taskID, execID, model, comments sql.NullString
-		if err := rows.Scan(&e.ID, &taskID, &execID, &model, &e.Score, &comments, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &taskID, &execID, &model, &e.Score, &comments, &e.DurationMs, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
@@ -1384,7 +1451,7 @@ func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
 
 // ListByExecution 查某次 execution 的所有 evaluation（按时间倒序）。
 func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
-	rows, err := r.db.Query(`SELECT id,task_id,execution_id,evaluator_model,score,comments,created_at
+	rows, err := r.db.Query(`SELECT id,task_id,execution_id,evaluator_model,score,comments,duration_ms,created_at
 	        FROM evaluations WHERE execution_id=? ORDER BY created_at DESC`, execID)
 	if err != nil {
 		return nil, err
@@ -1394,7 +1461,7 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 	for rows.Next() {
 		var e Evaluation
 		var taskID, execModel, model, comments sql.NullString
-		if err := rows.Scan(&e.ID, &taskID, &execModel, &model, &e.Score, &comments, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &taskID, &execModel, &model, &e.Score, &comments, &e.DurationMs, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
@@ -1430,10 +1497,10 @@ func (r *AgentRepo) Register(a *Agent) error {
 		VALUES (?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, a.ID, a.Name, a.TokenHash, a.Capabilities, a.Version, a.LastHeartbeat, a.Status, a.AutoClaimEnabled, a.CreatedAt)
 	if err != nil {
-		logger.Errorw("[agents] register failed", "id", a.ID, "error", err.Error())
+		logger.Logger.Errorw("[agents] register failed", "id", a.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[agents] created", "id", a.ID)
+	logger.Logger.Infow("[agents] created", "id", a.ID)
 	return nil
 }
 
@@ -1477,10 +1544,10 @@ func (r *AgentRepo) UpdateHeartbeat(id string) (*Agent, error) {
 	now := time.Now()
 	_, err := r.db.Exec(`UPDATE agents SET last_heartbeat=?, status='online' WHERE id=?`, now, id)
 	if err != nil {
-		logger.Errorw("[agents] heartbeat update failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("[agents] heartbeat update failed", "id", id, "error", err.Error())
 		return nil, err
 	}
-	logger.Infow("[agents] heartbeat updated", "id", id)
+	logger.Logger.Infow("[agents] heartbeat updated", "id", id)
 	return r.GetByID(id)
 }
 
@@ -1507,10 +1574,10 @@ func (r *AgentRepo) ListStaleAgents(maxAgeSec int) ([]string, error) {
 func (r *AgentRepo) SetStatusOffline(id string) error {
 	_, err := r.db.Exec(`UPDATE agents SET status='offline' WHERE id=?`, id)
 	if err != nil {
-		logger.Errorw("[agents] set offline failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("[agents] set offline failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("[agents] set offline", "id", id)
+	logger.Logger.Infow("[agents] set offline", "id", id)
 	return nil
 }
 
@@ -1518,10 +1585,10 @@ func (r *AgentRepo) SetStatusOffline(id string) error {
 func (r *AgentRepo) SetAutoClaimEnabled(id string, enabled bool) error {
 	_, err := r.db.Exec(`UPDATE agents SET auto_claim_enabled=? WHERE id=?`, enabled, id)
 	if err != nil {
-		logger.Errorw("[agents] set auto_claim failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("[agents] set auto_claim failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("[agents] set auto_claim", "id", id, "enabled", enabled)
+	logger.Logger.Infow("[agents] set auto_claim", "id", id, "enabled", enabled)
 	return nil
 }
 
@@ -1541,14 +1608,14 @@ func (r *TaskRepo) ClaimTask(taskID, agentID string) error {
 		WHERE id=? AND status='pending' AND task_type='remote' AND (claimer_agent_id='' OR claimer_agent_id IS NULL)`,
 		TaskStatusInProgress, agentID, time.Now(), taskID)
 	if err != nil {
-		logger.Errorw("tasks claim failed", "task_id", taskID, "agent_id", agentID, "error", err.Error())
+		logger.Logger.Errorw("tasks claim failed", "task_id", taskID, "agent_id", agentID, "error", err.Error())
 		return err
 	}
 	n, _ := result.RowsAffected()
 	if n == 0 {
 		return fmt.Errorf("task %s cannot be claimed (not pending/remote or already claimed)", taskID)
 	}
-	logger.Infow("tasks claimed", "task_id", taskID, "agent_id", agentID)
+	logger.Logger.Infow("tasks claimed", "task_id", taskID, "agent_id", agentID)
 	return nil
 }
 
@@ -1567,10 +1634,10 @@ func (r *TaskRepo) ReportTask(taskID, agentID, status, resultOutput string, eval
 	now := time.Now()
 	_, err = r.db.Exec(q, status, resultOutput, evalScore, lastErr, status, now, taskID)
 	if err != nil {
-		logger.Errorw("tasks report failed", "task_id", taskID, "status", status, "error", err.Error())
+		logger.Logger.Errorw("tasks report failed", "task_id", taskID, "status", status, "error", err.Error())
 		return err
 	}
-	logger.Infow("tasks reported", "task_id", taskID, "status", status)
+	logger.Logger.Infow("tasks reported", "task_id", taskID, "status", status)
 	return nil
 }
 
@@ -1578,10 +1645,10 @@ func (r *TaskRepo) ReportTask(taskID, agentID, status, resultOutput string, eval
 func (r *TaskRepo) UpdateEvalScore(taskID string, score float64) error {
 	_, err := r.db.Exec(`UPDATE tasks SET evaluation_score=? WHERE id=?`, score, taskID)
 	if err != nil {
-		logger.Errorw("tasks update eval score failed", "task_id", taskID, "score", score, "error", err.Error())
+		logger.Logger.Errorw("tasks update eval score failed", "task_id", taskID, "score", score, "error", err.Error())
 		return err
 	}
-	logger.Infow("tasks eval score updated", "task_id", taskID, "score", score)
+	logger.Logger.Infow("tasks eval score updated", "task_id", taskID, "score", score)
 	return nil
 }
 
@@ -1592,11 +1659,11 @@ func (r *TaskRepo) ReleaseTasksFromAgent(agentID string) (int, error) {
 		WHERE claimer_agent_id=? AND status='in_progress' AND task_type='remote'`
 	result, err := r.db.Exec(q, "agent heartbeat timeout", agentID)
 	if err != nil {
-		logger.Errorw("tasks release from agent failed", "agent_id", agentID, "error", err.Error())
+		logger.Logger.Errorw("tasks release from agent failed", "agent_id", agentID, "error", err.Error())
 		return 0, err
 	}
 	n, _ := result.RowsAffected()
-	logger.Infow("tasks released from agent", "agent_id", agentID, "count", int(n))
+	logger.Logger.Infow("tasks released from agent", "agent_id", agentID, "count", int(n))
 	return int(n), nil
 }
 
@@ -1606,12 +1673,12 @@ func (r *TaskRepo) ReleaseStaleTasks(maxAgeSec int) (int, error) {
 	result, err := r.db.Exec(`UPDATE tasks SET status='pending', claimer_agent_id='', last_error='task claim timeout'
 		WHERE status='in_progress' AND task_type='remote' AND claimed_at < datetime('now', '-' || ? || ' seconds')`, maxAgeSec)
 	if err != nil {
-		logger.Errorw("tasks release stale tasks failed", "max_age_sec", maxAgeSec, "error", err.Error())
+		logger.Logger.Errorw("tasks release stale tasks failed", "max_age_sec", maxAgeSec, "error", err.Error())
 		return 0, err
 	}
 	n, _ := result.RowsAffected()
 	if n > 0 {
-		logger.Infow("tasks released stale tasks", "max_age_sec", maxAgeSec, "count", int(n))
+		logger.Logger.Infow("tasks released stale tasks", "max_age_sec", maxAgeSec, "count", int(n))
 	}
 	return int(n), nil
 }
@@ -1636,10 +1703,10 @@ func (r *TaskEventRepo) Record(e *TaskEvent) error {
 	_, err := r.db.Exec(`INSERT INTO task_events (task_id,event_type,actor,payload,created_at)
 		VALUES (?,?,?,?,?)`, e.TaskID, e.EventType, e.Actor, e.Payload, e.CreatedAt)
 	if err != nil {
-		logger.Errorw("[task_events] record failed", "task_id", e.TaskID, "error", err.Error())
+		logger.Logger.Errorw("[task_events] record failed", "task_id", e.TaskID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_events] recorded", "task_id", e.TaskID, "event_type", e.EventType)
+	logger.Logger.Infow("[task_events] recorded", "task_id", e.TaskID, "event_type", e.EventType)
 	return nil
 }
 
@@ -1697,10 +1764,10 @@ func (r *TaskDependencyRepo) Add(d *TaskDependency) error {
 	_, err = r.db.Exec(`INSERT OR IGNORE INTO task_dependencies (task_id,depends_on,type,created_at)
 		VALUES (?,?,?,?)`, d.TaskID, d.DependsOn, d.Type, d.CreatedAt)
 	if err != nil {
-		logger.Errorw("[task_dependencies] add failed", "task_id", d.TaskID, "depends_on", d.DependsOn, "error", err.Error())
+		logger.Logger.Errorw("[task_dependencies] add failed", "task_id", d.TaskID, "depends_on", d.DependsOn, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_dependencies] added", "task_id", d.TaskID, "depends_on", d.DependsOn, "type", d.Type)
+	logger.Logger.Infow("[task_dependencies] added", "task_id", d.TaskID, "depends_on", d.DependsOn, "type", d.Type)
 	return nil
 }
 
@@ -1708,10 +1775,10 @@ func (r *TaskDependencyRepo) Add(d *TaskDependency) error {
 func (r *TaskDependencyRepo) Delete(taskID, dependsOn string) error {
 	_, err := r.db.Exec(`DELETE FROM task_dependencies WHERE task_id=? AND depends_on=?`, taskID, dependsOn)
 	if err != nil {
-		logger.Errorw("[task_dependencies] delete failed", "task_id", taskID, "depends_on", dependsOn, "error", err.Error())
+		logger.Logger.Errorw("[task_dependencies] delete failed", "task_id", taskID, "depends_on", dependsOn, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_dependencies] deleted", "task_id", taskID, "depends_on", dependsOn)
+	logger.Logger.Infow("[task_dependencies] deleted", "task_id", taskID, "depends_on", dependsOn)
 	return nil
 }
 
@@ -1719,10 +1786,10 @@ func (r *TaskDependencyRepo) Delete(taskID, dependsOn string) error {
 func (r *TaskDependencyRepo) DeleteByTask(taskID string) error {
 	_, err := r.db.Exec(`DELETE FROM task_dependencies WHERE task_id=? OR depends_on=?`, taskID, taskID)
 	if err != nil {
-		logger.Errorw("[task_dependencies] delete by task failed", "task_id", taskID, "error", err.Error())
+		logger.Logger.Errorw("[task_dependencies] delete by task failed", "task_id", taskID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_dependencies] deleted by task", "task_id", taskID)
+	logger.Logger.Infow("[task_dependencies] deleted by task", "task_id", taskID)
 	return nil
 }
 
@@ -1794,10 +1861,10 @@ func (r *TaskTemplateRepo) Create(t *TaskTemplate) error {
 		VALUES (?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.Name, t.Description, t.Category, t.TaskType, t.TemplateBody, t.UseCount, t.CreatedAt, t.UpdatedAt)
 	if err != nil {
-		logger.Errorw("[task_templates] create failed", "id", t.ID, "error", err.Error())
+		logger.Logger.Errorw("[task_templates] create failed", "id", t.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_templates] created", "id", t.ID)
+	logger.Logger.Infow("[task_templates] created", "id", t.ID)
 	return nil
 }
 
@@ -1837,30 +1904,30 @@ func (r *TaskTemplateRepo) Update(t *TaskTemplate) error {
 	_, err := r.db.Exec(`UPDATE task_templates SET name=?,description=?,category=?,task_type=?,template_body=?,updated_at=?
 		WHERE id=?`, t.Name, t.Description, t.Category, t.TaskType, t.TemplateBody, t.UpdatedAt, t.ID)
 	if err != nil {
-		logger.Errorw("[task_templates] update failed", "id", t.ID, "error", err.Error())
+		logger.Logger.Errorw("[task_templates] update failed", "id", t.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_templates] updated", "id", t.ID)
+	logger.Logger.Infow("[task_templates] updated", "id", t.ID)
 	return nil
 }
 
 func (r *TaskTemplateRepo) Delete(id string) error {
 	_, err := r.db.Exec(`DELETE FROM task_templates WHERE id=?`, id)
 	if err != nil {
-		logger.Errorw("[task_templates] delete failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("[task_templates] delete failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_templates] deleted", "id", id)
+	logger.Logger.Infow("[task_templates] deleted", "id", id)
 	return nil
 }
 
 func (r *TaskTemplateRepo) IncrementUseCount(id string) error {
 	_, err := r.db.Exec(`UPDATE task_templates SET use_count=use_count+1 WHERE id=?`, id)
 	if err != nil {
-		logger.Errorw("[task_templates] increment use_count failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("[task_templates] increment use_count failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_templates] incremented use_count", "id", id)
+	logger.Logger.Infow("[task_templates] incremented use_count", "id", id)
 	return nil
 }
 
@@ -1890,10 +1957,10 @@ func (r *SavedFilterRepo) Create(f *SavedFilter) error {
 		VALUES (?,?,?,?,?,?,?,?)`,
 		f.ID, f.Name, f.Description, f.FilterJSON, f.IsDefault, f.SortOrder, f.CreatedAt, f.UpdatedAt)
 	if err != nil {
-		logger.Errorw("[saved_filters] create failed", "id", f.ID, "error", err.Error())
+		logger.Logger.Errorw("[saved_filters] create failed", "id", f.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[saved_filters] created", "id", f.ID)
+	logger.Logger.Infow("[saved_filters] created", "id", f.ID)
 	return nil
 }
 
@@ -1926,20 +1993,20 @@ func (r *SavedFilterRepo) Update(f *SavedFilter) error {
 	_, err := r.db.Exec(`UPDATE saved_filters SET name=?,description=?,filter_json=?,is_default=?,sort_order=?,updated_at=?
 		WHERE id=?`, f.Name, f.Description, f.FilterJSON, f.IsDefault, f.SortOrder, f.UpdatedAt, f.ID)
 	if err != nil {
-		logger.Errorw("[saved_filters] update failed", "id", f.ID, "error", err.Error())
+		logger.Logger.Errorw("[saved_filters] update failed", "id", f.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[saved_filters] updated", "id", f.ID)
+	logger.Logger.Infow("[saved_filters] updated", "id", f.ID)
 	return nil
 }
 
 func (r *SavedFilterRepo) Delete(id string) error {
 	_, err := r.db.Exec(`DELETE FROM saved_filters WHERE id=?`, id)
 	if err != nil {
-		logger.Errorw("[saved_filters] delete failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("[saved_filters] delete failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("[saved_filters] deleted", "id", id)
+	logger.Logger.Infow("[saved_filters] deleted", "id", id)
 	return nil
 }
 
@@ -1980,10 +2047,10 @@ func (r *WebhookRepo) Create(w *Webhook) error {
 		VALUES (?,?,?,?,?,?,?,?)`,
 		w.ID, w.Name, w.URL, w.Secret, w.Events, w.Enabled, w.CreatedAt, w.FailCount)
 	if err != nil {
-		logger.Errorw("[webhooks] create failed", "id", w.ID, "error", err.Error())
+		logger.Logger.Errorw("[webhooks] create failed", "id", w.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[webhooks] created", "id", w.ID)
+	logger.Logger.Infow("[webhooks] created", "id", w.ID)
 	return nil
 }
 
@@ -2019,20 +2086,20 @@ func (r *WebhookRepo) Update(w *Webhook) error {
 	_, err := r.db.Exec(`UPDATE webhooks SET name=?,url=?,secret=?,events=?,enabled=? WHERE id=?`,
 		w.Name, w.URL, w.Secret, w.Events, w.Enabled, w.ID)
 	if err != nil {
-		logger.Errorw("[webhooks] update failed", "id", w.ID, "error", err.Error())
+		logger.Logger.Errorw("[webhooks] update failed", "id", w.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[webhooks] updated", "id", w.ID)
+	logger.Logger.Infow("[webhooks] updated", "id", w.ID)
 	return nil
 }
 
 func (r *WebhookRepo) Delete(id string) error {
 	_, err := r.db.Exec(`DELETE FROM webhooks WHERE id=?`, id)
 	if err != nil {
-		logger.Errorw("[webhooks] delete failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("[webhooks] delete failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("[webhooks] deleted", "id", id)
+	logger.Logger.Infow("[webhooks] deleted", "id", id)
 	return nil
 }
 
@@ -2059,10 +2126,10 @@ func (r *WebhookRepo) ListEnabled() ([]*Webhook, error) {
 func (r *WebhookRepo) MarkTriggered(id string) error {
 	_, err := r.db.Exec(`UPDATE webhooks SET last_triggered_at=?, fail_count=0 WHERE id=?`, time.Now(), id)
 	if err != nil {
-		logger.Errorw("[webhooks] mark triggered failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("[webhooks] mark triggered failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("[webhooks] marked triggered", "id", id)
+	logger.Logger.Infow("[webhooks] marked triggered", "id", id)
 	return nil
 }
 
@@ -2070,10 +2137,10 @@ func (r *WebhookRepo) MarkTriggered(id string) error {
 func (r *WebhookRepo) IncrementFail(id string) error {
 	_, err := r.db.Exec(`UPDATE webhooks SET fail_count=fail_count+1 WHERE id=?`, id)
 	if err != nil {
-		logger.Errorw("[webhooks] increment fail failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("[webhooks] increment fail failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("[webhooks] incremented fail count", "id", id)
+	logger.Logger.Infow("[webhooks] incremented fail count", "id", id)
 	return nil
 }
 
@@ -2103,10 +2170,10 @@ func (r *TaskCommentRepo) Create(c *TaskComment) error {
 		VALUES (?,?,?,?,?,?,?,?)`,
 		c.ID, c.TaskID, c.Author, c.Content, c.Mentions, c.ParentID, c.CreatedAt, c.UpdatedAt)
 	if err != nil {
-		logger.Errorw("[task_comments] create failed", "id", c.ID, "error", err.Error())
+		logger.Logger.Errorw("[task_comments] create failed", "id", c.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_comments] created", "id", c.ID)
+	logger.Logger.Infow("[task_comments] created", "id", c.ID)
 	return nil
 }
 
@@ -2145,20 +2212,20 @@ func (r *TaskCommentRepo) Update(c *TaskComment) error {
 	_, err := r.db.Exec(`UPDATE task_comments SET content=?,mentions=?,updated_at=? WHERE id=?`,
 		c.Content, c.Mentions, c.UpdatedAt, c.ID)
 	if err != nil {
-		logger.Errorw("[task_comments] update failed", "id", c.ID, "error", err.Error())
+		logger.Logger.Errorw("[task_comments] update failed", "id", c.ID, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_comments] updated", "id", c.ID)
+	logger.Logger.Infow("[task_comments] updated", "id", c.ID)
 	return nil
 }
 
 func (r *TaskCommentRepo) Delete(id string) error {
 	_, err := r.db.Exec(`DELETE FROM task_comments WHERE id=?`, id)
 	if err != nil {
-		logger.Errorw("[task_comments] delete failed", "id", id, "error", err.Error())
+		logger.Logger.Errorw("[task_comments] delete failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Infow("[task_comments] deleted", "id", id)
+	logger.Logger.Infow("[task_comments] deleted", "id", id)
 	return nil
 }
 
