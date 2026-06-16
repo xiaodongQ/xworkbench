@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -833,7 +832,7 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 		defer cancel()
 		_, err := evaluator.RunAndSave(ctx, s.evalDB, s.execDB, exec, prompt, req.CliType, req.Model)
 		if err != nil {
-			log.Printf("evaluator: %v", err)
+			logger.Errorf("evaluator: %v", err)
 		}
 	}()
 	writeJSON(w, map[string]string{"execution_id": id, "status": "evaluating", "cli_type": req.CliType, "model": req.Model})
@@ -863,7 +862,7 @@ var wsUpgrader = websocket.Upgrader{
 func (s *APIServer) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("ws upgrade: %v", err)
+		logger.Errorf("ws upgrade: %v", err)
 		return
 	}
 	s.hub.Register(conn)
@@ -1702,7 +1701,7 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Printf("[config] load failed: %v, using defaults", err)
+		logger.Errorf("[config] load failed: %v, using defaults", err)
 		cfg = config.DefaultConfig()
 	}
 	config.AppConfig = cfg
@@ -1712,24 +1711,26 @@ func main() {
 		flag.Parse()
 		if *cfgPath != "" {
 			if err := config.LoadFromPath(*cfgPath); err != nil {
-				log.Printf("[config] load from %s failed: %v", *cfgPath, err)
+				logger.Errorf("[config] load from %s failed: %v", *cfgPath, err)
 			} else {
 				logger.Infow("config loaded", "path", *cfgPath)
 			}
 		}
 
-	// 日志默认写入文件（传统文本格式，包含源文件行号）
+	// 日志写入文件（包含源文件行号，时间戳用友好格式）
 	logDir := filepath.Join(filepath.Dir(dbPath), "logs")
 	if err := os.MkdirAll(logDir, 0755); err == nil {
 		logFile := filepath.Join(logDir, "xworkbench.log")
 		f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err == nil {
-			ws := io.MultiWriter(f, os.Stderr)
-			enc := zapcore.NewConsoleEncoder(zap.NewProductionEncoderConfig())
-			core := zapcore.NewCore(enc, zapcore.AddSync(ws), zapcore.InfoLevel)
+			encCfg := zap.NewProductionEncoderConfig()
+			encCfg.TimeKey = "time"
+			encCfg.EncodeTime = zapcore.ISO8601TimeEncoder // 2026-01-02T15:04:05.000Z
+			enc := zapcore.NewConsoleEncoder(encCfg)
+			core := zapcore.NewCore(enc, zapcore.AddSync(f), zapcore.InfoLevel)
 			zapLogger := zap.New(core)
 			logger = zapLogger.Sugar()
-			log.Printf("日志写入文件: %s", logFile)
+			logger.Infow("日志写入文件", "path", logFile)
 		}
 	}
 
@@ -1744,7 +1745,7 @@ func main() {
 	h := hub.New()
 	sch := scheduler.New(schedRepo, execRepo, h).WithSettings(settingsRepo)
 	if err := sch.AutoStart(); err != nil {
-		log.Printf("[scheduler] auto start failed: %v", err)
+		logger.Errorf("[scheduler] auto start failed: %v", err)
 	}
 
 	// init relay repo
@@ -1779,7 +1780,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("Skill Factory started at http://localhost%s", addr)
+	logger.Infof("Skill Factory started at http://localhost%s", addr)
 	if err := (&http.Server{Handler: srv}).Serve(ln); err != nil {
 		log.Fatal(err)
 	}

@@ -1607,7 +1607,9 @@ func (r *TaskRepo) ReleaseStaleTasks(maxAgeSec int) (int, error) {
 		return 0, err
 	}
 	n, _ := result.RowsAffected()
-	logger.Infow("tasks released stale tasks", "max_age_sec", maxAgeSec, "count", int(n))
+	if n > 0 {
+		logger.Infow("tasks released stale tasks", "max_age_sec", maxAgeSec, "count", int(n))
+	}
 	return int(n), nil
 }
 

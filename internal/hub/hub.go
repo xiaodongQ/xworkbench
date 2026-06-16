@@ -3,12 +3,19 @@ package hub
 
 import (
 	"encoding/json"
-	"log"
 	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/xiaodongQ/xworkbench/internal/wsmsg"
+	"go.uber.org/zap"
 )
+
+var logger *zap.SugaredLogger
+
+func init() {
+	l, _ := zap.NewProduction()
+	logger = l.Sugar()
+}
 
 // Hub 维护所有客户端连接，提供频道广播。
 type Hub struct {
@@ -42,7 +49,7 @@ func (h *Hub) Broadcast(channel string, payload any) {
 	msg := wsmsg.Message{Channel: channel, Payload: payload}
 	data, err := json.Marshal(msg)
 	if err != nil {
-		log.Printf("hub marshal: %v", err)
+		logger.Errorf("hub marshal: %v", err)
 		return
 	}
 	h.mu.RLock()

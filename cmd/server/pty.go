@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -136,15 +135,15 @@ func sendNotify(conn *websocket.Conn, tabID, notifyType, extra string) {
 // query param: tab_id 用于多 Tab 区分
 func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	tabID := r.URL.Query().Get("tab_id")
-	log.Printf("pty: ws open request tab_id=%q remote=%s", tabID, r.RemoteAddr)
+	logger.Infof("pty: ws open request tab_id=%q remote=%s", tabID, r.RemoteAddr)
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("pty: websocket upgrade error: %v", err)
+		logger.Errorf("pty: websocket upgrade error: %v", err)
 		return
 	}
 	defer conn.Close()
-	log.Printf("pty: ws upgraded tab_id=%q", tabID)
+	logger.Infof("pty: ws upgraded tab_id=%q", tabID)
 
 	cliType, _ := s.setDB.Get("aichat_default_cli")
 	if cliType == "" {
@@ -167,12 +166,12 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "TERM=xterm-256color", "CLAUDE_CODE_PROMPT_PATH="+ctxDir)
 
-	log.Printf("pty: cmd ready tab_id=%q cli=%s shell=%s cmdStr=%q ctxDir=%q argv=%v",
+	logger.Infof("pty: cmd ready tab_id=%q cli=%s shell=%s cmdStr=%q ctxDir=%q argv=%v",
 		tabID, cliType, shell, cmdStr, ctxDir, cmd.Args)
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		log.Printf("pty: pty.Start error tab_id=%q err=%v", tabID, err)
+		logger.Errorf("pty: pty.Start error tab_id=%q err=%v", tabID, err)
 		conn.WriteMessage(websocket.TextMessage,
 			[]byte("\r\n\x1b[31m[xworkbench] PTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
 		return
@@ -181,7 +180,7 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	if cmd.Process != nil {
 		pid = cmd.Process.Pid
 	}
-	log.Printf("pty: pty started tab_id=%q pid=%d", tabID, pid)
+	logger.Infof("pty: pty started tab_id=%q pid=%d", tabID, pid)
 
 	sess := &PTYSession{ptmx: ptmx, cmd: cmd, tabID: tabID}
 	registerPTY(tabID, sess)
@@ -189,7 +188,7 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		ptmx.Close()
 		_ = cmd.Process.Kill()
-		log.Printf("pty: cleanup done tab_id=%q pid=%d", tabID, pid)
+		logger.Infof("pty: cleanup done tab_id=%q pid=%d", tabID, pid)
 	}()
 
 	banner := fmt.Sprintf("\x1b[36m[xworkbench] PTY 启动 (shell=%s, cli=%s)\x1b[0m\r\n", shell, cliType)
@@ -203,10 +202,10 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 			exitCode = cmd.ProcessState.ExitCode()
 		}
 		if werr != nil {
-			log.Printf("pty: cli exited tab_id=%q pid=%d err=%v exitCode=%d",
+			logger.Infof("pty: cli exited tab_id=%q pid=%d err=%v exitCode=%d",
 				tabID, pid, werr, exitCode)
 		} else {
-			log.Printf("pty: cli exited tab_id=%q pid=%d exitCode=%d",
+			logger.Infof("pty: cli exited tab_id=%q pid=%d exitCode=%d",
 				tabID, pid, exitCode)
 		}
 	}()
@@ -228,7 +227,7 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 			if n > 0 {
 				totalBytes += n
 				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
-					log.Printf("pty: ws write error tab_id=%q err=%v", tabID, werr)
+					logger.Errorf("pty: ws write error tab_id=%q err=%v", tabID, werr)
 					return
 				}
 				if !authNotified {
@@ -248,9 +247,9 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 			}
 			if rerr != nil {
 				if rerr == io.EOF {
-					log.Printf("pty: read EOF tab_id=%q bytes=%d reads=%d", tabID, totalBytes, reads)
+					logger.Infof("pty: read EOF tab_id=%q bytes=%d reads=%d", tabID, totalBytes, reads)
 				} else {
-					log.Printf("pty: read error tab_id=%q err=%v bytes=%d reads=%d",
+					logger.Errorf("pty: read error tab_id=%q err=%v bytes=%d reads=%d",
 						tabID, rerr, totalBytes, reads)
 				}
 				break
@@ -260,10 +259,10 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 
 	// WebSocket 输入 → PTY（含 resize 检测）
 	inBytes, err := io.Copy(ptmx, &wsReader{conn: conn, ptmx: ptmx})
-	log.Printf("pty: ws input closed tab_id=%q err=%v inBytes=%d", tabID, err, inBytes)
+	logger.Infof("pty: ws input closed tab_id=%q err=%v inBytes=%d", tabID, err, inBytes)
 
 	wg.Wait()
-	log.Printf("pty: ws fully closed tab_id=%q", tabID)
+	logger.Infof("pty: ws fully closed tab_id=%q", tabID)
 }
 
 // handlePtyInput 处理 POST /api/pty/{tab_id}/submit-input

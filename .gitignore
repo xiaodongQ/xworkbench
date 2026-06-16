@@ -13,3 +13,4 @@ cmd/server/*.exe
 /server
 /xworkbench
 /xworkbench.exe
+nohup.out
