@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -1722,9 +1721,11 @@ func errStr(err error) string {
 }
 
 func main() {
-	// 初始化默认 logger（后续可根据配置重新初始化）
+	// 初始化默认 logger（stderr），后续切到文件后通过 loglib.Set 同步到全局
 	zapLogger, _ := zap.NewProduction()
-	logger = zapLogger.Sugar()
+	sugar := zapLogger.Sugar()
+	logger = sugar
+	loglib.Set(sugar) // 同步到全局，使其他包（evaluator/executor 等）也写入同一目标
 
 	dbPath := paths.ResolveDBPath()
 	if cwd, err := os.Getwd(); err == nil {
@@ -1735,12 +1736,12 @@ func main() {
 
 	db, err := backend.OpenDB(dbPath)
 	if err != nil {
-		log.Fatalf("open db: %v", err)
+		logger.Fatalw("open db failed", "err", err)
 	}
 	defer db.Close()
 
 	if err := backend.InitSchema(db); err != nil {
-		log.Fatalf("init schema: %v", err)
+		logger.Fatalw("init schema failed", "err", err)
 	}
 
 	cfg, err := config.Load()
@@ -1798,7 +1799,7 @@ func main() {
 	// init relay repo
 	relayRepo := relay.NewSQLiteRelayRepo(db)
 	if err := relayRepo.InitSchema(); err != nil {
-		log.Fatalf("init relay schema: %v", err)
+		logger.Fatalw("init relay schema failed", "err", err)
 	}
 
 	agentRepo := backend.NewAgentRepo(db)
@@ -1825,11 +1826,11 @@ func main() {
 	// SO_REUSEADDR：服务重启时避免 "address already in use" 等 TIME_WAIT
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatalw("listen failed", "addr", addr, "err", err)
 	}
 	logger.Infof("Skill Factory started at http://localhost%s", addr)
 	if err := (&http.Server{Handler: srv}).Serve(ln); err != nil {
-		log.Fatal(err)
+		logger.Fatalw("http serve failed", "err", err)
 	}
 }
 
