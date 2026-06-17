@@ -361,6 +361,7 @@ function viewTask(id) {
     renderTaskExpChips();
   }
   document.getElementById('task-modal').classList.remove('hidden');
+  loadTaskComments(t.id);
 }
 
 async function editTask(id) {
@@ -401,6 +402,7 @@ function showTaskModal(task) {
     renderTaskExpChips();
   }
   document.getElementById('task-modal').classList.remove('hidden');
+  loadTaskComments(t.id);
 }
 
 function closeTaskModal() {
@@ -436,4 +438,44 @@ async function submitTask() {
   closeTaskModal();
   loadDashboard();
   if (currentTab === 'tasks') loadTasks();
+}
+
+async function loadTaskComments(taskId) { console.log("loadTaskComments called, taskId:", taskId);
+  const container = document.getElementById('task-comment-list');
+  const countEl = document.getElementById('task-comment-count');
+  if (!container) { console.warn('comment container not found'); return; }
+  let list;
+  try {
+    list = await fetchJSON('/api/tasks/' + taskId + '/comments');
+  } catch(e) {
+    console.error('loadTaskComments failed:', e);
+    container.innerHTML = '<span style="color:var(--exception);font-size:12px">加载评论失败</span>';
+    return;
+  }
+  countEl.textContent = list.length > 0 ? '(' + list.length + ')' : '';
+  if (!list.length) {
+    container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">暂无评论</span>';
+    return;
+  }
+  container.innerHTML = list.map(c => {
+    const dt = c.created_at ? new Date(c.created_at).toLocaleString() : '';
+    return '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
+      '<span style="color:var(--text-secondary)">' + (c.author || 'user') + ' · ' + dt + '</span>' +
+      '<div style="margin-top:2px">' + esc(c.content) + '</div></div>';
+  }).join('');
+}
+
+async function submitTaskComment() {
+  const taskId = document.getElementById('task-id').value;
+  if (!taskId) return;
+  const input = document.getElementById('task-comment-input');
+  const content = input.value.trim();
+  if (!content) return;
+  input.value = '';
+  await fetchJSON('/api/tasks/' + taskId + '/comments', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({author: 'user', content})
+  });
+  await loadTaskComments(taskId);
 }

@@ -413,6 +413,16 @@
       <label>⚠️ 待交互内容 <span class="field-hint" style="background:rgba(202,138,4,0.15);color:#ca8a04">需要人工介入</span></label>
       <div id="task-waiting-input-content" style="background:#fff8e1;border:1px solid #ffc107;border-radius:4px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:150px;overflow-y:auto;"></div>
     </div>
+	    <!-- 评论区 -->
+	    <div id="task-comment-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
+	      <label>💬 评论 <span id="task-comment-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span></label>
+	      <div id="task-comment-list" style="max-height:150px;overflow-y:auto;margin-bottom:8px"></div>
+	      <div style="display:flex;gap:6px">
+	        <input id="task-comment-input" placeholder="添加评论..." style="flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:12px">
+	        <button class="btn btn-small btn-primary" onclick="submitTaskComment()">发送</button>
+	      </div>
+	    </div>
+
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTaskModal()">取消</button>
       <button id="task-submit-btn" class="btn btn-primary" onclick="submitTask()">创建</button>
