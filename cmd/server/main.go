@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -1671,12 +1672,28 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
+	// 获取调用者函数名
+	pcs := make([]uintptr, 1)
+	runtime.Callers(2, pcs)
+	var funcName string
+	if pcs[0] != 0 {
+		fn := runtime.FuncForPC(pcs[0])
+		if fn != nil {
+			funcName = fn.Name()
+			if idx := strings.LastIndex(funcName, "."); idx >= 0 {
+				funcName = funcName[idx+1:]
+			}
+		}
+	}
+	if funcName == "" {
+		funcName = "unknown"
+	}
 	if code >= 500 {
-		logger.Errorw("http error", "status", code, "msg", msg)
+		logger.Errorw("http error", "status", code, "msg", msg, "handler", funcName)
 	} else if code >= 400 {
-		logger.Warnw("http error", "status", code, "msg", msg)
+		logger.Warnw("http error", "status", code, "msg", msg, "handler", funcName)
 	} else {
-		logger.Infow("http error", "status", code, "msg", msg)
+		logger.Infow("http error", "status", code, "msg", msg, "handler", funcName)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
