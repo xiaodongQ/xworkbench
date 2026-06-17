@@ -12,7 +12,11 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
-
+// parseTimeFromString 解析 SQLite DATETIME 存储的时间字符串。
+// SQLite 直接存储 Go time.Time，格式为 RFC3339（带纳秒）。
+func parseTimeFromString(s string) (time.Time, error) {
+	return time.Parse(time.RFC3339Nano, s)
+}
 
 func InitSchema(db *sql.DB) error {
 	schema := `
@@ -1450,8 +1454,8 @@ func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
 		var e Evaluation
 		var taskID, execID, model, comments sql.NullString
 		var durationS sql.NullInt64
-		var createdAt sql.NullTime
-		if err := rows.Scan(&e.ID, &taskID, &execID, &model, &e.Score, &comments, &durationS, &createdAt); err != nil {
+		var createdAtStr sql.NullString
+		if err := rows.Scan(&e.ID, &taskID, &execID, &model, &e.Score, &comments, &durationS, &createdAtStr); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
@@ -1461,8 +1465,8 @@ func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
 		if durationS.Valid {
 			e.DurationS = durationS.Int64
 		}
-		if createdAt.Valid {
-			e.CreatedAt = createdAt.Time
+		if createdAtStr.Valid {
+			e.CreatedAt, _ = parseTimeFromString(createdAtStr.String)
 		}
 		out = append(out, &e)
 	}
@@ -1482,8 +1486,8 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 		var e Evaluation
 		var taskID, execModel, model, comments sql.NullString
 		var durationS sql.NullInt64
-		var createdAt sql.NullTime
-		if err := rows.Scan(&e.ID, &taskID, &execModel, &model, &e.Score, &comments, &durationS, &createdAt); err != nil {
+		var createdAtStr sql.NullString
+		if err := rows.Scan(&e.ID, &taskID, &execModel, &model, &e.Score, &comments, &durationS, &createdAtStr); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
@@ -1493,8 +1497,8 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 		if durationS.Valid {
 			e.DurationS = durationS.Int64
 		}
-		if createdAt.Valid {
-			e.CreatedAt = createdAt.Time
+		if createdAtStr.Valid {
+			e.CreatedAt, _ = parseTimeFromString(createdAtStr.String)
 		}
 		out = append(out, &e)
 	}

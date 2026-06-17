@@ -11,10 +11,10 @@
 
 cd "$(dirname "$0")/.."
 
-LDFLAGS=("-ldflags=-s -w" -trimpath)
 BIN_DIR="./bin"
 VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
 BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+LDFLAGS="-s -w -X main.BuildInfo=${VERSION}_${BUILD_TIME}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -73,7 +73,7 @@ build_current() {
   hr
 
   local start_time=$(date +%s)
-  if GOOS=$os GOARCH=$arch go build "${LDFLAGS[@]}" -o "${BIN_DIR}/${bin_name}" ./cmd/server; then
+  if GOOS=$os GOARCH=$arch go build -ldflags="$LDFLAGS" -trimpath -o "${BIN_DIR}/${bin_name}" ./cmd/server; then
     local end_time=$(date +%s)
     local size=$(ls -lh "${BIN_DIR}/${bin_name}" | awk '{print $5}')
     echo
@@ -92,7 +92,7 @@ build_one() {
   local start_time=$(date +%s)
 
   printf "  %-12s %-8s ... " "$goos" "$goarch"
-  if GOOS=$goos GOARCH=$goarch go build "${LDFLAGS[@]}" -o "${BIN_DIR}/${bin_name}" ./cmd/server 2>&1; then
+  if GOOS=$goos GOARCH=$goarch go build -ldflags="$LDFLAGS" -trimpath -o "${BIN_DIR}/${bin_name}" ./cmd/server 2>&1; then
     local end_time=$(date +%s)
     local size=$(ls -lh "${BIN_DIR}/${bin_name}" | awk '{print $5}')
     printf '%b\n' "${GREEN}[OK]${NC}  $size"

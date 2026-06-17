@@ -40,6 +40,10 @@ import (
 
 var logger *zap.SugaredLogger
 
+// BuildInfo 在编译时通过 -ldflags 注入，格式: "git-commit build-time"
+// 例如: -ldflags "-X main.BuildInfo=abc1234 2026-06-18T10:00:00+0800"
+var BuildInfo = "unknown"
+
 //go:embed index.html static
 var FS embed.FS
 
@@ -122,6 +126,7 @@ func checkRelayAuth() func(http.HandlerFunc) http.HandlerFunc {
 
 func (s *APIServer) routes() {
 	mux := s.mux
+	mux.HandleFunc("GET /version", s.handleVersion)
 	mux.HandleFunc("GET /api/tasks", s.handleTasks)
 	mux.HandleFunc("POST /api/tasks", s.handleTaskCreate)
 	mux.HandleFunc("GET /api/tasks/{id}", s.handleTaskGet)
@@ -535,6 +540,14 @@ func (s *APIServer) handleExpDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"status": "deleted"})
+}
+
+// handleVersion 返回构建信息，用于确认运行的是哪个版本的二进制
+func (s *APIServer) handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"build": BuildInfo,
+	})
 }
 
 // Stats
@@ -1773,9 +1786,9 @@ func main() {
 			encCfg.EncodeTime = zapcore.ISO8601TimeEncoder // 2026-01-02T15:04:05.000Z
 			enc := zapcore.NewConsoleEncoder(encCfg)
 			core := zapcore.NewCore(enc, zapcore.AddSync(f), zapcore.InfoLevel)
-			zapLogger := zap.New(core)
+			zapLogger := zap.New(core, zap.AddCaller())
 			logger = zapLogger.Sugar()
-			logger.Infow("日志写入文件", "path", logFile)
+			logger.Infow("日志写入文件", "path", logFile, "build", BuildInfo)
 		}
 	}
 
@@ -1828,7 +1841,7 @@ func main() {
 	if err != nil {
 		logger.Fatalw("listen failed", "addr", addr, "err", err)
 	}
-	logger.Infof("Skill Factory started at http://localhost%s", addr)
+	logger.Infof("Skill Factory started at http://localhost%s  build=%s", addr, BuildInfo)
 	if err := (&http.Server{Handler: srv}).Serve(ln); err != nil {
 		logger.Fatalw("http serve failed", "err", err)
 	}
