@@ -1010,6 +1010,7 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	             (SELECT ev.score FROM evaluations ev
 	                WHERE ev.execution_id = e.id
 	                ORDER BY ev.created_at DESC LIMIT 1) AS eval_score,
+	             (SELECT COUNT(*) FROM evaluations ev WHERE ev.execution_id = e.id) AS eval_count,
 	             t.title, s.name
 	        FROM executions e
 	        LEFT JOIN tasks t ON e.task_id = t.id
@@ -1026,15 +1027,17 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 		var taskID, schedID, model, output, errOut, taskTitle, schedTitle sql.NullString
 		var completedAt sql.NullTime
 		var evalScore sql.NullFloat64
+		var evalCount int
 		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &model,
 			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &evalScore,
-			&taskTitle, &schedTitle); err != nil {
+			&evalCount, &taskTitle, &schedTitle); err != nil {
 			return nil, err
 		}
 		if evalScore.Valid {
 			v := evalScore.Float64
 			e.EvaluationScore = &v
 		}
+		e.EvalCount = evalCount
 		e.TaskID = taskID.String
 		e.ScheduledTaskID = schedID.String
 		e.TaskTitle = taskTitle.String

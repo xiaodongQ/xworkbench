@@ -301,7 +301,7 @@ async function loadRecentExecutions() {
     }
     const atEnd = list.length < recentExecLimit;
     target.innerHTML = list.map(e => {
-      const dt = new Date(e.started_at).toLocaleTimeString();
+      const dt = new Date(e.started_at).toLocaleString();
       const src = e.source === 'scheduled' ? '⏰' : '▶';
       const isRunning = !e.completed_at;
       const isEvaluating = _evaluatingIds.has(e.id);
@@ -324,7 +324,9 @@ async function loadRecentExecutions() {
         const sc = e.evaluation_score;
         const scoreColor = sc >= 8 ? 'var(--archived)' : sc >= 5 ? 'var(--warning)' : 'var(--exception)';
         const scoreBg = sc >= 8 ? 'rgba(16,185,129,0.15)' : sc >= 5 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)';
-        evalBadge = ` <span class="s-status" style="background:${scoreBg};color:${scoreColor};font-size:11px;font-weight:600;padding:2px 10px;border-radius:10px" title="AI 评估分数（点击查看详情）" onclick="viewExecutionDetail('${e.id}')">📊 ${sc}/10</span>`;
+        const evalCount = e.evaluation_count || 0;
+        const evalCountStr = evalCount > 1 ? `×${evalCount}` : '';
+        evalBadge = ` <span class="s-status" style="background:${scoreBg};color:${scoreColor};font-size:11px;font-weight:600;padding:2px 10px;border-radius:10px" title="AI 评估分数（点击查看详情）" onclick="viewExecutionDetail('${e.id}')">📊${evalCountStr} ${sc}/10</span>`;
       }
       const rowStyle = isEvaluating
         ? 'display:flex;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;align-items:center;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6'

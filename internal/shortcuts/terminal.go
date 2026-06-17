@@ -83,13 +83,18 @@ func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) e
 	logger.Logger.Infow("[OpenRemoteDirShortcut] opening", "termType", termType, "bin", binPath, "target", sshTarget, "remotePath", dir.RemotePath)
 	switch termType {
 	case "wezterm":
-		// wezterm ssh user@host -- bash -c "cd /path && exec $SHELL"
+		// wezterm ssh user@host -- bash -c "cd /path && <cmd>"
 		args := []string{"ssh", sshTarget}
-		if dir.RemotePath != "" {
-			args = append(args, "--", "bash", "-c", "cd '"+dir.RemotePath+"' && exec $SHELL -l")
-		} else {
-			args = append(args, "--", "bash", "-c", "exec $SHELL -l")
+		cmd := "exec $SHELL -l"
+		if dir.TerminalCmd != "" {
+			cmd = dir.TerminalCmd + "; exec $SHELL"
+			if dir.RemotePath != "" {
+				cmd = "cd '" + dir.RemotePath + "' && " + cmd
+			}
+		} else if dir.RemotePath != "" {
+			cmd = "cd '" + dir.RemotePath + "' && " + cmd
 		}
+		args = append(args, "--", "bash", "-c", cmd)
 		return exec.Command(binPath, args...).Start()
 	default:
 		// 其他终端用 ssh 命令
@@ -98,13 +103,16 @@ func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) e
 			sshArgs = append(sshArgs, "-i", dir.KeyPath)
 		}
 		sshArgs = append(sshArgs, sshTarget)
-		var sshCmd string
-		if dir.RemotePath != "" {
-			sshCmd = "cd '" + dir.RemotePath + "' && exec $SHELL -l"
-		} else {
-			sshCmd = "exec $SHELL -l"
+		cmd := "exec $SHELL -l"
+		if dir.TerminalCmd != "" {
+			cmd = dir.TerminalCmd + "; exec $SHELL"
+			if dir.RemotePath != "" {
+				cmd = "cd '" + dir.RemotePath + "' && " + cmd
+			}
+		} else if dir.RemotePath != "" {
+			cmd = "cd '" + dir.RemotePath + "' && " + cmd
 		}
-		sshArgs = append(sshArgs, "-t", "--", "sh", "-c", sshCmd)
+		sshArgs = append(sshArgs, "-t", "--", "sh", "-c", cmd)
 		return exec.Command("ssh", sshArgs...).Start()
 	}
 }

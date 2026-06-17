@@ -120,6 +120,8 @@ type Execution struct {
 	ScheduledTaskTitle string `json:"scheduled_task_title,omitempty"`
 	// 最近一次评估分数（NULL = 未评估）。list 接口 JOIN 填，单 exec 接口也填。
 	EvaluationScore *float64 `json:"evaluation_score,omitempty"`
+	// 评估次数（查询时实时 COUNT，非持久化）
+	EvalCount int `json:"evaluation_count,omitempty"`
 }
 
 type Evaluation struct {
