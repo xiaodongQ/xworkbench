@@ -447,9 +447,9 @@ function renderEvalCard(ev) {
     : 'font-size:13px';
   // 从评语里解析 num_turns / permission_denials 客观证据（sonnet 评语里常含）
   const evidence = parseEvalEvidence(ev.comments || '');
-  // 耗时显示
-  const durMs = ev.duration_ms || 0;
-  const durDisplay = durMs >= 1000 ? (durMs / 1000).toFixed(1) + 's' : durMs + 'ms';
+  // 耗时显示（duration_s 单位为秒）
+  const durS = ev.duration_s || 0;
+  const durDisplay = durS >= 1 ? durS.toFixed(1) + 's' : durS.toFixed(3) + 's';
   return `
     <div style="${cardStyle}">
       📊 AI 评估: <b style="color:${color};font-size:18px">${scoreDisplay}</b>

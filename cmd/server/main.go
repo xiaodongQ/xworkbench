@@ -1490,12 +1490,15 @@ func (s *APIServer) handleScheduledToggle(w http.ResponseWriter, r *http.Request
 
 func (s *APIServer) handleScheduledRunNow(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := s.sch.RunNow(id); err != nil {
+	logger.Infow("scheduled run-now received", "id", id)
+	execID, err := s.sch.RunNow(id)
+	if err != nil {
+		logger.Warnw("scheduled run-now failed", "id", id, "err", err)
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	logger.Infow("handler: scheduled task run-now triggered", "id", id)
-	writeJSON(w, map[string]string{"id": id, "status": "triggered"})
+	logger.Infow("scheduled run-now done", "id", id, "execution_id", execID)
+	writeJSON(w, map[string]string{"id": id, "execution_id": execID, "status": "triggered"})
 }
 
 // --- Scheduler ---
@@ -2253,6 +2256,7 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 				Score:          autoScore,
 				Comments:       fmt.Sprintf("auto-eval: task status=%s", req.Status),
 				CreatedAt:      time.Now(),
+				DurationS:      0,
 			})
 			s.db.UpdateEvalScore(taskID, autoScore)
 			logger.Infow("auto-eval triggered", "task_id", taskID, "score", autoScore)

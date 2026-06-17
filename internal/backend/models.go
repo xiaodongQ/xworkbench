@@ -129,7 +129,7 @@ type Evaluation struct {
 	EvaluatorModel string    `json:"evaluator_model,omitempty"`
 	Score          float64   `json:"score"`
 	Comments       string    `json:"comments,omitempty"`
-	DurationS     int64     `json:"duration_s,omitempty"`
+	DurationS     float64  `json:"duration_s,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 

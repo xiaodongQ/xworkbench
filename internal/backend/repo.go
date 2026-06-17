@@ -13,9 +13,21 @@ import (
 )
 
 // parseTimeFromString 解析 SQLite DATETIME 存储的时间字符串。
-// SQLite 直接存储 Go time.Time，格式为 RFC3339（带纳秒）。
+// 支持两种格式：
+// 1. RFC3339Nano（新版，如 "2026-06-13T00:51:27.313018+08:00"）
+// 2. Go time.String() 格式含 monotonic clock（老版，如 "2026-06-12 00:44:45.68861 +0800 CST m=+122.695857070"）
 func parseTimeFromString(s string) (time.Time, error) {
-	return time.Parse(time.RFC3339Nano, s)
+	// 先试 RFC3339Nano
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err == nil {
+		return t, nil
+	}
+	// 老格式：去掉 m=+monotonic 部分再解析
+	s = strings.TrimPrefix(s, " ")
+	if i := strings.LastIndex(s, " m=+"); i > 0 {
+		s = s[:i]
+	}
+	return time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", s)
 }
 
 func InitSchema(db *sql.DB) error {
@@ -471,7 +483,7 @@ func migrateEvaluationsColumns(db *sql.DB) error {
 		return err
 	}
 	add := []struct{ n, d string }{
-		{"duration_s", "duration_s INTEGER"},
+		{"duration_s", "duration_s REAL"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
@@ -896,7 +908,7 @@ func NewExecutionRepo(db *sql.DB) *ExecutionRepo { return &ExecutionRepo{db: db}
 func (r *ExecutionRepo) Create(e *Execution) error {
 	// 显式插入所有字段，completed_at/output/error/exit_code 传 NULL/空/0，
 	// 避免"在跑中"行（未 Finish）这些字段为 NULL 时 ListRecent scan 炸。
-	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,model,started_at,completed_at,output,error,exit_code)
+	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code)
 	        VALUES (?,?,?,?,?,?,?,?,NULL,'','',0)`
 	_, err := r.db.Exec(q, e.ID, e.TaskID, e.ScheduledTaskID, e.Source, e.Command, e.Prompt, e.Model, e.StartedAt)
 	if err != nil {
@@ -1453,7 +1465,7 @@ func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
 	for rows.Next() {
 		var e Evaluation
 		var taskID, execID, model, comments sql.NullString
-		var durationS sql.NullInt64
+		var durationS sql.NullFloat64
 		var createdAtStr sql.NullString
 		if err := rows.Scan(&e.ID, &taskID, &execID, &model, &e.Score, &comments, &durationS, &createdAtStr); err != nil {
 			return nil, err
@@ -1463,7 +1475,7 @@ func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
 		e.EvaluatorModel = model.String
 		e.Comments = comments.String
 		if durationS.Valid {
-			e.DurationS = durationS.Int64
+			e.DurationS = durationS.Float64
 		}
 		if createdAtStr.Valid {
 			e.CreatedAt, _ = parseTimeFromString(createdAtStr.String)
@@ -1485,7 +1497,7 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 	for rows.Next() {
 		var e Evaluation
 		var taskID, execModel, model, comments sql.NullString
-		var durationS sql.NullInt64
+		var durationS sql.NullFloat64
 		var createdAtStr sql.NullString
 		if err := rows.Scan(&e.ID, &taskID, &execModel, &model, &e.Score, &comments, &durationS, &createdAtStr); err != nil {
 			return nil, err
@@ -1495,7 +1507,7 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 		e.EvaluatorModel = model.String
 		e.Comments = comments.String
 		if durationS.Valid {
-			e.DurationS = durationS.Int64
+			e.DurationS = durationS.Float64
 		}
 		if createdAtStr.Valid {
 			e.CreatedAt, _ = parseTimeFromString(createdAtStr.String)
