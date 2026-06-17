@@ -262,9 +262,11 @@ func migrateTasksColumns(db *sql.DB) error {
 	defer rows.Close()
 	cols := map[string]bool{}
 	for rows.Next() {
-		var cid, notnull, pk int
+		var cid int
 		var name, ctype string
+		var notnull int
 		var dflt sql.NullString
+		var pk int
 		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
 		cols[name] = true
 	}
@@ -306,9 +308,11 @@ func migrateScheduledTasksColumns(db *sql.DB) error {
 	defer rows.Close()
 	cols := map[string]bool{}
 	for rows.Next() {
-		var cid, notnull, pk int
+		var cid int
 		var name, ctype string
+		var notnull int
 		var dflt sql.NullString
+		var pk int
 		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
 		cols[name] = true
 	}
@@ -336,9 +340,11 @@ func migrateDirShortcutsColumns(db *sql.DB) error {
 	defer rows.Close()
 	cols := map[string]bool{}
 	for rows.Next() {
-		var cid, notnull, pk int
+		var cid int
 		var name, ctype string
+		var notnull int
 		var dflt sql.NullString
+		var pk int
 		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
 		cols[name] = true
 	}
@@ -377,9 +383,11 @@ func migrateExperiencesColumns(db *sql.DB) error {
 	defer rows.Close()
 	cols := map[string]bool{}
 	for rows.Next() {
-		var cid, notnull, pk int
+		var cid int
 		var name, ctype string
+		var notnull int
 		var dflt sql.NullString
+		var pk int
 		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
 		cols[name] = true
 	}
@@ -409,9 +417,11 @@ func migrateExecutionsColumns(db *sql.DB) error {
 	defer rows.Close()
 	cols := map[string]bool{}
 	for rows.Next() {
-		var cid, notnull, pk int
+		var cid int
 		var name, ctype string
+		var notnull int
 		var dflt sql.NullString
+		var pk int
 		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
 		cols[name] = true
 	}
@@ -441,9 +451,11 @@ func migrateEvaluationsColumns(db *sql.DB) error {
 	defer rows.Close()
 	cols := map[string]bool{}
 	for rows.Next() {
-		var cid, notnull, pk int
+		var cid int
 		var name, ctype string
+		var notnull int
 		var dflt sql.NullString
+		var pk int
 		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
 		cols[name] = true
 	}
