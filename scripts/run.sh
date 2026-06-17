@@ -97,7 +97,7 @@ find_pid_by_port() {
   local pid=""
   case "$os" in
     darwin)
-      pid=$(lsof -i :$port -c xworkbench 2>/dev/null | awk 'NR>1 {print $2}' | head -1) || true
+      pid=$(lsof -i :$port 2>/dev/null | awk 'NR>1 {print $2}' | head -1) || true
       ;;
     linux)
       pid=$(ss -tp 2>/dev/null | grep ":$port" | grep xworkbench | \
