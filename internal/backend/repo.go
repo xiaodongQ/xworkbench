@@ -550,9 +550,9 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 
 func (r *TaskRepo) Update(t *Task) error {
 	q := `UPDATE tasks SET title=?,description=?,experience_id=?,resources=?,acceptance=?,
-		task_type=?,claimer_agent_id=?,result_output=?,evaluation_score=? WHERE id=?`
+		task_type=?,claimer_agent_id=?,result_output=?,evaluation_score=?,priority=? WHERE id=?`
 	_, err := r.db.Exec(q, t.Title, t.Description, t.ExperienceID, t.Resources, t.Acceptance,
-		t.TaskType, t.ClaimerAgentID, t.ResultOutput, t.EvaluationScore, t.ID)
+		t.TaskType, t.ClaimerAgentID, t.ResultOutput, t.EvaluationScore, t.Priority, t.ID)
 	if err != nil {
 		logger.Logger.Errorw("tasks update failed", "id", t.ID, "error", err.Error())
 		return err

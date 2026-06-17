@@ -343,13 +343,15 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req struct {
-		Title        string   `json:"title"`
-		Description  string   `json:"description"`
-		ExperienceID string   `json:"experience_id"`
+		Title         string   `json:"title"`
+		Description   string   `json:"description"`
+		ExperienceID  string   `json:"experience_id"`
 		ExperienceIDs []string `json:"experience_ids"`
-		Resources    string   `json:"resources"`
-		Acceptance   string   `json:"acceptance"`
-		Module       string   `json:"module"`
+		Resources     string   `json:"resources"`
+		Acceptance    string   `json:"acceptance"`
+		Module        string   `json:"module"`
+		// Priority 用指针：nil=未传，&0=显式设为 0。未传时不触发 priority_changed webhook。
+		Priority *int `json:"priority,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -360,14 +362,25 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	oldPriority := task.Priority
 	task.Title = req.Title
 	task.Description = req.Description
 	task.ExperienceID = req.ExperienceID
 	task.Resources = req.Resources
 	task.Acceptance = req.Acceptance
+	if req.Priority != nil {
+		task.Priority = *req.Priority
+	}
 	if err := s.db.Update(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if req.Priority != nil && *req.Priority != oldPriority {
+		s.whDisp.Dispatch("task.priority_changed", map[string]any{
+			"task_id": id,
+			"old":     oldPriority,
+			"new":     *req.Priority,
+		})
 	}
 	// 多经验关联：experience_ids 优先；空时回退到旧的 experience_id 单值
 	expIDs := req.ExperienceIDs

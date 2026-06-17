@@ -112,8 +112,10 @@ Response: { "status": "claimed", "task": {...} } 或 204 No Content
   - 现状：DELETE 直接物理删除
   - 影响：误删无法恢复，但实现简单、节省存储
   - 后续若需要软删：`ALTER TABLE task_comments ADD COLUMN deleted_at DATETIME` + DELETE 改为 UPDATE，加索引，handler 返回前过滤
-- priority 修改要触发 `task.priority_changed` webhook：当前**未实现**（只对 `task.commented` 派发了 webhook）
-  - 需要在 `handleTaskUpdate` 里加一行 dispatch
+- ✅ ~~priority 修改要触发 `task.priority_changed` webhook~~ **已实现**（`handleTaskUpdate` 检测 `req.Priority != nil && *req.Priority != oldPriority` 后 dispatch，payload=`{task_id, old, new}`）
+  - 顺手修了：原 `TaskRepo.Update` SQL 漏写 priority 字段，导致 priority 只能创建不能修改（隐含 bug）
+  - 指针语义：`req.Priority *int`，未传 = nil = 不更新不触发，传 0 = 显式设为 0
+  - 交付：命令 `go test ./cmd/server/ -run TestHandleTaskUpdate_Priority -v`
 - claim-next 和 claim 互斥：claim-next 拿的是**任意一个**最高优先级任务，claim 是指定任务 ID，两条路径都走 `ClaimTask` 走 DB 事务，并发安全
 
 ## 5. 升级兼容性（已落实）
