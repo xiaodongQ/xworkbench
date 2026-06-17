@@ -1437,13 +1437,21 @@ func (r *EvaluationRepo) ListByTask(taskID string) ([]*Evaluation, error) {
 	for rows.Next() {
 		var e Evaluation
 		var taskID, execID, model, comments sql.NullString
-		if err := rows.Scan(&e.ID, &taskID, &execID, &model, &e.Score, &comments, &e.DurationS, &e.CreatedAt); err != nil {
+		var durationS sql.NullInt64
+		var createdAt sql.NullTime
+		if err := rows.Scan(&e.ID, &taskID, &execID, &model, &e.Score, &comments, &durationS, &createdAt); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
 		e.ExecutionID = execID.String
 		e.EvaluatorModel = model.String
 		e.Comments = comments.String
+		if durationS.Valid {
+			e.DurationS = durationS.Int64
+		}
+		if createdAt.Valid {
+			e.CreatedAt = createdAt.Time
+		}
 		out = append(out, &e)
 	}
 	return out, rows.Err()
@@ -1461,13 +1469,21 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 	for rows.Next() {
 		var e Evaluation
 		var taskID, execModel, model, comments sql.NullString
-		if err := rows.Scan(&e.ID, &taskID, &execModel, &model, &e.Score, &comments, &e.DurationS, &e.CreatedAt); err != nil {
+		var durationS sql.NullInt64
+		var createdAt sql.NullTime
+		if err := rows.Scan(&e.ID, &taskID, &execModel, &model, &e.Score, &comments, &durationS, &createdAt); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
 		e.ExecutionID = execModel.String
 		e.EvaluatorModel = model.String
 		e.Comments = comments.String
+		if durationS.Valid {
+			e.DurationS = durationS.Int64
+		}
+		if createdAt.Valid {
+			e.CreatedAt = createdAt.Time
+		}
 		out = append(out, &e)
 	}
 	return out, rows.Err()
