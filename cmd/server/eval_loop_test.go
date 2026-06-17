@@ -9,7 +9,16 @@ import (
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
+	"go.uber.org/zap"
 )
+
+// init 初始化 main 包级 logger，writeErr 会用到它。
+// 不做这一行调用 writeErr 的 handler 会 nil pointer panic。
+func init() {
+	if logger == nil {
+		logger = zap.NewNop().Sugar()
+	}
+}
 
 func newEvalTestServer(t *testing.T) *APIServer {
 	db, _, err := backend.TestDB()

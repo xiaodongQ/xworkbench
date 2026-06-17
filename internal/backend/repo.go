@@ -880,7 +880,7 @@ func NewExecutionRepo(db *sql.DB) *ExecutionRepo { return &ExecutionRepo{db: db}
 func (r *ExecutionRepo) Create(e *Execution) error {
 	// 显式插入所有字段，completed_at/output/error/exit_code 传 NULL/空/0，
 	// 避免"在跑中"行（未 Finish）这些字段为 NULL 时 ListRecent scan 炸。
-	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,model,started_at,completed_at,output,error,exit_code)
+	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code)
 	        VALUES (?,?,?,?,?,?,?,?,NULL,'','',0)`
 	_, err := r.db.Exec(q, e.ID, e.TaskID, e.ScheduledTaskID, e.Source, e.Command, e.Prompt, e.Model, e.StartedAt)
 	if err != nil {

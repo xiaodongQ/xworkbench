@@ -14,7 +14,7 @@ func TestBuildCommandClaude(t *testing.T) {
 	if cleanup != nil {
 		t.Errorf("cleanup should be nil for claude type")
 	}
-	want := []string{"claude", "-p", "--output-format", "json", "--model", "sonnet", "--session-id", "sess-1", "解析 slowlog"}
+	want := []string{"claude", "-p", "--allowedTools", "Bash,Write,Edit,Read,Grep", "--output-format", "json", "--model", "sonnet", "--session-id", "sess-1", "解析 slowlog"}
 	if len(got) != len(want) {
 		t.Fatalf("len = %d, want %d: %v", len(got), len(want), got)
 	}
