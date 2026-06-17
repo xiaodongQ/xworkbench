@@ -347,6 +347,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("task update", "id", id)
 	var req struct {
 		Title         string   `json:"title"`
 		Description   string   `json:"description"`
@@ -410,6 +411,7 @@ func (s *APIServer) handleTaskSetExperiences(w http.ResponseWriter, r *http.Requ
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	logger.Infow("task set-experiences", "id", id, "count", len(req.ExperienceIDs))
 	if _, err := s.db.Get(id); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -483,6 +485,7 @@ func (s *APIServer) handleExpCreate(w http.ResponseWriter, r *http.Request) {
 	exp.Version = "v1.0.0"
 	exp.CreatedAt = time.Now()
 	exp.UpdatedAt = time.Now()
+	logger.Infow("experience create", "id", exp.ID)
 	if err := s.expDB.Create(&exp); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -502,6 +505,7 @@ func (s *APIServer) handleExpGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleExpUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("exp update", "id", id)
 	var req struct {
 		Module       string `json:"module"`
 		Keywords     string `json:"keywords"`
@@ -535,6 +539,7 @@ func (s *APIServer) handleExpUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleExpDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("exp delete", "id", id)
 	if err := s.expDB.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -774,6 +779,7 @@ func (s *APIServer) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
 // handleTaskDelete 硬删 task + 关联 executions + evaluations（不可恢复）。
 func (s *APIServer) handleTaskDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("task delete", "id", id)
 	// 清理依赖（避免悬空引用）
 	if err := s.depDB.DeleteByTask(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -938,6 +944,7 @@ func (s *APIServer) handleWebLinks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleWebLinkCreate(w http.ResponseWriter, r *http.Request) {
+	logger.Infow("weblink create")
 	var req struct {
 		Name      string `json:"name"`
 		URL       string `json:"url"`
@@ -973,6 +980,7 @@ func (s *APIServer) handleWebLinkCreate(w http.ResponseWriter, r *http.Request) 
 
 func (s *APIServer) handleWebLinkUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("weblink update", "id", id)
 	var req struct {
 		Name      string `json:"name"`
 		URL       string `json:"url"`
@@ -993,6 +1001,7 @@ func (s *APIServer) handleWebLinkUpdate(w http.ResponseWriter, r *http.Request) 
 
 func (s *APIServer) handleWebLinkDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("weblink delete", "id", id)
 	if err := s.linkDB.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1110,6 +1119,7 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 		KeyPath:         req.KeyPath,
 		TerminalCmd:     req.TerminalCmd,
 	}
+	logger.Infow("dir-shortcut update", "id", id, "name", req.Name)
 	if err := s.dirDB.Update(d); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1119,6 +1129,7 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 
 func (s *APIServer) handleDirShortcutDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("dir-shortcut delete", "id", id)
 	if err := s.dirDB.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1280,6 +1291,7 @@ func (s *APIServer) handleTerminalDetect(w http.ResponseWriter, r *http.Request)
 
 // handleSetDefaultTerminal 设置默认终端类型
 func (s *APIServer) handleSetDefaultTerminal(w http.ResponseWriter, r *http.Request) {
+	logger.Infow("set default terminal")
 	var req struct {
 		Value string `json:"value"`
 	}
@@ -1327,6 +1339,7 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleSetConfig 保存用户配置（回写 config.json）
 func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
+	logger.Infow("set config")
 	var req struct {
 		TerminalType string `json:"terminal_type"`
 		TerminalPath string `json:"terminal_path"`
@@ -1429,6 +1442,7 @@ func (s *APIServer) handleScheduledCreate(w http.ResponseWriter, r *http.Request
 
 func (s *APIServer) handleScheduledUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("scheduled update", "id", id)
 	var req struct {
 		Name        string `json:"name"`
 		CronExpr    string `json:"cron_expr"`
@@ -1462,6 +1476,7 @@ func (s *APIServer) handleScheduledUpdate(w http.ResponseWriter, r *http.Request
 
 func (s *APIServer) handleScheduledDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("scheduled delete", "id", id)
 	if err := s.schedDB.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1621,6 +1636,7 @@ func (s *APIServer) handleTodoDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lineNo := parseInt(r.PathValue("line_no"), 0)
+	logger.Infow("todo delete", "line_no", lineNo)
 	if lineNo <= 0 {
 		writeErr(w, http.StatusBadRequest, "invalid line_no")
 		return
@@ -1638,6 +1654,7 @@ func (s *APIServer) handleTodoPath(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleTodoPathSet(w http.ResponseWriter, r *http.Request) {
+	logger.Infow("todo path set")
 	var req struct {
 		Path string `json:"path"`
 	}
@@ -1665,6 +1682,7 @@ func (s *APIServer) handleSettingsList(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
+	logger.Infow("settings set", "key", key)
 	var req struct {
 		Value string `json:"value"`
 	}
@@ -2393,6 +2411,7 @@ func (s *APIServer) handleTaskDepList(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) handleTaskDepDelete(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("id")
 	dependsOn := r.PathValue("dep")
+	logger.Infow("task dep delete", "task_id", taskID, "depends_on", dependsOn)
 	if err := s.depDB.Delete(taskID, dependsOn); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2420,6 +2439,7 @@ func (s *APIServer) handleTemplateList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
+	logger.Infow("template create")
 	var req struct {
 		Name         string `json:"name"`
 		Description  string `json:"description"`
@@ -2461,6 +2481,7 @@ func (s *APIServer) handleTemplateGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleTemplateUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("template update", "id", id)
 	t, err := s.tplDB.Get(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
@@ -2491,6 +2512,7 @@ func (s *APIServer) handleTemplateUpdate(w http.ResponseWriter, r *http.Request)
 
 func (s *APIServer) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("template delete", "id", id)
 	if err := s.tplDB.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2587,6 +2609,7 @@ func (s *APIServer) handleSFList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleSFCreate(w http.ResponseWriter, r *http.Request) {
+	logger.Infow("saved filter create")
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -2619,6 +2642,7 @@ func (s *APIServer) handleSFCreate(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleSFUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("saved filter update", "id", id)
 	f, err := s.sfDB.Get(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
@@ -2649,6 +2673,7 @@ func (s *APIServer) handleSFUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleSFDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	logger.Infow("saved filter delete", "id", id)
 	if err := s.sfDB.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2668,6 +2693,7 @@ func (s *APIServer) handleWebhookList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleWebhookCreate(w http.ResponseWriter, r *http.Request) {
+	logger.Infow("webhook create")
 	var req struct {
 		Name    string `json:"name"`
 		URL     string `json:"url"`

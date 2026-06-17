@@ -1243,7 +1243,7 @@ func (r *DirShortcutRepo) Touch(id string) error {
 }
 
 func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
-	rows, err := r.db.Query(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_password,auth_method,key_path,terminal_cmd,created_at,last_accessed_at FROM dir_shortcuts ORDER BY sort_order ASC, created_at DESC`)
+	rows, err := r.db.Query(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,terminal_cmd,created_at,last_accessed_at FROM dir_shortcuts ORDER BY sort_order ASC, created_at DESC`)
 	if err != nil {
 		logger.Logger.Errorw("dir_shortcuts list query failed", "error", err.Error())
 		return nil, err
@@ -1253,13 +1253,14 @@ func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
 	for rows.Next() {
 		var d DirShortcut
 		var lastAcc sql.NullTime
-		var remoteHost, remoteUser, remotePassword, authMethod, keyPath, terminalCmd sql.NullString
-		if err := rows.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePassword, &authMethod, &keyPath, &terminalCmd, &d.CreatedAt, &lastAcc); err != nil {
+		var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, terminalCmd sql.NullString
+		if err := rows.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &terminalCmd, &d.CreatedAt, &lastAcc); err != nil {
 			return nil, err
 		}
 		if d.Type == "" { d.Type = DirShortcutTypeLocal }
 		if remoteHost.Valid { d.RemoteHost = remoteHost.String }
 		if remoteUser.Valid { d.RemoteUser = remoteUser.String }
+		if remotePath.Valid { d.RemotePath = remotePath.String }
 		if remotePassword.Valid { d.RemotePassword = remotePassword.String }
 		if authMethod.Valid { d.AuthMethod = authMethod.String }
 		if keyPath.Valid { d.KeyPath = keyPath.String }
