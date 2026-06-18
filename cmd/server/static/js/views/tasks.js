@@ -183,13 +183,16 @@ function taskOpsByStatus(t) {
   const id = t.id;
   switch (t.status) {
     case 'pending':
-      return `<button class="btn btn-small btn-warning" style="flex-shrink:0" onclick="claimTask('${id}')" title="认领后：状态→in_progress，maintainer 标记为你，可以▶运行">🟡 认领</button>` +
+      return `<button class="btn btn-small btn-warning" style="flex-shrink:0" onclick="claimTask('${id}')" title="认领后：状态→待执行，maintainer 标记为你，可以▶运行">🟡 认领</button>` +
              `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="直接归档（不需执行）">归档</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'in_progress':
       return `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI CLI 跑这个任务（流式输出在 /api/tasks/{id}/run）">▶ 运行</button>` +
              `<button class="btn btn-small" style="flex-shrink:0;background:#94a3b8;color:#fff" onclick="unclaimTask('${id}')" title="退回 pending（清空 maintainer/started_at）">↩ 取消认领</button>` +
              `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="归档">归档</button>` +
+             `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
+    case 'running':
+      return `<button class="btn btn-small" style="flex-shrink:0;background:#94a3b8;color:#fff;opacity:0.5" title="任务执行中，请在自动化页面查看">⚡ 执行中...</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'archived':
       return `<button class="btn btn-small" style="flex-shrink:0" onclick="reopenTask('${id}')" title="归档→重新打开回到 pending">↻ 重新打开</button>` +

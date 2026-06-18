@@ -675,7 +675,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.UpdateStatus(id, backend.TaskStatusInProgress, "factory-agent")
+	_ = s.db.UpdateStatus(id, backend.TaskStatusRunning, "factory-agent")
 
 	logger.Infow("task run started",
 		"task_id", id,
@@ -685,6 +685,13 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		"prompt_chars", len(req.Prompt),
 		"cmd", exec.Command,
 	)
+	// 打印完整命令（<2K 完整打印，超出截取前 2K）
+	fullCmd := runner.CmdString(cmd) + " " + stdin
+	if len(fullCmd) <= 2048 {
+		logger.Infow("task run full command", "cmd", fullCmd)
+	} else {
+		logger.Infow("task run command truncated", "cmd", fullCmd[:2048]+"...")
+	}
 
 	// 异步跑，10min 超时
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

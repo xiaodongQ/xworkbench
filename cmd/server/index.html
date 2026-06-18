@@ -106,8 +106,12 @@
         <div class="stat-value" id="stat-pending">-</div>
       </div>
       <div class="stat-card stat-in_progress">
-        <div class="stat-label">进行中</div>
+        <div class="stat-label">待执行</div>
         <div class="stat-value" id="stat-in_progress">-</div>
+      </div>
+      <div class="stat-card stat-running">
+        <div class="stat-label">执行中</div>
+        <div class="stat-value" id="stat-running">-</div>
       </div>
       <div class="stat-card stat-waiting" onclick="switchTab('tasks');document.getElementById('filter-status').value='waiting_input';loadTasks()" style="cursor:pointer">
         <div class="stat-label">待交互</div>
@@ -162,7 +166,8 @@
       <select id="filter-status">
         <option value="">全部状态</option>
         <option value="pending">待认领</option>
-        <option value="in_progress">进行中</option>
+        <option value="in_progress">待执行</option>
+        <option value="running">执行中</option>
         <option value="waiting_input">待交互</option>
         <option value="archived">已完成</option>
         <option value="exception">异常</option>

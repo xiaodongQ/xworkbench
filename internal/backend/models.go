@@ -7,7 +7,8 @@ import (
 // TaskStatus values
 const (
 	TaskStatusPending       = "pending"
-	TaskStatusInProgress    = "in_progress"
+	TaskStatusInProgress    = "in_progress" // 已认领，待执行
+	TaskStatusRunning       = "running"     // 执行中
 	TaskStatusArchived      = "archived"
 	TaskStatusException     = "exception"
 	TaskStatusWaitingInput  = "waiting_input"
