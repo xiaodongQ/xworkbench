@@ -53,13 +53,12 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 		if sessionID != "" {
 			cmd = append(cmd, "--session-id", sessionID)
 		}
-		// prompt 走 stdin 传入，避免 Windows cmd.exe 8191 字符命令行限制
-		// 导致长 prompt 被截断。executor.Run 负责实际写入子进程 stdin。
-		stdin = prompt
+			actualPrompt := prompt
 		if o.actionReport {
-			stdin = prompt + ActionReportSuffix
+			actualPrompt = prompt + ActionReportSuffix
 		}
-		return cmd, stdin, nil, nil
+		cmd = append(cmd, actualPrompt)
+		return cmd, "", nil, nil
 	case "cbc", "codebuddy":
 		bin := "cbc"
 		if _, err := exec.LookPath("cbc"); err != nil {
@@ -77,11 +76,9 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 		if model != "" {
 			cmd = append(cmd, "--model", model)
 		}
-		stdin = prompt
-		if o.actionReport {
-			stdin = prompt + ActionReportSuffix
-		}
-		return cmd, stdin, nil, nil
+			actualPrompt := prompt
+		cmd = append(cmd, actualPrompt)
+		return cmd, "", nil, nil
 	case "shell":
 		return shellRunCommand(prompt)
 	default:
