@@ -273,10 +273,100 @@ func InitSchema(db *sql.DB) error {
 	if err := migrateEvaluationsColumns(db); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`PRAGMA user_version = 4`); err != nil {
+	if err := migrateExperiencesToDetails(db); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 5`); err != nil {
 		return err
 	}
 	return nil
+}
+
+// migrateExperiencesToDetails 迁移老经验数据：将 log_paths/tool_usage/log_samples/code_snippets 合并到 details 字段。
+func migrateExperiencesToDetails(db *sql.DB) error {
+	// 检查是否需要迁移（已有 details 字段或旧字段不存在则跳过）
+	rows, err := db.Query(`PRAGMA table_info(experiences)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name string
+		_ = rows.Scan(&cid, &name, nil, nil, nil, nil)
+		cols[name] = true
+	}
+	// 没有旧字段或已有 details 字段，跳过
+	if !cols["log_paths"] && !cols["tool_usage"] && !cols["log_samples"] && !cols["code_snippets"] {
+		return nil
+	}
+	if cols["details"] {
+		// details 已存在，只迁移旧数据
+		rows2, err := db.Query(`SELECT id, log_paths, tool_usage, log_samples, code_snippets FROM experiences WHERE details IS NULL OR details = ''`)
+		if err != nil {
+			return err
+		}
+		defer rows2.Close()
+		for rows2.Next() {
+			var id string
+			var logPaths, toolUsage, logSamples, codeSnippets sql.NullString
+			if err := rows2.Scan(&id, &logPaths, &toolUsage, &logSamples, &codeSnippets); err != nil {
+				continue
+			}
+			details := buildDetailsFromOld(logPaths.String, toolUsage.String, logSamples.String, codeSnippets.String)
+			if details != "" {
+				db.Exec(`UPDATE experiences SET details = ? WHERE id = ?`, details, id)
+			}
+		}
+		return nil
+	}
+	// 添加 details 列
+	if _, err := db.Exec(`ALTER TABLE experiences ADD COLUMN details TEXT`); err != nil {
+		return err
+	}
+	// 迁移所有旧数据
+	rows3, err := db.Query(`SELECT id, log_paths, tool_usage, log_samples, code_snippets FROM experiences`)
+	if err != nil {
+		return err
+	}
+	defer rows3.Close()
+	for rows3.Next() {
+		var id string
+		var logPaths, toolUsage, logSamples, codeSnippets sql.NullString
+		if err := rows3.Scan(&id, &logPaths, &toolUsage, &logSamples, &codeSnippets); err != nil {
+			continue
+		}
+		details := buildDetailsFromOld(logPaths.String, toolUsage.String, logSamples.String, codeSnippets.String)
+		if details != "" {
+			db.Exec(`UPDATE experiences SET details = ? WHERE id = ?`, details, id)
+		}
+	}
+	return nil
+}
+
+func buildDetailsFromOld(logPaths, toolUsage, logSamples, codeSnippets string) string {
+	var parts []string
+	if logPaths != "" {
+		parts = append(parts, "## 日志路径\n"+logPaths)
+	}
+	if toolUsage != "" {
+		parts = append(parts, "## 命令\n"+toolUsage)
+	}
+	if logSamples != "" {
+		parts = append(parts, "## 日志样例\n"+logSamples)
+	}
+	if codeSnippets != "" {
+		parts = append(parts, "## 代码片段\n"+codeSnippets)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	result := "<!-- 由旧数据迁移 -->\n"
+	for _, p := range parts {
+		result += p + "\n\n"
+	}
+	return strings.TrimSpace(result)
 }
 
 // migrateTasksColumns 对已存在的 tasks 表补充 v2 新字段
@@ -828,10 +918,9 @@ type ExperienceRepo struct{ db *sql.DB }
 func NewExperienceRepo(db *sql.DB) *ExperienceRepo { return &ExperienceRepo{db: db} }
 
 func (r *ExperienceRepo) Create(e *Experience) error {
-	q := `INSERT INTO experiences (id,module,keywords,log_paths,tool_usage,scene,log_samples,code_snippets,version,created_at,updated_at,auto_eval_enabled)
-	        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-	_, err := r.db.Exec(q, e.ID, e.Module, e.Keywords, e.LogPaths,
-		e.ToolUsage, e.Scene, e.LogSamples, e.CodeSnippets, e.Version, e.CreatedAt, e.UpdatedAt, e.AutoEvalEnabled)
+	q := `INSERT INTO experiences (id,module,keywords,scene,details,version,created_at,updated_at)
+	        VALUES (?,?,?,?,?,?,?,?)`
+	_, err := r.db.Exec(q, e.ID, e.Module, e.Keywords, e.Scene, e.Details, e.Version, e.CreatedAt, e.UpdatedAt)
 	if err != nil {
 		logger.Logger.Errorw("experiences insert failed", "id", e.ID, "error", err.Error())
 		return err
@@ -841,15 +930,15 @@ func (r *ExperienceRepo) Create(e *Experience) error {
 }
 
 func (r *ExperienceRepo) Get(id string) (*Experience, error) {
-	q := `SELECT id,module,keywords,log_paths,tool_usage,scene,log_samples,code_snippets,version,created_at,updated_at,auto_eval_enabled FROM experiences WHERE id=?`
+	q := `SELECT id,module,keywords,scene,details,version,created_at,updated_at FROM experiences WHERE id=?`
 	var e Experience
-	err := r.db.QueryRow(q, id).Scan(&e.ID, &e.Module, &e.Keywords, &e.LogPaths, &e.ToolUsage, &e.Scene, &e.LogSamples, &e.CodeSnippets, &e.Version, &e.CreatedAt, &e.UpdatedAt, &e.AutoEvalEnabled)
+	err := r.db.QueryRow(q, id).Scan(&e.ID, &e.Module, &e.Keywords, &e.Scene, &e.Details, &e.Version, &e.CreatedAt, &e.UpdatedAt)
 	if err == sql.ErrNoRows { return nil, fmt.Errorf("experience %s not found", id) }
 	return &e, err
 }
 
 func (r *ExperienceRepo) Search(module string) ([]*Experience, error) {
-	q := `SELECT id,module,keywords,log_paths,tool_usage,scene,log_samples,code_snippets,version,created_at,updated_at,auto_eval_enabled FROM experiences WHERE 1=1`
+	q := `SELECT id,module,keywords,scene,details,version,created_at,updated_at FROM experiences WHERE 1=1`
 	var args []any
 	if module != "" {
 		q += ` AND module LIKE ?`
@@ -861,7 +950,7 @@ func (r *ExperienceRepo) Search(module string) ([]*Experience, error) {
 	var list []*Experience
 	for rows.Next() {
 		var e Experience
-		err := rows.Scan(&e.ID, &e.Module, &e.Keywords, &e.LogPaths, &e.ToolUsage, &e.Scene, &e.LogSamples, &e.CodeSnippets, &e.Version, &e.CreatedAt, &e.UpdatedAt, &e.AutoEvalEnabled)
+		err := rows.Scan(&e.ID, &e.Module, &e.Keywords, &e.Scene, &e.Details, &e.Version, &e.CreatedAt, &e.UpdatedAt)
 		if err != nil { return nil, err }
 		list = append(list, &e)
 	}
@@ -869,8 +958,8 @@ func (r *ExperienceRepo) Search(module string) ([]*Experience, error) {
 }
 
 func (r *ExperienceRepo) Update(e *Experience) error {
-	q := `UPDATE experiences SET keywords=?, log_paths=?, tool_usage=?, scene=?, log_samples=?, code_snippets=?, updated_at=?, auto_eval_enabled=? WHERE id=?`
-	_, err := r.db.Exec(q, e.Keywords, e.LogPaths, e.ToolUsage, e.Scene, e.LogSamples, e.CodeSnippets, time.Now(), e.AutoEvalEnabled, e.ID)
+	q := `UPDATE experiences SET keywords=?, scene=?, details=?, updated_at=? WHERE id=?`
+	_, err := r.db.Exec(q, e.Keywords, e.Scene, e.Details, time.Now(), e.ID)
 	if err != nil {
 		logger.Logger.Errorw("experiences update failed", "id", e.ID, "error", err.Error())
 		return err
@@ -886,17 +975,6 @@ func (r *ExperienceRepo) Delete(id string) error {
 		return err
 	}
 	logger.Logger.Infow("experiences deleted", "id", id)
-	return nil
-}
-
-// SetAutoEvalEnabled 开启/关闭自动评估开关。
-func (r *ExperienceRepo) SetAutoEvalEnabled(id string, enabled bool) error {
-	_, err := r.db.Exec(`UPDATE experiences SET auto_eval_enabled=? WHERE id=?`, enabled, id)
-	if err != nil {
-		logger.Logger.Errorw("experiences update failed", "id", id, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("experiences updated", "id", id)
 	return nil
 }
 
@@ -1068,12 +1146,8 @@ func ExportExperienceMD(e *Experience) string {
 	var sb strings.Builder
 	sb.WriteString("# Experience: " + e.Module + "\n\n")
 	if e.Keywords != "" { sb.WriteString("## Keywords\n" + e.Keywords + "\n\n") }
-	if e.LogPaths != "" { sb.WriteString("## Log Paths\n" + e.LogPaths + "\n\n") }
-	if e.ToolUsage != "" { sb.WriteString("## Tool Usage\n" + e.ToolUsage + "\n\n") }
-	if e.Scene != "" { sb.WriteString("## Scenes\n" + e.Scene + "\n\n") }
-	if e.LogSamples != "" { sb.WriteString("## Log Samples\n```\n" + e.LogSamples + "\n```\n\n") }
-	if e.CodeSnippets != "" { sb.WriteString("## Code Snippets\n```\n" + e.CodeSnippets + "\n```\n\n") }
-
+	if e.Scene != "" { sb.WriteString("## Scene\n" + e.Scene + "\n\n") }
+	if e.Details != "" { sb.WriteString("## Details\n" + e.Details + "\n\n") }
 	return sb.String()
 }
 

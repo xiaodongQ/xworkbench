@@ -58,18 +58,14 @@ type Task struct {
 }
 
 type Experience struct {
-	ID              string    `json:"id"`
-	Module          string    `json:"module"`
-	Keywords        string    `json:"keywords,omitempty"`
-	LogPaths        string    `json:"log_paths,omitempty"`
-	ToolUsage       string    `json:"tool_usage,omitempty"`
-	Scene           string    `json:"scene,omitempty"`
-	LogSamples      string    `json:"log_samples,omitempty"`
-	CodeSnippets    string    `json:"code_snippets,omitempty"`
-	Version         string    `json:"version"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	AutoEvalEnabled bool      `json:"auto_eval_enabled"` // 默认 false，true=开启自动评估
+	ID        string    `json:"id"`
+	Module    string    `json:"module"`    // 分类，如 redis, docker, git（必填）
+	Keywords  string    `json:"keywords"`  // 关键词，逗号分隔，用于匹配问题
+	Scene     string    `json:"scene"`     // 适用场景简述
+	Details   string    `json:"details"`   // 详细内容，Markdown 格式（命令/日志/代码/步骤等）
+	Version   string    `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type SkillVersion struct {

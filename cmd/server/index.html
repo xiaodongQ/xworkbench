@@ -450,16 +450,16 @@
   <div class="modal">
     <h2 id="exp-modal-title">添加经验</h2>
     <input type="hidden" id="exp-id">
-    <div class="form-group"><label>模块 <span class="field-hint">必填 · 分类标识</span></label><input id="exp-module" placeholder="如 redis-cluster"></div>
+    <div class="form-group"><label>分类 <span class="field-hint">必填 · 如 redis, docker, git</span></label><input id="exp-module" placeholder="如 redis"></div>
     <div class="form-group">
-      <label>关键词 <span class="field-hint">用于程序化匹配问题特征</span></label>
+      <label>关键词 <span class="field-hint">用于程序化匹配问题特征，逗号分隔</span></label>
       <textarea id="exp-keywords" placeholder="CLUSTERDOWN, MOVED redirect, READONLY..."></textarea>
     </div>
-    <div class="form-group"><label>日志路径 <span class="field-hint">日志文件路径</span></label><input id="exp-log-paths" placeholder="/var/log/redis/redis-server.log"></div>
-    <div class="form-group"><label>工具命令 <span class="field-hint">常用 CLI 命令</span></label><textarea id="exp-tool-usage" placeholder="redis-cli cluster nodes\nredis-cli slowlog get 10"></textarea></div>
     <div class="form-group"><label>适用场景 <span class="field-hint">该经验适用的业务场景</span></label><textarea id="exp-scene" placeholder="集群节点失联定位\n内存异常增长分析"></textarea></div>
-    <div class="form-group"><label>日志样例 <span class="field-hint">典型日志片段供人工比对</span></label><textarea id="exp-log-samples" class="code" placeholder="# CLUSTERDOWN\nThe cluster is gone"></textarea></div>
-    <div class="form-group"><label>代码片段 <span class="field-hint">配置或解决代码示例</span></label><textarea id="exp-code-snippets" class="code" placeholder="配置文件调整示例..."></textarea></div>
+    <div class="form-group">
+      <label>详细内容 <span class="field-hint">Markdown 格式（命令/日志/代码/步骤等）</span></label>
+      <textarea id="exp-details" class="code" rows="8" placeholder="## 命令&#10;redis-cli cluster nodes&#10;&#10;## 日志样例&#10;# CLUSTERDOWN&#10;&#10;## 代码片段&#10;..."></textarea>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeExpModal()">取消</button>
       <button id="exp-submit-btn" class="btn btn-primary" onclick="submitExp()">添加</button>

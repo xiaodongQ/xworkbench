@@ -514,13 +514,10 @@ func (s *APIServer) handleExpUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	logger.Infow("exp update", "id", id)
 	var req struct {
-		Module       string `json:"module"`
-		Keywords     string `json:"keywords"`
-		LogPaths     string `json:"log_paths"`
-		ToolUsage   string `json:"tool_usage"`
-		Scene       string `json:"scene"`
-		LogSamples  string `json:"log_samples"`
-		CodeSnippets string `json:"code_snippets"`
+		Module    string `json:"module"`
+		Keywords  string `json:"keywords"`
+		Scene     string `json:"scene"`
+		Details   string `json:"details"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -532,11 +529,8 @@ func (s *APIServer) handleExpUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exp.Keywords = req.Keywords
-	exp.LogPaths = req.LogPaths
-	exp.ToolUsage = req.ToolUsage
 	exp.Scene = req.Scene
-	exp.LogSamples = req.LogSamples
-	exp.CodeSnippets = req.CodeSnippets
+	exp.Details = req.Details
 	if err := s.expDB.Update(exp); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2091,13 +2085,11 @@ func parseLearnOutput(output string, task *backend.Task, exec *backend.Execution
 		}
 	}
 	return &backend.Experience{
-		ID:           uuid.New().String(),
-		Module:       f.Module,
-		Scene:        task.Title,
-		Keywords:     f.Keywords,
-		ToolUsage:    f.ToolUsage,
-		LogSamples:   exec.Command,
-		CodeSnippets: f.CodeSnippet,
+		ID:       uuid.New().String(),
+		Module:   f.Module,
+		Scene:    task.Title,
+		Keywords: f.Keywords,
+		Details:  exec.Command,
 	}
 }
 
@@ -2267,27 +2259,6 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		"status":  req.Status,
 		"task":    task,
 	})
-	// 自动评估：检查 experience 的 auto_eval_enabled 开关（仅在未手动评分时触发）
-	if req.EvaluationScore == nil && task.ExperienceID != "" {
-		exp, err := s.expDB.Get(task.ExperienceID)
-		if err == nil && exp.AutoEvalEnabled {
-			autoScore := 0.0
-			if req.Status == backend.TaskStatusArchived {
-				autoScore = 1.0
-			}
-			s.evalDB.Create(&backend.Evaluation{
-				ID:             fmt.Sprintf("auto-%s-%d", taskID, time.Now().UnixNano()),
-				TaskID:         taskID,
-				EvaluatorModel: "system",
-				Score:          autoScore,
-				Comments:       fmt.Sprintf("auto-eval: task status=%s", req.Status),
-				CreatedAt:      time.Now(),
-				DurationS:      0,
-			})
-			s.db.UpdateEvalScore(taskID, autoScore)
-			logger.Infow("auto-eval triggered", "task_id", taskID, "score", autoScore)
-		}
-	}
 	writeJSON(w, map[string]any{"ok": true, "task_id": taskID})
 }
 

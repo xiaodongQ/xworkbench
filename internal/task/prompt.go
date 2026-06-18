@@ -54,7 +54,7 @@ func BuildTaskPrompt(t *backend.Task, exps ...*backend.Experience) string {
 
 func appendExpBlock(b *strings.Builder, suffix string, exp *backend.Experience) {
 	if exp.Module != "" {
-		b.WriteString(fmt.Sprintf("## 模块%s\n%s\n", suffix, exp.Module))
+		b.WriteString(fmt.Sprintf("## 分类%s\n%s\n", suffix, exp.Module))
 	}
 	if exp.Scene != "" {
 		b.WriteString(fmt.Sprintf("## 场景%s\n%s\n", suffix, exp.Scene))
@@ -62,16 +62,7 @@ func appendExpBlock(b *strings.Builder, suffix string, exp *backend.Experience) 
 	if exp.Keywords != "" {
 		b.WriteString(fmt.Sprintf("## 关键词%s\n%s\n", suffix, exp.Keywords))
 	}
-	if exp.ToolUsage != "" {
-		b.WriteString(fmt.Sprintf("## 工具用法%s\n%s\n", suffix, exp.ToolUsage))
-	}
-	if exp.LogSamples != "" {
-		b.WriteString(fmt.Sprintf("## 日志样例%s\n%s\n", suffix, exp.LogSamples))
-	}
-	if exp.CodeSnippets != "" {
-		b.WriteString(fmt.Sprintf("## 代码片段%s\n%s\n", suffix, exp.CodeSnippets))
-	}
-	if exp.LogPaths != "" {
-		b.WriteString(fmt.Sprintf("## 日志路径%s\n%s\n", suffix, exp.LogPaths))
+	if exp.Details != "" {
+		b.WriteString(fmt.Sprintf("## 详细内容%s\n%s\n", suffix, exp.Details))
 	}
 }
