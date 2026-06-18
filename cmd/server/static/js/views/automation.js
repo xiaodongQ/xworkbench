@@ -373,7 +373,6 @@ async function viewExecutionDetail(id) {
   currentExecId = id;
   try {
     const exec = await fetchJSON('/api/executions/' + id);
-    document.getElementById('exec-detail-prompt').value = exec.prompt || '(无 prompt)';
     document.getElementById('exec-detail-cmd').value = exec.command || '';
     // 解析 claude -p --output-format json：取 result 字段，附带 num_turns 元数据
     const renderedOutput = renderExecOutput(exec.output);
