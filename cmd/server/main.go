@@ -653,7 +653,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Prompt = prompt
 
-	cmd, stdin, cleanup, err := runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt, runner.WithActionReport())
+	cmd, stdin, cleanup, err := runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -1873,7 +1873,12 @@ func main() {
 		logger.Fatalw("listen failed", "addr", addr, "err", err)
 	}
 	logger.Infof("Skill Factory started at http://localhost%s  build=%s", addr, BuildInfo)
-	if err := (&http.Server{Handler: srv}).Serve(ln); err != nil {
+	if err := (&http.Server{
+		Handler:      srv,
+		IdleTimeout:  30 * time.Second,
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 60 * time.Second,
+	}).Serve(ln); err != nil {
 		logger.Fatalw("http serve failed", "err", err)
 	}
 }
