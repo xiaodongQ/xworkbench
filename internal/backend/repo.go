@@ -236,6 +236,17 @@ func InitSchema(db *sql.DB) error {
 		updated_at DATETIME
 	);
 	CREATE INDEX IF NOT EXISTS idx_task_comments_task ON task_comments(task_id, created_at DESC);
+	CREATE TABLE IF NOT EXISTS execution_comments (
+		id TEXT PRIMARY KEY,
+		execution_id TEXT NOT NULL,
+		author TEXT NOT NULL,
+		content TEXT NOT NULL,
+		mentions TEXT,
+		parent_id TEXT,
+		created_at DATETIME,
+		updated_at DATETIME
+	);
+	CREATE INDEX IF NOT EXISTS idx_execution_comments_exec ON execution_comments(execution_id, created_at DESC);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		return err
@@ -2274,6 +2285,68 @@ func (r *TaskCommentRepo) Delete(id string) error {
 		return err
 	}
 	logger.Logger.Infow("[task_comments] deleted", "id", id)
+	return nil
+}
+
+// ---- ExecutionComment 执行评论 ----
+
+type ExecutionComment struct {
+	ID           string    `json:"id"`
+	ExecutionID  string    `json:"execution_id"`
+	Author       string    `json:"author"`
+	Content      string    `json:"content"`
+	Mentions     string    `json:"mentions,omitempty"`
+	ParentID     string    `json:"parent_id,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type ExecutionCommentRepo struct{ db *sql.DB }
+
+func NewExecutionCommentRepo(db *sql.DB) *ExecutionCommentRepo { return &ExecutionCommentRepo{db: db} }
+
+func (r *ExecutionCommentRepo) Create(c *ExecutionComment) error {
+	if c.ID == "" { c.ID = "ecmt-" + time.Now().Format("20060102150405") + "-" + randStr(6) }
+	now := time.Now()
+	c.CreatedAt = now
+	c.UpdatedAt = now
+	_, err := r.db.Exec(`INSERT INTO execution_comments (id,execution_id,author,content,mentions,parent_id,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		c.ID, c.ExecutionID, c.Author, c.Content, c.Mentions, c.ParentID, c.CreatedAt, c.UpdatedAt)
+	if err != nil {
+		logger.Logger.Errorw("[execution_comments] create failed", "id", c.ID, "error", err.Error())
+		return err
+	}
+	logger.Logger.Infow("[execution_comments] created", "id", c.ID)
+	return nil
+}
+
+func (r *ExecutionCommentRepo) ListByExecution(execID string) ([]*ExecutionComment, error) {
+	rows, err := r.db.Query(`SELECT id,execution_id,author,content,mentions,parent_id,created_at,updated_at
+		FROM execution_comments WHERE execution_id=? ORDER BY created_at ASC, id ASC`, execID)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var out []*ExecutionComment
+	for rows.Next() {
+		var c ExecutionComment
+		var mentions, parentID sql.NullString
+		if err := rows.Scan(&c.ID, &c.ExecutionID, &c.Author, &c.Content, &mentions, &parentID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		c.Mentions = mentions.String
+		c.ParentID = parentID.String
+		out = append(out, &c)
+	}
+	return out, rows.Err()
+}
+
+func (r *ExecutionCommentRepo) Delete(id string) error {
+	_, err := r.db.Exec(`DELETE FROM execution_comments WHERE id=?`, id)
+	if err != nil {
+		logger.Logger.Errorw("[execution_comments] delete failed", "id", id, "error", err.Error())
+		return err
+	}
+	logger.Logger.Infow("[execution_comments] deleted", "id", id)
 	return nil
 }
 

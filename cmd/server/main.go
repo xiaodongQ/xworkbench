@@ -64,6 +64,7 @@ type APIServer struct {
 	whDB    *backend.WebhookRepo
 	whDisp  *webhook.Dispatcher
 	cmtDB   *backend.TaskCommentRepo
+	execCmtDB *backend.ExecutionCommentRepo
 	sch    *scheduler.Scheduler
 	hub    *hub.Hub
 	relayHandler *relay.RelayHandler
@@ -83,6 +84,7 @@ func NewAPIServer(
 	eventDB *backend.TaskEventRepo, depDB *backend.TaskDependencyRepo,
 	tplDB *backend.TaskTemplateRepo, sfDB *backend.SavedFilterRepo,
 	whDB *backend.WebhookRepo, whDisp *webhook.Dispatcher, cmtDB *backend.TaskCommentRepo,
+	execCmtDB *backend.ExecutionCommentRepo,
 	sch *scheduler.Scheduler, h *hub.Hub,
 	relayRepo relay.Repo,
 ) *APIServer {
@@ -91,7 +93,7 @@ func NewAPIServer(
 		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, setDB: setDB, evalDB: evalDB,
 		agentDB: agentDB, eventDB: eventDB, depDB: depDB,
 		tplDB: tplDB, sfDB: sfDB,
-		whDB: whDB, whDisp: whDisp, cmtDB: cmtDB,
+		whDB: whDB, whDisp: whDisp, cmtDB: cmtDB, execCmtDB: execCmtDB,
 		sch: sch, hub: h,
 		relayHandler: relay.NewRelayHandler(relayRepo),
 		mux: http.NewServeMux(), running: map[string]context.CancelFunc{},
@@ -265,6 +267,11 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/tasks/{id}/comments", s.handleCommentCreate)
 	mux.HandleFunc("PUT /api/comments/{id}", s.handleCommentUpdate)
 	mux.HandleFunc("DELETE /api/comments/{id}", s.handleCommentDelete)
+
+	// 执行评论
+	mux.HandleFunc("GET /api/executions/{id}/comments", s.handleExecutionCommentList)
+	mux.HandleFunc("POST /api/executions/{id}/comments", s.handleExecutionCommentCreate)
+	mux.HandleFunc("DELETE /api/execution-comments/{id}", s.handleExecutionCommentDelete)
 
 	// 任务优先级队列：claim-next（自动领下一个最高优先级任务）
 }
@@ -1844,9 +1851,10 @@ func main() {
 	whRepo := backend.NewWebhookRepo(db)
 	whDisp := webhook.NewDispatcher(whRepo)
 	cmtRepo := backend.NewTaskCommentRepo(db)
+	execCmtRepo := backend.NewExecutionCommentRepo(db)
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
 		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, agentRepo,
-		eventRepo, depRepo, tplRepo, sfRepo, whRepo, whDisp, cmtRepo, sch, h, relayRepo)
+		eventRepo, depRepo, tplRepo, sfRepo, whRepo, whDisp, cmtRepo, execCmtRepo, sch, h, relayRepo)
 
 	// 后台 goroutine：心跳超时检测
 	// Agent >30s 未心跳 → 标记为 offline，并把该 agent 手上未完成的任务还回 pending 池
@@ -2858,6 +2866,57 @@ func (s *APIServer) handleCommentUpdate(w http.ResponseWriter, r *http.Request) 
 func (s *APIServer) handleCommentDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.cmtDB.Delete(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+// ---- ExecutionComment Handlers ----
+
+func (s *APIServer) handleExecutionCommentList(w http.ResponseWriter, r *http.Request) {
+	execID := r.PathValue("id")
+	cmts, err := s.execCmtDB.ListByExecution(execID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cmts)
+}
+
+func (s *APIServer) handleExecutionCommentCreate(w http.ResponseWriter, r *http.Request) {
+	execID := r.PathValue("id")
+	var req struct {
+		Author   string `json:"author"`
+		Content  string `json:"content"`
+		Mentions string `json:"mentions"`
+		ParentID string `json:"parent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Content == "" {
+		writeErr(w, http.StatusBadRequest, "content is required")
+		return
+	}
+	if req.Author == "" {
+		req.Author = "user"
+	}
+	c := &backend.ExecutionComment{
+		ExecutionID: execID, Author: req.Author, Content: req.Content,
+		Mentions: req.Mentions, ParentID: req.ParentID,
+	}
+	if err := s.execCmtDB.Create(c); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, c)
+}
+
+func (s *APIServer) handleExecutionCommentDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.execCmtDB.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

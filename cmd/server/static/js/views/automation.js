@@ -425,6 +425,8 @@ async function viewExecutionDetail(id) {
       const evals = await fetchJSON('/api/executions/' + id + '/evaluations');
       renderEvalHistory(evals);
     } catch (e) { /* 忽略 */ }
+    // 拉评论
+    loadExecComments(id);
     document.getElementById('exec-detail-modal').classList.remove('hidden');
   } catch (e) {
     alert('加载执行详情失败：' + e.message);
@@ -434,6 +436,47 @@ async function viewExecutionDetail(id) {
 function closeExecDetailModal() {
   document.getElementById('exec-detail-modal').classList.add('hidden');
   currentExecId = null;
+}
+
+// ===== 执行评论 =====
+
+async function loadExecComments(execId) {
+  const container = document.getElementById('exec-comment-list');
+  const countEl = document.getElementById('exec-comment-count');
+  if (!container) return;
+  let list;
+  try {
+    list = await fetchJSON('/api/executions/' + execId + '/comments');
+  } catch (e) {
+    container.innerHTML = '<span style="color:var(--exception);font-size:12px">加载评论失败</span>';
+    return;
+  }
+  countEl.textContent = list.length > 0 ? '(' + list.length + ')' : '';
+  if (!list.length) {
+    container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">暂无评论</span>';
+    return;
+  }
+  container.innerHTML = list.map(c => {
+    const dt = c.created_at ? new Date(c.created_at).toLocaleString() : '';
+    return '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
+      '<span style="color:var(--text-secondary)">' + esc(c.author || 'user') + ' · ' + dt + '</span>' +
+      '<div style="margin-top:2px">' + esc(c.content) + '</div></div>';
+  }).join('');
+}
+
+async function submitExecComment() {
+  const execId = currentExecId;
+  if (!execId) return;
+  const input = document.getElementById('exec-comment-input');
+  const content = input.value.trim();
+  if (!content) return;
+  input.value = '';
+  await fetchJSON('/api/executions/' + execId + '/comments', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({author: 'user', content})
+  });
+  await loadExecComments(execId);
 }
 
 function renderEvalCard(ev) {
