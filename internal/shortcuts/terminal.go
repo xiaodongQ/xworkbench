@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 
 
@@ -167,22 +166,15 @@ func OpenTerminal(termType, dir, binPath string) error {
 		args[i] = strings.ReplaceAll(a, "{dir}", dir)
 	}
 	logger.Logger.Infow("[OpenTerminal] exec", "bin", bin, "args", args, "at", "terminal.go:113")
-	cmd := exec.Command(bin, args...)
-	if runtime.GOOS == "windows" {
-		// 用 cmd /C start 创建完全独立的新窗口
-		// start "" 表示空标题，/D 设置工作目录
-		parts := []string{bin}
-		parts = append(parts, args...)
-		rawCmd := fmt.Sprintf(`cmd /C start "" /D "%s" %s`, dir, strings.Join(parts, " "))
-		cmd = exec.Command("cmd", "/C", rawCmd)
-		// 备选方案（需要 syscall，Linux 上 syscall.SysProcAttr 无 CmdLine 字段，
-		// 需要拆平台文件或引入 golang.org/x/sys/windows，目前未启用）：
-		// cmd = exec.Command("cmd")
-		// cmd.SysProcAttr = &syscall.SysProcAttr{
-		// 	CmdLine: rawCmd,
-		// }
-	}
+	cmd := buildOpenTerminalCmd(bin, args, dir)
 	return cmd.Start()
+}
+
+// buildOpenTerminalCmd 构造打开终端的 *exec.Cmd。
+// Windows 走 syscall.SysProcAttr.CmdLine 精确控制命令行（terminal_windows.go）；
+// 其他平台用 cmd /C start "" 创建独立窗口（terminal_other.go）。
+func buildOpenTerminalCmd(bin string, args []string, dir string) *exec.Cmd {
+	return openTerminalCmd(bin, args, dir)
 }
 
 // ParseSSHURL 解析 SSH URL 或目标字符串
