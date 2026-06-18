@@ -402,7 +402,7 @@ function showTaskModal(task) {
     renderTaskExpChips();
   }
   document.getElementById('task-modal').classList.remove('hidden');
-  loadTaskComments(t.id);
+  if (task) loadTaskComments(task.id);
 }
 
 function closeTaskModal() {

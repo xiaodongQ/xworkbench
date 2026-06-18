@@ -97,15 +97,25 @@ find_pid_by_port() {
   local pid=""
   case "$os" in
     darwin)
-      pid=$(lsof -i :$port 2>/dev/null | awk 'NR>1 {print $2}' | head -1) || true
+      # lsof 找到端口对应的 pid，再通过 ps 确认进程名含 xworkbench
+      pid=$(lsof -i :$port 2>/dev/null | awk 'NR>1 {print $2}' | sort -u | \
+        while read p; do
+          name=$(ps -p "$p" -o comm= 2>/dev/null || true)
+          if echo "$name" | grep -q "xworkbench"; then echo "$p"; fi
+        done) || true
       ;;
     linux)
       pid=$(ss -tp 2>/dev/null | grep ":$port" | grep xworkbench | \
-        awk '{for(i=1;i<=NF;i++) if($i~/pid=[0-9]+/) {match($i,/pid=([0-9]+)/,m); print m[1]}}' | head -1) || true
+        awk '{for(i=1;i<=NF;i++) if($i~/pid=[0-9]+/) {match($i,/pid=([0-9]+)/,m); print m[1]}}' | sort -u) || true
       ;;
     windows)
+      # 先用 netstat 找到端口对应的 pid，再用 wmic 确认进程名含 xworkbench
       pid=$(netstat -ano 2>/dev/null | grep ":$port" | grep LISTEN | \
-        awk '{print $NF}' | head -1) || true
+        awk '{print $NF}' | sort -u | \
+        while read p; do
+          name=$(wmic process where "ProcessId=$p" get Name 2>/dev/null | grep -i xworkbench) || true
+          [ -n "$name" ] && echo "$p"
+        done) || true
       ;;
   esac
   echo "$pid"
@@ -145,32 +155,44 @@ stop() {
     echo "${YELLOW}失败${NC}"
   fi
 
-  # 等待优雅退出
+  # 等待优雅退出（进程退出且端口释放）
   local remaining=""
-  for i in 1 2 3 4 5; do
+  for i in 1 2 3 4 5 6 7 8 9 10; do
     remaining=$(find_pid_by_port)
     [ -z "$remaining" ] && break
     sleep 0.5
   done
 
-  # 仍未退出则强制
-  remaining=$(find_pid_by_port)
-  if [ -n "$remaining" ]; then
-    echo "  ${YELLOW}SIGKILL →${NC}  pid=$remaining"
-    kill -9 "$remaining" 2>/dev/null || true
-    # 验证 kill -9 是否成功
-    sleep 0.3
-    if kill -0 "$remaining" 2>/dev/null; then
-      echo "  ${RED}✗ 强制终止失败，进程仍存在${NC}"
-    else
-      echo "  ${GREEN}✓ 已强制终止${NC}"
+  # 仍未退出则强制（杀掉所有找到的进程，最多重试3次）
+  all_pids=$(find_pid_by_port)
+  if [ -n "$all_pids" ]; then
+    for i in 1 2 3; do
+      echo "  ${YELLOW}SIGKILL ($i/3) →${NC}  pids=$all_pids"
+      for pid in $all_pids; do
+        kill -9 "$pid" 2>/dev/null || true
+      done
+      sleep 0.3
+      all_pids=$(find_pid_by_port)
+      if [ -z "$all_pids" ]; then
+        echo "  ${GREEN}✓ 已强制终止${NC}"
+        break
+      fi
+    done
+    if [ -n "$all_pids" ]; then
+      echo "  ${RED}✗ 强制终止失败，残留 pids=$all_pids${NC}"
     fi
   fi
 
-  # 最终确认
+  # 最终确认（进程退出且端口释放）
   final_check=$(find_pid_by_port)
   if [ -z "$final_check" ]; then
-    echo "${GREEN}✓ 已停止${NC}"
+    # 再等一下确保端口释放
+    sleep 0.5
+    if is_port_any_in_use; then
+      echo "${RED}✗ 进程已终止但端口未释放，等待超时${NC}"
+    else
+      echo "${GREEN}✓ 已停止${NC}"
+    fi
   else
     echo "${RED}✗ 停止失败，残留 pid=$final_check${NC}"
   fi
@@ -252,7 +274,7 @@ status() {
 
 case "${1:-}" in
   --stop)           stop ;;
-  --restart)        echo "${CYAN}==> 重启${NC}"; stop; echo; start ;;
+  --restart)        echo "${CYAN}==> 重启${NC}"; stop; sleep 1; start ;;
   --port)           ADDR=":$2"; start ;;
   --status)         status ;;
   --log)            tail -f "${PROJECT_ROOT}/data/logs/xworkbench.log" ;;
