@@ -32,7 +32,7 @@ import (
 // shell 类型不再用 `sh -c "<prompt>"` 形式 — 那样会让 prompt 中含的
 // `;` / `&` / `|` / `$()` 等被 shell 二次解析，等于 shell 注入。
 // 改用临时脚本文件（一次写入，文件名安全），执行解释器直接喂文件。
-func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)) (cmd []string, cleanup func(), err error) {
+func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)) (cmd []string, stdin string, cleanup func(), err error) {
 	logger.Logger.Debugw("runner: BuildCommand", "type", typ, "model", model, "prompt_chars", len(prompt))
 	o := &buildOpts{
 		allowedTools: []string{"Bash", "Write", "Edit", "Read", "Grep"},
@@ -53,19 +53,20 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 		if sessionID != "" {
 			cmd = append(cmd, "--session-id", sessionID)
 		}
-		finalPrompt := prompt
+		// prompt 走 stdin 传入，避免 Windows cmd.exe 8191 字符命令行限制
+		// 导致长 prompt 被截断。executor.Run 负责实际写入子进程 stdin。
+		stdin = prompt
 		if o.actionReport {
-			finalPrompt = prompt + ActionReportSuffix
+			stdin = prompt + ActionReportSuffix
 		}
-		cmd = append(cmd, finalPrompt)
-		return cmd, nil, nil
+		return cmd, stdin, nil, nil
 	case "cbc", "codebuddy":
 		bin := "cbc"
 		if _, err := exec.LookPath("cbc"); err != nil {
 			if _, err2 := exec.LookPath("codebuddy"); err2 == nil {
 				bin = "codebuddy"
 			} else {
-				return nil, nil, errors.New("neither cbc nor codebuddy found in PATH")
+				return nil, "", nil, errors.New("neither cbc nor codebuddy found in PATH")
 			}
 		}
 		cmd := []string{bin, "-p"}
@@ -76,22 +77,22 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 		if model != "" {
 			cmd = append(cmd, "--model", model)
 		}
-		finalPrompt := prompt
+		stdin = prompt
 		if o.actionReport {
-			finalPrompt = prompt + ActionReportSuffix
+			stdin = prompt + ActionReportSuffix
 		}
-		cmd = append(cmd, finalPrompt)
-		return cmd, nil, nil
+		return cmd, stdin, nil, nil
 	case "shell":
 		return shellRunCommand(prompt)
 	default:
-		return nil, nil, fmt.Errorf("unknown command_type: %q", typ)
+		return nil, "", nil, fmt.Errorf("unknown command_type: %q", typ)
 	}
 }
 
 // shellRunCommand 把 prompt 写到临时文件并返回 sh/powershell 直接执行该文件的命令。
 // 返回的 cleanup 删除该临时文件，调用方应 defer cleanup()。
-func shellRunCommand(prompt string) ([]string, func(), error) {
+// 返回的 stdin 为空字符串（shell 类型不走 stdin）。
+func shellRunCommand(prompt string) ([]string, string, func(), error) {
 	var name, interp string
 	if runtime.GOOS == "windows" {
 		// .ps1 后缀让 PowerShell 走文件解析而不是 -Command 字符串解析。
@@ -103,17 +104,17 @@ func shellRunCommand(prompt string) ([]string, func(), error) {
 	}
 	f, err := os.CreateTemp("", name)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create temp script: %w", err)
+		return nil, "", nil, fmt.Errorf("create temp script: %w", err)
 	}
 	path := f.Name()
 	if _, err := f.WriteString(prompt); err != nil {
 		f.Close()
 		_ = os.Remove(path)
-		return nil, nil, fmt.Errorf("write temp script: %w", err)
+		return nil, "", nil, fmt.Errorf("write temp script: %w", err)
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(path)
-		return nil, nil, fmt.Errorf("close temp script: %w", err)
+		return nil, "", nil, fmt.Errorf("close temp script: %w", err)
 	}
 	var cmd []string
 	if runtime.GOOS == "windows" {
@@ -127,7 +128,7 @@ func shellRunCommand(prompt string) ([]string, func(), error) {
 			logger.Logger.Warnw("runner: remove temp script", "path", path, "err", err.Error())
 		}
 	}
-	return cmd, cleanup, nil
+	return cmd, "", cleanup, nil
 }
 
 func CmdString(cmd []string) string { return strings.Join(cmd, " ") }

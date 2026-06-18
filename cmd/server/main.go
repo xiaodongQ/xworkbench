@@ -652,7 +652,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Prompt = prompt
 
-	cmd, cleanup, err := runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt, runner.WithActionReport())
+	cmd, stdin, cleanup, err := runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt, runner.WithActionReport())
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -700,7 +700,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		if cleanup != nil {
 			defer cleanup()
 		}
-		res, runErr := executor.Run(ctx, cmd, "", func(chunk string) {
+		res, runErr := executor.Run(ctx, cmd, "", stdin, func(chunk string) {
 			s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 				"execution_id": exec.ID,
 				"task_id":      id,
@@ -1973,7 +1973,7 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 
 	for i := 0; i < req.MaxIterations; i++ {
 		model := models[i%len(models)]
-		cmd, cleanup, err := runner.BuildCommand(req.CliType, model, "", req.Prompt)
+		cmd, stdin, cleanup, err := runner.BuildCommand(req.CliType, model, "", req.Prompt)
 		if err != nil {
 			result["history"] = append(result["history"].([]Step), Step{Iteration: i + 1, Model: model, Error: err.Error()})
 			break
@@ -1982,7 +1982,7 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 		s.execDB.Create(exec)
 		go func() { defer cleanup() }()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		res, _ := executor.Run(ctx, cmd, "", nil)
+		res, _ := executor.Run(ctx, cmd, "", stdin, nil)
 		cancel()
 		exitCode := -1
 		var out string
@@ -2035,14 +2035,14 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 
 输出 JSON：{"module":"<领域>","scene":"<场景>","keywords":"<关键词>","tool_usage":"<使用的工具>","lesson":"<教训，50-200字>","code_snippet":"<可复用代码，可为空>"}
 如果执行失败，重点描述失败原因。`, task.Title, exec.Command, exec.ExitCode, func(s string, n int) string { if len(s) <= n { return s }; return s[:n]+"...(truncated)" }(exec.Output, 2000))
-		cmd, cleanup, _ := runner.BuildCommand("claude", "haiku", "", reflectPrompt)
+		cmd, stdin, cleanup, _ := runner.BuildCommand("claude", "haiku", "", reflectPrompt)
 		if cleanup == nil {
 			return
 		}
 		defer cleanup()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		res, _ := executor.Run(ctx, cmd, "", nil)
+		res, _ := executor.Run(ctx, cmd, "", stdin, nil)
 		if res == nil || res.ExitCode != 0 {
 			return
 		}

@@ -57,7 +57,7 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 		"timeout_ms", req.TimeoutMs,
 		"cmd", truncateRelayCmd(cmdArgs),
 	)
-	result, err := executor.Run(ctx, cmdArgs, req.Cwd, nil)
+	result, err := executor.Run(ctx, cmdArgs, req.Cwd, "", nil)
 
 	resp := ExecResponse{
 		DurationS: int64(time.Since(start).Seconds()),

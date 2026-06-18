@@ -145,7 +145,7 @@ func Evaluate(ctx context.Context, exec *backend.Execution, taskPrompt, cliType,
 		prompt += "\n\n[注意：任务 stdout 因超过 100KB 被截断，以上内容为末尾 100KB，评估时请以此为准]"
 	}
 
-	cmd, cleanup, err := runner.BuildCommand(cliType, model, "", prompt)
+	cmd, stdin, cleanup, err := runner.BuildCommand(cliType, model, "", prompt)
 	if err != nil {
 		return nil, fmt.Errorf("build cmd: %w", err)
 	}
@@ -154,7 +154,7 @@ func Evaluate(ctx context.Context, exec *backend.Execution, taskPrompt, cliType,
 	}
 	ctx2, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	res, runErr := executor.Run(ctx2, cmd, "", nil)
+	res, runErr := executor.Run(ctx2, cmd, "", stdin, nil)
 	if runErr != nil && res == nil {
 		return nil, fmt.Errorf("run: %w", runErr)
 	}

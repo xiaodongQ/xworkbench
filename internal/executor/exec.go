@@ -4,6 +4,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -30,13 +31,27 @@ type Result struct {
 //
 // dir 非空时设置子进程的工作目录（用于落地 ScheduledTask.WorkingDir）。
 // dir 为空时继承父进程 cwd（evaluator 等场景不需要指定）。
-func Run(ctx context.Context, cmd []string, dir string, onChunk func(string)) (*Result, error) {
+//
+// stdin 非空时通过管道写入子进程标准输入。Windows cmd.exe 命令行长度
+// 限制 8191 字符，长 prompt 必须走 stdin 否则会被截断。shell 类型的
+// prompt 走临时脚本文件，不通过 stdin。
+func Run(ctx context.Context, cmd []string, dir string, stdin string, onChunk func(string)) (*Result, error) {
 	if len(cmd) == 0 {
 		return nil, errors.New("empty command")
 	}
 	c := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
 	if dir != "" {
 		c.Dir = dir
+	}
+	if stdin != "" {
+		stdinPipe, err := c.StdinPipe()
+		if err != nil {
+			return nil, err
+		}
+		go func() {
+			defer stdinPipe.Close()
+			io.WriteString(stdinPipe, stdin)
+		}()
 	}
 	stdout, err := c.StdoutPipe()
 	if err != nil {

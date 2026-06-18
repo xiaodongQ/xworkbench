@@ -154,7 +154,7 @@ func (s *Scheduler) makeHandler(t *backend.ScheduledTask) func() {
 }
 
 func (s *Scheduler) execute(t *backend.ScheduledTask) {
-	cmd, cleanup, err := runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
+	cmd, stdin, cleanup, err := runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
 		runner.WithActionReport(),
 		runner.WithAllowedTools("Bash", "Write", "Edit", "Read"),
 	)
@@ -198,7 +198,7 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
-	res, _ := executor.Run(ctx, cmd, t.WorkingDir, func(chunk string) {
+	res, _ := executor.Run(ctx, cmd, t.WorkingDir, stdin, func(chunk string) {
 		s.hub.Broadcast(wsmsg.ChannelScheduled, map[string]any{
 			"scheduled_task_id": t.ID,
 			"execution_id":      exec.ID,
