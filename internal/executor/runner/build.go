@@ -53,6 +53,15 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 		if sessionID != "" {
 			cmd = append(cmd, "--session-id", sessionID)
 		}
+			if o.useStdin {
+				var stdinVal string
+				if o.actionReport {
+					stdinVal = prompt + ActionReportSuffix
+				} else {
+					stdinVal = prompt
+				}
+				return cmd, stdinVal, nil, nil
+			}
 			actualPrompt := prompt
 		if o.actionReport {
 			actualPrompt = prompt + ActionReportSuffix
@@ -76,6 +85,15 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 		if model != "" {
 			cmd = append(cmd, "--model", model)
 		}
+			if o.useStdin {
+				var stdinVal string
+				if o.actionReport {
+					stdinVal = prompt + ActionReportSuffix
+				} else {
+					stdinVal = prompt
+				}
+				return cmd, stdinVal, nil, nil
+			}
 			actualPrompt := prompt
 		cmd = append(cmd, actualPrompt)
 		return cmd, "", nil, nil
@@ -174,4 +192,8 @@ func WithAllowedTools(tools ...string) func(*buildOpts) {
 type buildOpts struct {
 	actionReport bool
 	allowedTools []string
+	useStdin    bool
 }
+
+// WithStdin prompt 通过 stdin 传递（评估用，避免命令行参数过长）。
+func WithStdin() func(*buildOpts) { return func(o *buildOpts) { o.useStdin = true } }

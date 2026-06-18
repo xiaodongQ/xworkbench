@@ -155,6 +155,7 @@ func (s *Scheduler) makeHandler(t *backend.ScheduledTask) func() {
 
 func (s *Scheduler) execute(t *backend.ScheduledTask) {
 	cmd, stdin, cleanup, err := runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
+		runner.WithStdin(),
 		runner.WithActionReport(),
 		runner.WithAllowedTools("Bash", "Write", "Edit", "Read"),
 	)
