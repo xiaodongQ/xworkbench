@@ -668,6 +668,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		TaskID:    id,
 		Source:    "manual",
 		Command:   runner.CmdString(cmd),
+		Prompt:    req.Prompt, // 保存完整 prompt
 		Model:     req.Model,
 		StartedAt: time.Now(),
 	}
