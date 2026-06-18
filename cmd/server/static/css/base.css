@@ -459,10 +459,10 @@ tr:last-child td { border-bottom: none; }
 
 .scheduler-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
 .scheduler-badge.running { background: rgba(16, 185, 129, 0.15); color: var(--archived); }
-.scheduler-badge.stopped { background: rgba(148, 163, 184, 0.15); color: var(--text-secondary); }
+.scheduler-badge.stopped { background: rgba(239, 68, 68, 0.15); color: var(--exception); font-weight: 600; }
 .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
 .dot.green { background: var(--archived); }
-.dot.gray { background: var(--text-secondary); }
+.dot.gray { background: var(--exception); }
 
 .scheduled-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
 .scheduled-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }

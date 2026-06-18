@@ -105,7 +105,6 @@ function updateAutoRefreshStatusIndicator(running) {
 // 调度器控制（供 HTML 按钮调用）
 function schedulerStart() { fetch('/api/scheduler/start', {method:'POST'}).then(() => { loadScheduler(); loadScheduledSummary(); }); }
 function schedulerStop() { fetch('/api/scheduler/stop', {method:'POST'}).then(() => { loadScheduler(); }); }
-function schedulerReload() { fetch('/api/scheduler/reload', {method:'POST'}).then(() => { loadScheduledSummary(); loadScheduled(); }); }
 
 // 页面首次进入：根据本地存储恢复自动刷新状态
 if (typeof window !== 'undefined') {
