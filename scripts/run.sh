@@ -190,11 +190,14 @@ stop() {
     sleep 0.5
     if is_port_any_in_use; then
       echo "${RED}✗ 进程已终止但端口未释放，等待超时${NC}"
+      return 1
     else
       echo "${GREEN}✓ 已停止${NC}"
+      return 0
     fi
   else
     echo "${RED}✗ 停止失败，残留 pid=$final_check${NC}"
+    return 1
   fi
 }
 
@@ -274,7 +277,15 @@ status() {
 
 case "${1:-}" in
   --stop)           stop ;;
-  --restart)        echo "${CYAN}==> 重启${NC}"; stop; sleep 1; start ;;
+  --restart)
+    echo "${CYAN}==> 重启${NC}"
+    if ! stop; then
+      echo "${RED}✗ 停止失败，不继续启动${NC}"
+      exit 1
+    fi
+    sleep 1
+    start
+    ;;
   --port)           ADDR=":$2"; start ;;
   --status)         status ;;
   --log)            tail -f "${PROJECT_ROOT}/data/logs/xworkbench.log" ;;

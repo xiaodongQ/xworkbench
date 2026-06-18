@@ -592,10 +592,11 @@ function getEvalCliType() {
   return sel ? sel.value : 'claude';
 }
 
-// 正在评估的 execution id 集合（前端局部状态，刷新后清空）
-const _evaluatingIds = new Set();
+// 正在评估的 execution id 集合（sessionStorage 持久化，刷新后可恢复）
+const _evaluatingIds = new Set(JSON.parse(sessionStorage.getItem('_evaluatingIds') || '[]'));
 function _markEvaluating(execId, on) {
   if (on) _evaluatingIds.add(execId); else _evaluatingIds.delete(execId);
+  sessionStorage.setItem('_evaluatingIds', JSON.stringify([..._evaluatingIds]));
   // 立即刷新最近执行列表显示徽章
   loadRecentExecutions();
 }

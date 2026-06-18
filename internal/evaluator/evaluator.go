@@ -398,6 +398,15 @@ func (m *ExecutionMeta) ToolUseLikely() bool {
 func ParseEvalOutput(stdout string) (*EvalResult, bool) {
 	meta, ok := ParseJSONExecution(stdout)
 	if !ok {
+		logger.Logger.Warnw("evaluator: ParseJSONExecution failed, raw output preview",
+			"output_len", len(stdout),
+			"output_prefix", func() string {
+				s := strings.TrimSpace(stdout)
+				if len(s) > 200 {
+					return s[:200] + "..."
+				}
+				return s
+			}())
 		return nil, false
 	}
 	return parseEval(meta.Result), true
