@@ -152,6 +152,13 @@ func Evaluate(ctx context.Context, exec *backend.Execution, taskPrompt, cliType,
 	if cleanup != nil {
 		defer cleanup()
 	}
+	// 打印评估命令（< 2K 完整打印，> 2K 截取前 2K）
+	fullCmd := strings.Join(cmd, " ") + " " + stdin
+	if len(fullCmd) <= 2048 {
+		logger.Logger.Infow("evaluator: full command", "cmd", fullCmd)
+	} else {
+		logger.Logger.Infow("evaluator: command truncated", "cmd", fullCmd[:2048]+"...")
+	}
 	ctx2, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	res, runErr := executor.Run(ctx2, cmd, "", stdin, nil)
@@ -205,7 +212,7 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 		"cli", cliType,
 		"model", model,
 		"prompt_len", len(taskPrompt),
-		"prompt_preview", func() string { if len(taskPrompt) > 200 { return taskPrompt[:200] + "..."; }; return taskPrompt }(),
+		"prompt", func() string { if len(taskPrompt) > 1024 { return taskPrompt[:1024] + "..."; }; return taskPrompt }(),
 	)
 	res, err := Evaluate(ctx, exec, taskPrompt, cliType, model)
 	// 无论成功失败都保存评估记录，便于查看历史和失败原因

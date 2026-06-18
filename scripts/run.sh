@@ -158,12 +158,21 @@ stop() {
   if [ -n "$remaining" ]; then
     echo "  ${YELLOW}SIGKILL →${NC}  pid=$remaining"
     kill -9 "$remaining" 2>/dev/null || true
+    # 验证 kill -9 是否成功
+    sleep 0.3
+    if kill -0 "$remaining" 2>/dev/null; then
+      echo "  ${RED}✗ 强制终止失败，进程仍存在${NC}"
+    else
+      echo "  ${GREEN}✓ 已强制终止${NC}"
+    fi
   fi
 
-  if [ -z "$remaining" ]; then
+  # 最终确认
+  final_check=$(find_pid_by_port)
+  if [ -z "$final_check" ]; then
     echo "${GREEN}✓ 已停止${NC}"
   else
-    echo "${GREEN}✓ 已停止（强制）${NC}"
+    echo "${RED}✗ 停止失败，残留 pid=$final_check${NC}"
   fi
 }
 
