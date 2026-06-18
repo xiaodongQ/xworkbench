@@ -170,7 +170,7 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 		ID:        uuid.New().String(),
 		ScheduledTaskID: t.ID,
 		Source:    "scheduled",
-		Command:   runner.CmdString(cmd),
+		Command:   runner.CmdStringWithPrompt(cmd, t.Prompt),
 		Prompt:    t.Prompt,
 		Model:     t.Model,
 		StartedAt: time.Now(),

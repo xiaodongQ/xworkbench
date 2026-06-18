@@ -175,7 +175,8 @@ func OpenTerminal(termType, dir, binPath string) error {
 		parts = append(parts, args...)
 		rawCmd := fmt.Sprintf(`cmd /C start "" /D "%s" %s`, dir, strings.Join(parts, " "))
 		cmd = exec.Command("cmd", "/C", rawCmd)
-		// 备选方案（需要 syscall）：
+		// 备选方案（需要 syscall，Linux 上 syscall.SysProcAttr 无 CmdLine 字段，
+		// 需要拆平台文件或引入 golang.org/x/sys/windows，目前未启用）：
 		// cmd = exec.Command("cmd")
 		// cmd.SysProcAttr = &syscall.SysProcAttr{
 		// 	CmdLine: rawCmd,

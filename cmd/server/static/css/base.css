@@ -1,5 +1,9 @@
 /* xworkbench v2 — 基础样式（设计系统 + 组件 + widget + modal） */
 
+/* Windows 适配：整体放大，匹配 Mac 视觉大小。.windows 类由 index.html 中 JS
+   检测 navigator.platform 后给 body 加上，仅 Windows 下生效。 */
+.windows body { zoom: 1.2; }
+
 :root {
   --bg: #f8fafc;
   --card-bg: #ffffff;

@@ -132,6 +132,22 @@ func shellRunCommand(prompt string) ([]string, func(), error) {
 
 func CmdString(cmd []string) string { return strings.Join(cmd, " ") }
 
+// CmdStringWithPrompt 把命令和 prompt 摘要拼成可读字符串。
+// 用于 Execution.Command 记录：stdin 传 prompt 时 CmdString(cmd) 看不到 prompt
+// 内容，加上摘要便于日志/UI 排查。
+func CmdStringWithPrompt(cmd []string, prompt string) string {
+	s := strings.Join(cmd, " ")
+	if prompt == "" {
+		return s
+	}
+	const maxLen = 120
+	truncated := strings.ReplaceAll(prompt, "\n", " ")
+	if len([]rune(truncated)) > maxLen {
+		truncated = string([]rune(truncated)[:maxLen]) + "..."
+	}
+	return s + " \"" + truncated + "\""
+}
+
 // ActionReportSuffix 追加到 AI 任务执行 prompt 末尾，要求 AI 自报动作清单，
 // 便于后续 evaluator 交叉验证"嘴上说做了 vs 实际执行了"。
 // shell 类型不适用。
