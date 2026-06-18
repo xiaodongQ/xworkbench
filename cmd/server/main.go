@@ -641,7 +641,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		prompt = req.Prompt
 	} else {
 		// 没用 body.prompt,自动从 task + 多 experience 组装
-		prompt = taskpkg.BuildTaskPrompt(task, s.loadExperiencesForTask(task)...)
+		prompt = taskpkg.BuildTaskPromptShort(task)
 		if prompt == "" {
 			logger.Warnw("task run rejected: empty prompt after BuildTaskPrompt",
 				"task_id", id,

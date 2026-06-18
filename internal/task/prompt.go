@@ -66,3 +66,31 @@ func appendExpBlock(b *strings.Builder, suffix string, exp *backend.Experience) 
 		b.WriteString(fmt.Sprintf("## 详细内容%s\n%s\n", suffix, exp.Details))
 	}
 }
+// BuildTaskPromptShort 简化版 prompt，只包含：描述 + 验收标准 + 动作清单格式要求。
+// 用于手动任务的 AI 执行，保持命令行简洁。
+func BuildTaskPromptShort(t *backend.Task) string {
+	var b strings.Builder
+	if t.Description != "" {
+		b.WriteString(t.Description)
+		b.WriteString("\n\n")
+	}
+	if t.Acceptance != "" {
+		b.WriteString("## 验收标准\n")
+		b.WriteString(t.Acceptance)
+		b.WriteString("\n\n")
+	}
+	// 动作清单格式要求
+	b.WriteString(ActionReportFormat)
+	return b.String()
+}
+
+// ActionReportFormat 动作清单输出格式要求（供手动任务和评估用）。
+const ActionReportFormat = `## 任务完成后必须输出"动作清单"（便于自动评估）
+请严格按以下 Markdown 格式输出，**必须用真实可执行命令，不允许用 ... 占位符**：
+
+## 动作清单
+- 命令: <实际执行的命令，完整可复制>
+- 退出码: <命令退出码，无命令填 N/A>
+- 工具调用: <Bash / Read / Write / Edit / 其他 / 无>
+- 验证步骤: <如何确认结果正确，无验证填 N/A>
+`
