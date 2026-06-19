@@ -188,17 +188,22 @@ stop() {
   # 最终确认（进程退出且端口释放）
   final_check=$(find_pid_by_port)
   if [ -z "$final_check" ]; then
-    # 再等一下确保端口释放
-    sleep 1
-    if is_port_any_in_use; then
-      echo "${RED}✗ 进程已终止但端口未释放，等待超时${NC}"
-      echo "  lsof -i :$port:"
-      lsof -i :$port 2>/dev/null || echo "  (无)"
-      return 1
-    else
-      echo "${GREEN}✓ 已停止${NC}"
-      return 0
-    fi
+    # 再等一下确保端口释放（CLOSE_WAIT 需要等待对方完成 TCP 关闭握手）
+    for i in 1 2 3 4 5; do
+      printf "  等待端口释放 ($i/5)... "
+      sleep 1
+      if ! is_port_any_in_use; then
+        echo "${GREEN}OK${NC}"
+        echo "${GREEN}✓ 已停止${NC}"
+        return 0
+      fi
+      echo "${YELLOW}仍占用${NC}"
+    done
+    echo "${RED}✗ 进程已终止但端口未释放（CLOSE_WAIT 等待中）${NC}"
+    echo "  lsof -i :$port:"
+    lsof -i :$port 2>/dev/null || echo "  (无)"
+    echo "  提示：CLOSE_WAIT 连接会在几分钟后自动消失，可直接运行 start 启动服务"
+    return 1
   else
     echo "${RED}✗ 停止失败，残留 pid=$final_check${NC}"
     echo "  lsof -i :$port:"
