@@ -369,16 +369,29 @@ tr:last-child td { border-bottom: none; }
   flex-shrink: 0;
 }
 
-/* 目录区拖拽把手 */
+/* 目录区拖拽把手（底部） */
 .resize-handle-dir {
-  height: 5px; flex-shrink: 0;
+  height: 6px; flex-shrink: 0;
   cursor: row-resize;
   background: transparent;
   border-radius: 0;
   transition: background 0.15s;
   margin: 0;
+  border-top: 1px dashed var(--border);
 }
-.resize-handle-dir:hover, .resize-handle-dir.dragging { background: var(--primary); opacity: 0.6; }
+.resize-handle-dir:hover, .resize-handle-dir.dragging { background: var(--primary); border-top-color: var(--primary); }
+
+/* Widget 底部拖拽把手 */
+.resize-handle-widget {
+  height: 6px; flex-shrink: 0;
+  cursor: row-resize;
+  background: transparent;
+  border-radius: 0;
+  transition: background 0.15s;
+  margin: 0;
+  border-top: 1px dashed var(--border);
+}
+.resize-handle-widget:hover, .resize-handle-widget.dragging { background: var(--primary); border-top-color: var(--primary); }
 .dir-section-head .btn { font-size: 10px; padding: 1px 5px; }
 /* 列表：嵌入容器内部，沿用 .nav-item 风格但去掉外边距 */
 .dir-list {

@@ -54,9 +54,9 @@
           <button class="btn btn-small" onclick="showDirModal()" title="添加目录">+</button>
         </span>
       </div>
-      <!-- 高度拖拽把手 -->
-      <div class="resize-handle-h resize-handle-dir" id="resize-handle-dir" title="拖拽调高"></div>
       <div id="dir-list" class="dir-list"></div>
+      <!-- 高度拖拽把手（放底部） -->
+      <div class="resize-handle-h resize-handle-dir" id="resize-handle-dir" title="拖拽调高"></div>
     </div>
   </nav>
 
@@ -82,9 +82,10 @@
       <div id="links-container" style="overflow-y:auto;flex:1;min-height:0">
         <div id="links-grid" class="link-list"></div>
       </div>
+      <!-- 高度拖拽把手（底部） -->
+      <div class="resize-handle-h resize-handle-widget" id="resize-handle-links" title="拖拽调高"></div>
     </div>
-    <!-- 高度拖拽把手 -->
-    <div class="resize-handle-h" id="resize-handle-links-todo" title="拖拽调高"></div>
+
     <div class="widget" id="widget-todo">
       <div class="widget-title">
         <span>☑️ 待办</span>
@@ -97,6 +98,8 @@
       <div id="todo-container" style="overflow-y:auto;flex:1;min-height:0">
         <div id="todo-list"><div style="color:var(--text-secondary);font-size:12px;padding:4px">未配置 todo.md 路径</div></div>
       </div>
+      <!-- 高度拖拽把手（底部） -->
+      <div class="resize-handle-h resize-handle-widget" id="resize-handle-todo" title="拖拽调高"></div>
     </div>
   </aside>
 
@@ -814,75 +817,82 @@ document.getElementById('run-task-model').innerHTML = buildModelOptions('claude'
   });
 })();
 
-// 高度拖拽：拖 链接 widget 与 待办 widget 之间的把手
-(function initWidgetHeightResize() {
-  const handle = document.getElementById('resize-handle-links-todo');
-  const linksWidget = document.getElementById('widget-links');
-  const linksContainer = document.getElementById('links-container');
-  const todoWidget = document.getElementById('widget-todo');
-  if (!handle || !linksWidget || !linksContainer || !todoWidget) return;
+// 高度拖拽：拖拽链接 widget 的底部把手
+(function initLinksHeightResize() {
+  const handle = document.getElementById('resize-handle-links');
+  const container = document.getElementById('links-container');
+  if (!handle || !container) return;
 
-  // 恢复保存的高度
-  const savedH = parseInt(localStorage.getItem('sf-widget-links-h'), 10);
-  if (savedH && savedH >= 60 && savedH <= 500) {
-    linksContainer.style.height = savedH + 'px';
-  }
+  const savedH = parseInt(localStorage.getItem('sf-links-h'), 10);
+  if (savedH && savedH >= 60 && savedH <= 500) container.style.height = savedH + 'px';
 
   let startY = null, startH = 0;
   handle.addEventListener('mousedown', e => {
-    startY = e.clientY;
-    startH = linksContainer.offsetHeight;
-    handle.classList.add('dragging');
-    document.body.style.cursor = 'row-resize';
+    startY = e.clientY; startH = container.offsetHeight;
+    handle.classList.add('dragging'); document.body.style.cursor = 'row-resize';
     e.preventDefault();
   });
   document.addEventListener('mousemove', e => {
     if (startY == null) return;
-    const dy = e.clientY - startY;
-    const newH = Math.max(60, Math.min(500, startH + dy));
-    linksContainer.style.height = newH + 'px';
+    container.style.height = Math.max(60, Math.min(500, startH + e.clientY - startY)) + 'px';
   });
   document.addEventListener('mouseup', () => {
     if (startY == null) return;
-    startY = null;
-    handle.classList.remove('dragging');
-    document.body.style.cursor = '';
-    localStorage.setItem('sf-widget-links-h', linksContainer.offsetHeight);
+    startY = null; handle.classList.remove('dragging'); document.body.style.cursor = '';
+    localStorage.setItem('sf-links-h', container.offsetHeight);
   });
 })();
 
-// 高度拖拽：拖 快捷目录 的把手
+// 高度拖拽：拖拽待办 widget 的底部把手
+(function initTodoHeightResize() {
+  const handle = document.getElementById('resize-handle-todo');
+  const container = document.getElementById('todo-container');
+  if (!handle || !container) return;
+
+  const savedH = parseInt(localStorage.getItem('sf-todo-h'), 10);
+  if (savedH && savedH >= 60 && savedH <= 500) container.style.height = savedH + 'px';
+
+  let startY = null, startH = 0;
+  handle.addEventListener('mousedown', e => {
+    startY = e.clientY; startH = container.offsetHeight;
+    handle.classList.add('dragging'); document.body.style.cursor = 'row-resize';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (startY == null) return;
+    container.style.height = Math.max(60, Math.min(500, startH + e.clientY - startY)) + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (startY == null) return;
+    startY = null; handle.classList.remove('dragging'); document.body.style.cursor = '';
+    localStorage.setItem('sf-todo-h', container.offsetHeight);
+  });
+})();
+
+// 高度拖拽：拖拽快捷目录底部的把手
 (function initDirHeightResize() {
   const handle = document.getElementById('resize-handle-dir');
   const dirSection = document.getElementById('dir-section');
   if (!handle || !dirSection) return;
 
-  // 恢复保存的高度
   const savedH = parseInt(localStorage.getItem('sf-dir-h'), 10);
-  if (savedH && savedH >= 60 && savedH <= 500) {
-    dirSection.style.maxHeight = savedH + 'px';
-  }
+  if (savedH && savedH >= 60 && savedH <= 500) dirSection.style.maxHeight = savedH + 'px';
 
   let startY = null, startH = 0;
   handle.addEventListener('mousedown', e => {
     startY = e.clientY;
     const m = dirSection.style.maxHeight.match(/(\d+)/);
     startH = m ? parseInt(m[1]) : dirSection.offsetHeight;
-    handle.classList.add('dragging');
-    document.body.style.cursor = 'row-resize';
+    handle.classList.add('dragging'); document.body.style.cursor = 'row-resize';
     e.preventDefault();
   });
   document.addEventListener('mousemove', e => {
     if (startY == null) return;
-    const dy = e.clientY - startY;
-    const newH = Math.max(60, Math.min(500, startH + dy));
-    dirSection.style.maxHeight = newH + 'px';
+    dirSection.style.maxHeight = Math.max(60, Math.min(500, startH + e.clientY - startY)) + 'px';
   });
   document.addEventListener('mouseup', () => {
     if (startY == null) return;
-    startY = null;
-    handle.classList.remove('dragging');
-    document.body.style.cursor = '';
+    startY = null; handle.classList.remove('dragging'); document.body.style.cursor = '';
     const m = dirSection.style.maxHeight.match(/(\d+)/);
     if (m) localStorage.setItem('sf-dir-h', parseInt(m[1]));
   });
