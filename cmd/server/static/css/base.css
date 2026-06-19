@@ -149,7 +149,10 @@ body {
   overflow-y: auto;
   display: flex; flex-direction: column; gap: 12px;
 }
-.widget-sidebar .widget { background: var(--card-bg); padding: 10px; min-width: 0; }
+.widget-sidebar .widget {
+  background: var(--card-bg); padding: 10px; min-width: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
 
 /* ===== 列宽拖拽 handle ===== */
 .resize-handle {
@@ -163,6 +166,24 @@ body {
 .resize-handle::before {
   content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
   /* 扩大可点击区域到 10px */
+}
+
+/* ===== 高度拖拽 handle（widget 之间垂直方向） ===== */
+.resize-handle-h {
+  height: 6px; flex-shrink: 0;
+  cursor: row-resize;
+  background: transparent;
+  position: relative;
+  border-radius: 3px;
+  transition: background 0.15s;
+  margin: -3px 0;
+}
+.resize-handle-h:hover, .resize-handle-h.dragging {
+  background: var(--primary);
+}
+.resize-handle-h::before {
+  content: ''; position: absolute; left: 0; right: 0; top: -3px; bottom: -3px;
+  /* 扩大可点击区域 */
 }
 .widget-sidebar .widget-title {
   font-size: 11px; font-weight: 600; color: var(--text-secondary);
@@ -336,6 +357,7 @@ tr:last-child td { border-bottom: none; }
   min-height: 0;
   max-height: 48vh;   /* 加长：之前 32vh，太短看不全 */
 }
+.dir-section .dir-list { flex: 1; min-height: 0; overflow-y: auto; }
 /* 抬头：📂 目录 + 添加按钮 */
 .dir-section-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -346,6 +368,17 @@ tr:last-child td { border-bottom: none; }
   background: var(--hover);
   flex-shrink: 0;
 }
+
+/* 目录区拖拽把手 */
+.resize-handle-dir {
+  height: 5px; flex-shrink: 0;
+  cursor: row-resize;
+  background: transparent;
+  border-radius: 0;
+  transition: background 0.15s;
+  margin: 0;
+}
+.resize-handle-dir:hover, .resize-handle-dir.dragging { background: var(--primary); opacity: 0.6; }
 .dir-section-head .btn { font-size: 10px; padding: 1px 5px; }
 /* 列表：嵌入容器内部，沿用 .nav-item 风格但去掉外边距 */
 .dir-list {
@@ -436,7 +469,7 @@ tr:last-child td { border-bottom: none; }
 .link-tile:hover .link-del { display: block; }
 
 /* 链接列表（一行一条） */
-.link-list { display: flex; flex-direction: column; gap: 2px; max-height: 380px; overflow-y: auto; }
+.link-list { display: flex; flex-direction: column; gap: 2px; }
 .link-row { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 4px; cursor: pointer; transition: background 0.15s; }
 .link-row:hover { background: var(--hover); }
 .link-row .link-icon { width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--primary); color: #fff; font-size: 10px; font-weight: 600; overflow: hidden; }
@@ -449,9 +482,9 @@ tr:last-child td { border-bottom: none; }
 .link-row .link-del { color: var(--danger); cursor: pointer; padding: 0 2px; opacity: 0; font-size: 12px; }
 .link-row:hover .link-del { opacity: 1; }
 
-.dir-list { display: flex; flex-direction: column; gap: 2px; max-height: 380px; overflow-y: auto; }
+.dir-list { display: flex; flex-direction: column; gap: 2px; }
 
-.todo-list { max-height: 380px; overflow-y: auto; }
+.todo-list { }
 .todo-item { display: flex; align-items: center; gap: 4px; padding: 3px 4px; font-size: 12px; position: relative; }
 .todo-item input { cursor: pointer; flex-shrink: 0; }
 .todo-item .todo-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
