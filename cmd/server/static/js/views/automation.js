@@ -451,8 +451,8 @@ async function loadExecComments(execId) {
     container.innerHTML = '<span style="color:var(--exception);font-size:12px">加载评论失败</span>';
     return;
   }
-  if (countEl) countEl.textContent = list.length > 0 ? '(' + list.length + ')' : '';
-  if (!list.length) {
+  if (countEl) countEl.textContent = list && list.length > 0 ? '(' + list.length + ')' : '';
+  if (!list || !list.length) {
     container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">暂无评论</span>';
     return;
   }

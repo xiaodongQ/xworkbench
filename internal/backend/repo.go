@@ -1144,10 +1144,24 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 
 func ExportExperienceMD(e *Experience) string {
 	var sb strings.Builder
-	sb.WriteString("# Experience: " + e.Module + "\n\n")
-	if e.Keywords != "" { sb.WriteString("## Keywords\n" + e.Keywords + "\n\n") }
-	if e.Scene != "" { sb.WriteString("## Scene\n" + e.Scene + "\n\n") }
-	if e.Details != "" { sb.WriteString("## Details\n" + e.Details + "\n\n") }
+	sb.WriteString("# Experience: ")
+	sb.WriteString(e.Module)
+	sb.WriteString("\n\n")
+	if e.Keywords != "" {
+		sb.WriteString("## Keywords\n")
+		sb.WriteString(e.Keywords)
+		sb.WriteString("\n\n")
+	}
+	if e.Scene != "" {
+		sb.WriteString("## Scene\n")
+		sb.WriteString(e.Scene)
+		sb.WriteString("\n\n")
+	}
+	if e.Details != "" {
+		sb.WriteString("## Details\n")
+		sb.WriteString(e.Details)
+		sb.WriteString("\n\n")
+	}
 	return sb.String()
 }
 
