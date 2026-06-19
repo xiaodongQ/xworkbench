@@ -824,21 +824,31 @@ document.getElementById('run-task-model').innerHTML = buildModelOptions('claude'
   if (!handle || !container) return;
 
   const savedH = parseInt(localStorage.getItem('sf-links-h'), 10);
-  if (savedH && savedH >= 60 && savedH <= 500) container.style.height = savedH + 'px';
+  if (savedH && savedH >= 60 && savedH <= 500) {
+    container.style.flex = '1 1 auto'; // 先让flex正常
+    container.style.height = savedH + 'px';
+    container.style.flex = 'none'; // 再固定高度
+  }
 
   let startY = null, startH = 0;
   handle.addEventListener('mousedown', e => {
-    startY = e.clientY; startH = container.offsetHeight;
-    handle.classList.add('dragging'); document.body.style.cursor = 'row-resize';
+    startY = e.clientY;
+    startH = container.offsetHeight;
+    container.style.flex = 'none'; // 退出flex，让height生效
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'row-resize';
     e.preventDefault();
   });
   document.addEventListener('mousemove', e => {
     if (startY == null) return;
-    container.style.height = Math.max(60, Math.min(500, startH + e.clientY - startY)) + 'px';
+    const newH = Math.max(60, Math.min(500, startH + e.clientY - startY));
+    container.style.height = newH + 'px';
   });
   document.addEventListener('mouseup', () => {
     if (startY == null) return;
-    startY = null; handle.classList.remove('dragging'); document.body.style.cursor = '';
+    startY = null;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
     localStorage.setItem('sf-links-h', container.offsetHeight);
   });
 })();
@@ -850,12 +860,19 @@ document.getElementById('run-task-model').innerHTML = buildModelOptions('claude'
   if (!handle || !container) return;
 
   const savedH = parseInt(localStorage.getItem('sf-todo-h'), 10);
-  if (savedH && savedH >= 60 && savedH <= 500) container.style.height = savedH + 'px';
+  if (savedH && savedH >= 60 && savedH <= 500) {
+    container.style.flex = '1 1 auto';
+    container.style.height = savedH + 'px';
+    container.style.flex = 'none';
+  }
 
   let startY = null, startH = 0;
   handle.addEventListener('mousedown', e => {
-    startY = e.clientY; startH = container.offsetHeight;
-    handle.classList.add('dragging'); document.body.style.cursor = 'row-resize';
+    startY = e.clientY;
+    startH = container.offsetHeight;
+    container.style.flex = 'none';
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'row-resize';
     e.preventDefault();
   });
   document.addEventListener('mousemove', e => {
@@ -864,7 +881,9 @@ document.getElementById('run-task-model').innerHTML = buildModelOptions('claude'
   });
   document.addEventListener('mouseup', () => {
     if (startY == null) return;
-    startY = null; handle.classList.remove('dragging'); document.body.style.cursor = '';
+    startY = null;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
     localStorage.setItem('sf-todo-h', container.offsetHeight);
   });
 })();
