@@ -292,12 +292,17 @@ case "${1:-}" in
   --stop)           stop ;;
   --restart)
     echo "${CYAN}==> 重启${NC}"
+    local before_pid=$(find_pid_by_port)
+    [ -n "$before_pid" ] && echo "  重启前 pid=$before_pid"
     if ! stop; then
       echo "${RED}✗ 停止失败，不继续启动${NC}"
       exit 1
     fi
+    echo "  已停止${before_pid:+ (pid=$before_pid)}"
     sleep 1
     start
+    local after_pid=$(find_pid_by_port)
+    [ -n "$after_pid" ] && echo "  重启后 pid=$after_pid"
     ;;
   --port)           ADDR=":$2"; start ;;
   --status)         status ;;
