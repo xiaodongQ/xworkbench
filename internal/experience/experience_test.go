@@ -19,8 +19,6 @@ func TestExperienceCreateAndSearch(t *testing.T) {
 		ID:       "exp-redis-cluster",
 		Module:   "redis-cluster",
 		Keywords: "CLUSTERDOWN,MOVED,ASK,READONLY",
-		LogPaths: "/var/log/redis/redis-server.log",
-		ToolUsage: "redis-cli cluster nodes, redis-cli slowlog get 10",
 		Scene:    "集群节点失联定位",
 		Version:  "v1.0.0",
 		CreatedAt: time.Now(),

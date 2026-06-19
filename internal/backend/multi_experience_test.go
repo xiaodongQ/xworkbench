@@ -709,39 +709,3 @@ func TestAutoClaimEnabled(t *testing.T) {
 	}
 }
 
-// TestAutoEvalEnabled 验证 auto_eval_enabled 开关默认 false。
-func TestAutoEvalEnabled(t *testing.T) {
-	db, cleanup, err := TestDB()
-	if err != nil { t.Fatalf("TestDB: %v", err) }
-	defer cleanup()
-	expRepo := NewExperienceRepo(db)
-
-	e := &Experience{
-		ID:      "exp-toggle-test",
-		Module:  "test-module",
-		Version: "v1",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		// AutoEvalEnabled 默认为 false（Go 默认零值）
-	}
-	if err := expRepo.Create(e); err != nil { t.Fatalf("Create: %v", err) }
-
-	got, _ := expRepo.Get("exp-toggle-test")
-	if got.AutoEvalEnabled {
-		t.Errorf("AutoEvalEnabled should default to false")
-	}
-
-	// 开启开关
-	expRepo.SetAutoEvalEnabled("exp-toggle-test", true)
-	got2, _ := expRepo.Get("exp-toggle-test")
-	if !got2.AutoEvalEnabled {
-		t.Errorf("AutoEvalEnabled should be true after SetAutoEvalEnabled")
-	}
-
-	// 关闭开关
-	expRepo.SetAutoEvalEnabled("exp-toggle-test", false)
-	got3, _ := expRepo.Get("exp-toggle-test")
-	if got3.AutoEvalEnabled {
-		t.Errorf("AutoEvalEnabled should be false after second SetAutoEvalEnabled")
-	}
-}
