@@ -180,6 +180,8 @@ stop() {
     done
     if [ -n "$all_pids" ]; then
       echo "  ${RED}✗ 强制终止失败，残留 pids=$all_pids${NC}"
+      echo "  lsof -i :$port:"
+      lsof -i :$port 2>/dev/null || echo "  (无)"
     fi
   fi
 
@@ -187,9 +189,11 @@ stop() {
   final_check=$(find_pid_by_port)
   if [ -z "$final_check" ]; then
     # 再等一下确保端口释放
-    sleep 0.5
+    sleep 1
     if is_port_any_in_use; then
       echo "${RED}✗ 进程已终止但端口未释放，等待超时${NC}"
+      echo "  lsof -i :$port:"
+      lsof -i :$port 2>/dev/null || echo "  (无)"
       return 1
     else
       echo "${GREEN}✓ 已停止${NC}"
@@ -197,6 +201,8 @@ stop() {
     fi
   else
     echo "${RED}✗ 停止失败，残留 pid=$final_check${NC}"
+    echo "  lsof -i :$port:"
+    lsof -i :$port 2>/dev/null || echo "  (无)"
     return 1
   fi
 }

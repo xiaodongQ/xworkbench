@@ -408,7 +408,7 @@ async function viewExecutionDetail(id) {
       ' <span style="margin-left:8px;color:var(--text-secondary)">|</span>' +
       ' exit_code=' + exitDisplay + ' · ' + new Date(exec.started_at).toLocaleString() + ' · 耗时 ' + dur;
 
-    const isEvalNow = _evaluatingIds.has(currentExecId);
+    const isEvalNow = _evaluatingIds.has(id);
     const evalBtn = document.getElementById('exec-detail-eval-btn');
     const evalSel = document.getElementById('eval-model-select');
     if (isEvalNow) {
@@ -451,7 +451,7 @@ async function loadExecComments(execId) {
     container.innerHTML = '<span style="color:var(--exception);font-size:12px">加载评论失败</span>';
     return;
   }
-  countEl.textContent = list.length > 0 ? '(' + list.length + ')' : '';
+  if (countEl) countEl.textContent = list.length > 0 ? '(' + list.length + ')' : '';
   if (!list.length) {
     container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">暂无评论</span>';
     return;
@@ -543,6 +543,8 @@ async function runEvaluation(id) {
   const oldText = btn && btn.textContent;
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   _markEvaluating(execId, true);
+  // 记录评估开始时间（用 Date 对象避免时区字符串比较问题）
+  const evalStartedAt = new Date();
   try {
     await fetchJSON('/api/executions/' + execId + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cli_type: getEvalCliType(), model: getEvalModel(), timeout_sec: timeoutSec})});
     // 评估中状态：弹窗 + 列表徽章（_markEvaluating 已刷列表）
@@ -555,11 +557,15 @@ async function runEvaluation(id) {
       await new Promise(r => setTimeout(r, 2000));
       const evals = await fetchJSON('/api/executions/' + execId + '/evaluations');
       if (evals && evals.length > 0) {
-        if (currentExecId === execId) renderEvalHistory(evals);
-        _markEvaluating(execId, false);
-        // 刷新列表（评分可能影响渲染）
-        loadRecentExecutions();
-        return;
+        // 只认定本次评估开始后创建的新评估
+        const newEvals = evals.filter(e => e.created_at && new Date(e.created_at) > evalStartedAt);
+        if (newEvals.length > 0) {
+          if (currentExecId === execId) renderEvalHistory(evals);
+          _markEvaluating(execId, false);
+          // 刷新列表（评分可能影响渲染）
+          loadRecentExecutions();
+          return;
+        }
       }
       // 还在评估中，持续更新状态
       if (currentExecId === execId && i % 2 === 0) {

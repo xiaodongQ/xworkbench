@@ -394,20 +394,60 @@ func (m *ExecutionMeta) ToolUseLikely() bool {
 
 // ParseEvalOutput 解析评估员（claude -p --output-format json）的输出，从 result 字段提取 "评分: X" 和 "评语: Y"。
 // 评估员自己的输出也是 JSON 格式，需要先取 .result 拿到"评分: X 评语: Y"纯文本。
+// cbc 的 --output-format json 输出为消息数组格式，需要特殊处理。
 // 解析失败时返回 (nil, false)。
 func ParseEvalOutput(stdout string) (*EvalResult, bool) {
-	meta, ok := ParseJSONExecution(stdout)
-	if !ok {
-		logger.Logger.Warnw("evaluator: ParseJSONExecution failed, raw output preview",
-			"output_len", len(stdout),
-			"output_prefix", func() string {
-				s := strings.TrimSpace(stdout)
-				if len(s) > 200 {
-					return s[:200] + "..."
-				}
-				return s
-			}())
-		return nil, false
+	// 先尝试 claude 的 JSON 格式 {result: "...", is_error: ...}
+	if meta, ok := ParseJSONExecution(stdout); ok {
+		return parseEval(meta.Result), true
 	}
-	return parseEval(meta.Result), true
+	// 再尝试 cbc 的 JSON 数组格式 [{"type": "message", "role": "assistant", "content": [...]}]
+	if result, ok := parseCBCArrayFormat(stdout); ok {
+		return parseEval(result), true
+	}
+	logger.Logger.Warnw("evaluator: ParseJSONExecution failed, raw output preview",
+		"output_len", len(stdout),
+		"output_prefix", func() string {
+			s := strings.TrimSpace(stdout)
+			if len(s) > 200 {
+				return s[:200] + "..."
+			}
+			return s
+		}())
+	return nil, false
+}
+
+// parseCBCArrayFormat 解析 cbc --output-format json 的消息数组输出，
+// 提取 assistant 的 output_text 内容。
+func parseCBCArrayFormat(stdout string) (string, bool) {
+	stdout = strings.TrimSpace(stdout)
+	if !strings.HasPrefix(stdout, "[") {
+		return "", false
+	}
+	var messages []struct {
+		Type    string `json:"type"`
+		Role    string `json:"role"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &messages); err != nil {
+		return "", false
+	}
+	// 找到最后的 assistant 消息，取其 output_text
+	var lastAssistantText string
+	for _, msg := range messages {
+		if msg.Role == "assistant" {
+			for _, c := range msg.Content {
+				if c.Type == "output_text" && c.Text != "" {
+					lastAssistantText = c.Text
+				}
+			}
+		}
+	}
+	if lastAssistantText == "" {
+		return "", false
+	}
+	return lastAssistantText, true
 }
