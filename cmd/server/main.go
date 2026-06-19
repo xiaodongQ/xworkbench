@@ -302,9 +302,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Description  string   `json:"description"`
 		ExperienceID string   `json:"experience_id"` // 旧字段（单值），保留向后兼容
 		ExperienceIDs []string `json:"experience_ids"` // 新字段：多经验关联
-		Resources    string   `json:"resources"`
 		Acceptance   string   `json:"acceptance"`
-		Module       string   `json:"module"`
 		TaskType     string   `json:"task_type"` // 'manual'|'scheduled'|'remote'，默认 'manual'
 		Priority     int      `json:"priority"`  // 数字越大越优先，默认 5
 	}
@@ -317,7 +315,6 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Title:        req.Title,
 		Description:  req.Description,
 		ExperienceID: req.ExperienceID,
-		Resources:    req.Resources,
 		Acceptance:   req.Acceptance,
 		Status:       backend.TaskStatusPending,
 		Version:      "v0.0.1",
@@ -360,9 +357,7 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		Description   string   `json:"description"`
 		ExperienceID  string   `json:"experience_id"`
 		ExperienceIDs []string `json:"experience_ids"`
-		Resources     string   `json:"resources"`
 		Acceptance    string   `json:"acceptance"`
-		Module        string   `json:"module"`
 		// Priority 用指针：nil=未传，&0=显式设为 0。未传时不触发 priority_changed webhook。
 		Priority *int `json:"priority,omitempty"`
 	}
@@ -379,7 +374,6 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	task.Title = req.Title
 	task.Description = req.Description
 	task.ExperienceID = req.ExperienceID
-	task.Resources = req.Resources
 	task.Acceptance = req.Acceptance
 	if req.Priority != nil {
 		task.Priority = *req.Priority
@@ -2548,7 +2542,6 @@ func (s *APIServer) handleTemplateInstantiate(w http.ResponseWriter, r *http.Req
 		ID:          uuid.New().String(),
 		Title:       title,
 		Description: getStr(body, "description"),
-		Resources:   getStr(body, "resources"),
 		Acceptance:  getStr(body, "acceptance"),
 		Status:      backend.TaskStatusPending,
 		Version:     "v0.0.1",

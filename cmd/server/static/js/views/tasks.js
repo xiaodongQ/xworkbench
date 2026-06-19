@@ -334,9 +334,6 @@ function viewTask(id) {
   document.getElementById('task-title').readOnly = true;
   document.getElementById('task-desc').value = t.description || '';
   document.getElementById('task-desc').readOnly = true;
-  document.getElementById('task-module').value = t.module || '';
-  document.getElementById('task-module').readOnly = true;
-  document.getElementById('task-resources').value = t.resources || '';
   document.getElementById('task-acceptance').value = t.acceptance || '';
   document.getElementById('task-acceptance').readOnly = true;
   document.getElementById('task-submit-btn').classList.add('hidden');
@@ -383,9 +380,6 @@ function showTaskModal(task) {
   document.getElementById('task-title').readOnly = false;
   document.getElementById('task-desc').value = task ? (task.description || '') : '';
   document.getElementById('task-desc').readOnly = false;
-  document.getElementById('task-module').value = task ? (task.module || '') : '';
-  document.getElementById('task-module').readOnly = false;
-  document.getElementById('task-resources').value = task ? (task.resources || '') : '';
   document.getElementById('task-acceptance').value = task ? (task.acceptance || '') : '';
   document.getElementById('task-acceptance').readOnly = false;
   document.getElementById('task-type').value = task ? (task.task_type || 'manual') : 'manual';
@@ -420,8 +414,6 @@ async function submitTask() {
     title,
     description: document.getElementById('task-desc').value,
     experience_id: _selectedExps.map(s => s.id).join(','),
-    module: document.getElementById('task-module').value,
-    resources: document.getElementById('task-resources').value,
     acceptance: document.getElementById('task-acceptance').value,
     task_type: document.getElementById('task-type').value
   };
