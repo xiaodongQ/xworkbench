@@ -622,6 +622,14 @@
         <textarea id="exec-detail-error" readonly class="code" rows="2" style="font-size:12px;white-space:pre-wrap;word-break:break-all;padding:6px 8px;min-height:0;line-height:1.5"></textarea>
       </div>
       <div id="exec-detail-eval" style="background:var(--hover);padding:10px 12px;border-radius:6px;margin-top:4px;font-size:12px;line-height:1.5"></div>
+      <!-- 继续对话 -->
+      <div id="exec-continue-section" class="form-group hidden" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
+        <label style="font-size:12px">💬 继续对话 <span style="font-size:11px;color:var(--text-secondary);font-weight:normal">基于该会话继续（使用 --resume）</span></label>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <input id="exec-continue-prompt" placeholder="输入想继续问的内容..." style="flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:12px">
+          <button id="exec-continue-submit" class="btn btn-small btn-primary" onclick="submitContinue()">▶ 发送</button>
+        </div>
+      </div>
       <!-- 执行评论 -->
       <div id="exec-comment-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
         <label>💬 评论 <span id="exec-comment-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span></label>
@@ -648,6 +656,7 @@
         <span class="tooltip" style="position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--card);color:var(--text);font-size:11px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);white-space:nowrap;display:none;z-index:100">评估超时时间（秒）</span>
       </span>
       <button id="exec-detail-eval-btn" class="btn" onclick="runEvaluation()">📊 AI 评估</button>
+      <button id="exec-continue-btn" class="btn btn-secondary hidden" onclick="showContinuePrompt()">💬 继续对话</button>
       <button class="btn btn-secondary" onclick="closeExecDetailModal()">关闭</button>
     </div>
   </div>

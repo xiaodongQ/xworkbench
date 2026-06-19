@@ -3,6 +3,7 @@ package scheduler
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -219,7 +220,25 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 			status = "timeout"
 		}
 	}
-	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode)
+	// 解析 claude -p --output-format json 输出中的 uuid（用于 --resume 继续对话）
+	resumeUUID := func(o string) string {
+		idx := strings.Index(o, `"uuid"`)
+		if idx == -1 {
+			return ""
+		}
+		rest := o[idx+6:]
+		idx2 := strings.Index(rest, `"`)
+		if idx2 == -1 {
+			return ""
+		}
+		rest = rest[idx2+1:]
+		end := strings.Index(rest, `"`)
+		if end == -1 {
+			return ""
+		}
+		return rest[:end]
+	}(out)
+	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeUUID, "")
 	_ = s.repo.UpdateAfterRun(t.ID, status, exec.ID)
 	logger.Logger.Infow("scheduler: task finished", "task", t.Name, "exec_id", exec.ID, "status", status, "exit_code", exitCode)
 	s.hub.Broadcast(wsmsg.ChannelScheduled, map[string]any{

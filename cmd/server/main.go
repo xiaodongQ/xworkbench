@@ -146,6 +146,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/tasks/{id}/learn", s.handleTaskLearn)
 	mux.HandleFunc("GET /api/executions", s.handleExecutionsRecent)
 	mux.HandleFunc("GET /api/executions/{id}", s.handleExecutionGet)
+	mux.HandleFunc("POST /api/executions/{id}/continue", s.handleExecutionContinue)
 	mux.HandleFunc("POST /api/executions/{id}/evaluate", s.handleExecutionEvaluate)
 	mux.HandleFunc("GET /api/executions/{id}/evaluations", s.handleExecutionEvaluations)
 	mux.HandleFunc("GET /api/experiences", s.handleExperiences)
@@ -720,7 +721,9 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			out, errOut = res.Output, res.ErrorOut
 			exitCode = res.ExitCode
 		}
-		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode)
+		// 解析 claude -p --output-format json 输出中的 uuid（用于 --resume 继续对话）
+		resumeUUID := extractResumeUUID(out)
+		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeUUID, "")
 		_ = s.db.UpdateStatus(id, status, "factory-agent")
 		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 			"execution_id": exec.ID,
@@ -829,6 +832,100 @@ func (s *APIServer) handleExecutionGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, exec)
+}
+
+// handleExecutionContinue 基于某次 execution 的会话继续对话。
+// 使用 --resume <uuid> 让 claude 继续之前的会话。
+func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	orig, err := s.execDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if orig.ResumeUUID == "" {
+		writeErr(w, http.StatusBadRequest, "该执行没有 uuid，无法继续对话")
+		return
+	}
+	var req struct {
+		Prompt string `json:"prompt"`
+		Model  string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Prompt == "" {
+		writeErr(w, http.StatusBadRequest, "prompt 不能为空")
+		return
+	}
+	// 用 --resume 构造新命令
+	cmd, stdin, cleanup, err := runner.BuildCommand("claude", req.Model, "", req.Prompt,
+		runner.WithResume(orig.ResumeUUID))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 创建新 execution
+	// SessionGroupID 逻辑：首次 continue 时，把原始 execution 升级为组根（设其 session_group_id = orig.ID），
+	// 后续 continue 则复用已有的组 id。确保原始 execution 在 UI 中也显示为会话链的根节点。
+	if orig.SessionGroupID == "" {
+		// 原始 execution 还没有组 id，升级为根：设其 session_group_id = 自身 id
+		_ = s.execDB.SetSessionGroupID(orig.ID, orig.ID)
+		orig.SessionGroupID = orig.ID
+	}
+	groupID := orig.SessionGroupID // 后续 continue 都用同一个组 id
+	exec := &backend.Execution{
+		ID:             uuid.New().String(),
+		TaskID:         orig.TaskID,
+		Source:         "continue",
+		Command:        runner.CmdString(cmd),
+		Prompt:         req.Prompt,
+		Model:          req.Model,
+		StartedAt:      time.Now(),
+		SessionGroupID: groupID,
+	}
+	if err := s.execDB.Create(exec); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// 异步执行
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	s.mu.Lock()
+	s.running[exec.ID] = cancel
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.running, exec.ID)
+			s.mu.Unlock()
+		}()
+		if cleanup != nil {
+			defer cleanup()
+		}
+		res, _ := executor.Run(ctx, cmd, "", stdin, func(chunk string) {
+			s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+				"execution_id": exec.ID,
+				"chunk":        chunk,
+			})
+		})
+		out, errOut := "", ""
+		exitCode := -1
+		if res != nil {
+			out, errOut = res.Output, res.ErrorOut
+			exitCode = res.ExitCode
+		}
+		resumeUUID := extractResumeUUID(out)
+		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeUUID, exec.SessionGroupID)
+		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+			"execution_id": exec.ID,
+			"done":         true,
+			"exit_code":    exitCode,
+		})
+		logger.Infow("execution continue finished",
+			"orig_id", id, "exec_id", exec.ID, "exit_code", exitCode,
+			"dur_ms", time.Since(exec.StartedAt).Milliseconds())
+	}()
+	writeJSON(w, map[string]any{
+		"execution_id": exec.ID,
+		"status":       "started",
+	})
 }
 
 // handleExecutionEvaluate 异步调 claude 给 execution 打分。
@@ -1757,6 +1854,27 @@ func errStr(err error) string {
 	return err.Error()
 }
 
+// extractResumeUUID 从 claude -p --output-format json 的输出中解析 uuid 字段。
+// 输出格式: {"type":"result","uuid":"588ef06f-...",...}
+func extractResumeUUID(output string) string {
+	// 简单解析：找 "uuid":"<uuid>"
+	idx := strings.Index(output, `"uuid"`)
+	if idx == -1 {
+		return ""
+	}
+	rest := output[idx+6:] // 跳过 "uuid"
+	idx2 := strings.Index(rest, `"`)
+	if idx2 == -1 {
+		return ""
+	}
+	rest = rest[idx2+1:] // 跳过开头的引号
+	end := strings.Index(rest, `"`)
+	if end == -1 {
+		return ""
+	}
+	return rest[:end]
+}
+
 func main() {
 	// 初始化默认 logger（stderr），后续切到文件后通过 loglib.Set 同步到全局
 	zapLogger, _ := zap.NewProduction()
@@ -1999,7 +2117,8 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 			out, _ = res.Output, res.ErrorOut
 			exitCode = res.ExitCode
 		}
-		s.execDB.Finish(exec.ID, out, "", exitCode)
+		resumeUUID := extractResumeUUID(out)
+		s.execDB.Finish(exec.ID, out, "", exitCode, resumeUUID, "")
 		step := Step{Iteration: i + 1, Model: model, ExitCode: exitCode}
 		if evID, err := evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, req.Prompt, req.CliType, model); err == nil {
 			if evs, _ := s.evalDB.ListByExecution(exec.ID); len(evs) > 0 {

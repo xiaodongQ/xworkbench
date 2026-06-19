@@ -298,10 +298,31 @@ async function loadRecentExecutions() {
         + `<div style="padding:8px;text-align:center"><button class="btn btn-small" onclick="loadMoreExecutions()">📥 加载更多 (尝试加载 ${recentExecLimit} 条)</button></div>`;
       return;
     }
-    const atEnd = list.length < recentExecLimit;
-    target.innerHTML = list.map(e => {
+    // 按 session_group_id 分组：同组的所有 execution 归为一条展示
+    // 规则：session_group_id == id 的是根节点（显示为一行，含子项折叠）；session_group_id != "" && != id 的是子节点（隐藏顶层，归入父节点）
+    const groupMap = {}; // session_group_id -> { root: exec, children: [] }
+    const topLevel = []; // 没有 session_group_id 或 session_group_id == id 的
+    for (const e of list) {
+      if (!e.session_group_id) {
+        // 独立 execution，无分组
+        topLevel.push(e);
+      } else if (e.session_group_id === e.id) {
+        // 自己是根节点
+        groupMap[e.id] = { root: e, children: [] };
+        topLevel.push(e);
+      } else {
+        // 是某根节点的子节点
+        if (groupMap[e.session_group_id]) {
+          groupMap[e.session_group_id].children.push(e);
+        } else {
+          // 根节点不在当前列表中（被截断了），当作独立行
+          topLevel.push(e);
+        }
+      }
+    }
+    const renderRow = (e, depth) => {
       const dt = new Date(e.started_at).toLocaleString();
-      const src = e.source === 'scheduled' ? '⏰' : '▶';
+      const src = e.source === 'scheduled' ? '⏰' : e.source === 'continue' ? '💬' : '▶';
       const isRunning = !e.completed_at;
       const isEvaluating = _evaluatingIds.has(e.id);
       let statusIcon, statusColor, statusTitle;
@@ -319,7 +340,6 @@ async function loadRecentExecutions() {
       if (isEvaluating) {
         evalBadge = ' <span class="s-status" style="background:var(--info,#3b82f6);color:#fff;font-size:11px;font-weight:600;padding:2px 10px;border-radius:10px;animation:pulse 1.5s ease-in-out infinite">⏳ 评估中</span>';
       } else if (e.evaluation_score !== undefined && e.evaluation_score !== null) {
-        // 已评估完成：显示分数徽章（颜色按分数分级）
         const sc = e.evaluation_score;
         const scoreColor = sc >= 8 ? 'var(--archived)' : sc >= 5 ? 'var(--warning)' : 'var(--exception)';
         const scoreBg = sc >= 8 ? 'rgba(16,185,129,0.15)' : sc >= 5 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)';
@@ -327,19 +347,32 @@ async function loadRecentExecutions() {
         const evalCountStr = evalCount > 1 ? `×${evalCount}` : '';
         evalBadge = ` <span class="s-status" style="background:${scoreBg};color:${scoreColor};font-size:11px;font-weight:600;padding:2px 10px;border-radius:10px" title="AI 评估分数（点击查看详情）" onclick="viewExecutionDetail('${e.id}')">📊${evalCountStr} ${sc}/10</span>`;
       }
+      const indent = depth > 0 ? 'margin-left:' + (depth * 20) + 'px;border-left:2px solid var(--border);padding-left:8px;' : '';
       const rowStyle = isEvaluating
-        ? 'display:flex;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;align-items:center;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6'
-        : 'display:flex;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;align-items:center';
+        ? 'display:flex;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;align-items:center;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6;' + indent
+        : 'display:flex;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;align-items:center;' + indent;
+      const title = esc(e.task_title || e.scheduled_task_title || e.command || "(无标题)");
+      const cmdTip = e.command ? esc(e.command.slice(0, 200)) : '';
+      const hasKids = groupMap[e.id] && groupMap[e.id].children.length > 0;
+      const toggle = hasKids
+        ? `<span id="exec-toggle-${e.id}" onclick="toggleExecGroup('${e.id}')" style="cursor:pointer;color:var(--text-secondary);font-size:14px" title="展开/折叠会话链">▶</span>`
+        : '<span style="width:14px;display:inline-block"></span>';
+      const groupIcon = hasKids ? '💬' : src;
+      const groupTitle = hasKids ? `<b>[会话链 ${groupMap[e.id].children.length + 1} 轮]</b> ` : '';
       return `<div style="${rowStyle}">
-        <span title="${e.source}">${src}</span>
+        ${toggle}
+        <span title="${e.source}">${groupIcon}</span>
         <span style="color:var(--text-secondary);font-family:monospace">${dt}</span>
-        <span style="flex:1;max-width:500px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${esc(e.task_title || e.scheduled_task_title || e.command || "(无标题)")}</span><span title="命令: ${esc(e.command.slice(0, 200))}" style="margin-left:4px;font-size:11px;color:#60a5fa">ⓘ</span>
+        <span style="flex:1;max-width:500px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${groupTitle}${title}</span>${cmdTip ? `<span title="命令: ${cmdTip}" style="margin-left:4px;font-size:11px;color:#60a5fa">ⓘ</span>` : ''}
         <span style="font-size:11px;color:${statusColor}" title="${statusTitle}">${statusIcon}</span>
         ${evalBadge}
         <button class="btn btn-small" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
-        <button class="btn btn-small" onclick="runEvaluation('${e.id}')" title="AI 评估 (调 claude 打分 0-10)" style="${isEvaluating?'opacity:0.5;cursor:wait':''}">${isEvaluating?'⏳':'📊'}</button>
-      </div>`;
-    }).join('') + `<div style="padding:8px;text-align:center;color:var(--text-secondary);font-size:11px">
+        <button class="btn btn-small" onclick="runEvaluation('${e.id}')" title="AI 评估" style="${isEvaluating?'opacity:0.5;cursor:wait':''}">${isEvaluating?'⏳':'📊'}</button>
+      </div>
+      <div id="exec-group-${e.id}" style="display:none">${(groupMap[e.id]?.children || []).map(c => renderRow(c, depth + 1)).join('')}</div>`;
+    };
+    const atEnd = list.length < recentExecLimit;
+    target.innerHTML = topLevel.map(e => renderRow(e, 0)).join('') + `<div style="padding:8px;text-align:center;color:var(--text-secondary);font-size:11px">
         当前显示 ${list.length} 条（请求 ${recentExecLimit} 条）
         ${atEnd ? ' · 已到末尾' : `<button class="btn btn-small" data-exec-loadmore style="margin-left:8px" onclick="loadMoreExecutions()">📥 加载更多 (+50)</button>`}
       </div>`;
@@ -364,6 +397,20 @@ function loadMoreExecutions() {
     b.disabled = true; b.textContent = '⏳ 加载中...';
   });
   loadRecentExecutions();
+}
+
+// 会话链折叠/展开
+function toggleExecGroup(id) {
+  const el = document.getElementById('exec-group-' + id);
+  const tog = document.getElementById('exec-toggle-' + id);
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.style.display = 'block';
+    if (tog) tog.textContent = '▼';
+  } else {
+    el.style.display = 'none';
+    if (tog) tog.textContent = '▶';
+  }
 }
 
 // ===== Execution 详情 + 评估 =====
@@ -420,6 +467,15 @@ async function viewExecutionDetail(id) {
       if (evalBtn) { evalBtn.disabled = false; evalBtn.textContent = '📊 AI 评估'; }
       if (evalSel) evalSel.disabled = false;
     }
+    // 继续对话按钮：有 resume_uuid 时显示
+    const continueBtn = document.getElementById('exec-continue-btn');
+    if (continueBtn) {
+      if (exec.resume_uuid) {
+        continueBtn.classList.remove('hidden');
+      } else {
+        continueBtn.classList.add('hidden');
+      }
+    }
     // 拉已有评估（展示所有历史）
     try {
       const evals = await fetchJSON('/api/executions/' + id + '/evaluations');
@@ -436,6 +492,37 @@ async function viewExecutionDetail(id) {
 function closeExecDetailModal() {
   document.getElementById('exec-detail-modal').classList.add('hidden');
   currentExecId = null;
+}
+
+function showContinuePrompt() {
+  const section = document.getElementById('exec-continue-section');
+  const input = document.getElementById('exec-continue-prompt');
+  if (!section || !input) return;
+  section.classList.remove('hidden');
+  input.focus();
+}
+
+async function submitContinue() {
+  const execId = currentExecId;
+  const prompt = document.getElementById('exec-continue-prompt')?.value?.trim();
+  if (!execId || !prompt) return;
+  const btn = document.getElementById('exec-continue-submit');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const res = await fetchJSON('/api/executions/' + execId + '/continue', {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+    });
+    document.getElementById('exec-continue-section').classList.add('hidden');
+    document.getElementById('exec-continue-prompt').value = '';
+    closeExecDetailModal();
+    // 刷新执行列表
+    loadRecentExecutions();
+  } catch (e) {
+    alert('继续对话失败：' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '▶ 发送'; }
+  }
 }
 
 // ===== 执行评论 =====
@@ -622,6 +709,7 @@ function renderExecOutput(raw) {
     lines.push(obj.result);
     // 附加元数据头部（方便人工核查）
     const meta = [];
+    if (obj.uuid) meta.push(`uuid=${obj.uuid}`);
     if (typeof obj.num_turns === 'number') meta.push(`num_turns=${obj.num_turns}`);
     if (obj.is_error) meta.push('is_error=true');
     if (obj.stop_reason) meta.push(`stop_reason=${obj.stop_reason}`);

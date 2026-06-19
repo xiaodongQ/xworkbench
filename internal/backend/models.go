@@ -112,6 +112,8 @@ type Execution struct {
 	Output         string     `json:"output,omitempty"`
 	Error          string     `json:"error,omitempty"`
 	ExitCode       int        `json:"exit_code"`
+	ResumeUUID     string     `json:"resume_uuid,omitempty"` // claude -p 返回的 uuid，用于 --resume 继续对话
+	SessionGroupID string     `json:"session_group_id,omitempty"` // 会话组 id，同一次继续对话的所有 execution 共享同一个 group id
 	// JOIN 填充的标题（非数据库字段）
 	TaskTitle         string `json:"task_title,omitempty"`
 	ScheduledTaskTitle string `json:"scheduled_task_title,omitempty"`

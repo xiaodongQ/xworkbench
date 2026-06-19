@@ -53,6 +53,9 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 		if sessionID != "" {
 			cmd = append(cmd, "--session-id", sessionID)
 		}
+		if o.resumeUUID != "" {
+			cmd = append(cmd, "--resume", o.resumeUUID)
+		}
 			if o.useStdin {
 				var stdinVal string
 				if o.actionReport {
@@ -193,7 +196,11 @@ type buildOpts struct {
 	actionReport bool
 	allowedTools []string
 	useStdin    bool
+	resumeUUID  string
 }
 
 // WithStdin prompt 通过 stdin 传递（评估用，避免命令行参数过长）。
 func WithStdin() func(*buildOpts) { return func(o *buildOpts) { o.useStdin = true } }
+
+// WithResume 使用 --resume <uuid> 继续之前的会话。
+func WithResume(uuid string) func(*buildOpts) { return func(o *buildOpts) { o.resumeUUID = uuid } }

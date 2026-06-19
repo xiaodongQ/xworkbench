@@ -130,6 +130,7 @@ func Run(ctx context.Context, cmd []string, dir string, stdin string, onChunk fu
 			"err", errStr(waitErr),
 			"stdout_bytes", len(res.Output),
 			"stderr_bytes", len(res.ErrorOut),
+			"stderr", res.ErrorOut,
 		)
 	} else {
 		logger.Logger.Infow("executor: process exited",

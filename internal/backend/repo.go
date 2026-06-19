@@ -94,7 +94,9 @@ func InitSchema(db *sql.DB) error {
 		completed_at DATETIME,
 		output TEXT NOT NULL DEFAULT '',
 		error TEXT NOT NULL DEFAULT '',
-		exit_code INTEGER NOT NULL DEFAULT 0
+		exit_code INTEGER NOT NULL DEFAULT 0,
+		resume_uuid TEXT,
+		session_group_id TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_executions_task ON executions(task_id, started_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_executions_scheduled ON executions(scheduled_task_id, started_at DESC);
@@ -551,6 +553,8 @@ func migrateExecutionsColumns(db *sql.DB) error {
 	}
 	add := []struct{ n, d string }{
 		{"prompt", "prompt TEXT"},
+		{"resume_uuid", "resume_uuid TEXT"},
+		{"session_group_id", "session_group_id TEXT"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
@@ -997,8 +1001,8 @@ func NewExecutionRepo(db *sql.DB) *ExecutionRepo { return &ExecutionRepo{db: db}
 func (r *ExecutionRepo) Create(e *Execution) error {
 	// 显式插入所有字段，completed_at/output/error/exit_code 传 NULL/空/0，
 	// 避免"在跑中"行（未 Finish）这些字段为 NULL 时 ListRecent scan 炸。
-	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code)
-	        VALUES (?,?,?,?,?,?,?,?,NULL,'','',0)`
+	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid)
+	        VALUES (?,?,?,?,?,?,?,?,NULL,'','',0,'')`
 	_, err := r.db.Exec(q, e.ID, e.TaskID, e.ScheduledTaskID, e.Source, e.Command, e.Prompt, e.Model, e.StartedAt)
 	if err != nil {
 		logger.Logger.Errorw("executions create failed", "id", e.ID, "error", err.Error())
@@ -1008,10 +1012,10 @@ func (r *ExecutionRepo) Create(e *Execution) error {
 	return nil
 }
 
-func (r *ExecutionRepo) Finish(id string, output, errOut string, exitCode int) error {
+func (r *ExecutionRepo) Finish(id, output, errOut string, exitCode int, resumeUUID string, sessionGroupID string) error {
 	now := time.Now()
-	_, err := r.db.Exec(`UPDATE executions SET completed_at=?, output=?, error=?, exit_code=? WHERE id=?`,
-		now, output, errOut, exitCode, id)
+	_, err := r.db.Exec(`UPDATE executions SET completed_at=?, output=?, error=?, exit_code=?, resume_uuid=?, session_group_id=? WHERE id=?`,
+		now, output, errOut, exitCode, resumeUUID, sessionGroupID, id)
 	if err != nil {
 		logger.Logger.Errorw("executions finish failed", "id", id, "error", err.Error())
 		return err
@@ -1019,19 +1023,27 @@ func (r *ExecutionRepo) Finish(id string, output, errOut string, exitCode int) e
 	logger.Logger.Infow("executions finished", "id", id, "exit_code", exitCode)
 	return nil
 }
+
+// SetSessionGroupID 将某 execution 的 session_group_id 设为指定值。
+// 用于"继续对话"时把原始 execution 升级为会话组根节点。
+func (r *ExecutionRepo) SetSessionGroupID(id, groupID string) error {
+	_, err := r.db.Exec(`UPDATE executions SET session_group_id=? WHERE id=?`, groupID, id)
+	return err
+}
+
 func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.model,
-	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,
+	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,
 	             t.title, s.name
 	        FROM executions e
 	        LEFT JOIN tasks t ON e.task_id = t.id
 	        LEFT JOIN scheduled_tasks s ON e.scheduled_task_id = s.id
 	        WHERE e.id=?`
 	var e Execution
-	var taskID, schedID, model, output, errOut, taskTitle, schedTitle sql.NullString
+	var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID sql.NullString
 	var completedAt sql.NullTime
 	err := r.db.QueryRow(q, id).Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &model,
-		&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode,
+		&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID,
 		&taskTitle, &schedTitle)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("execution %s not found", id)
@@ -1046,6 +1058,7 @@ func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	e.Model = model.String
 	e.Output = output.String
 	e.Error = errOut.String
+	e.ResumeUUID = resumeUUID.String
 	if completedAt.Valid {
 		e.CompletedAt = &completedAt.Time
 	}
@@ -1058,7 +1071,7 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 	if limit <= 0 {
 		limit = 20
 	}
-	q := `SELECT id,task_id,scheduled_task_id,source,command,model,started_at,completed_at,output,error,exit_code
+	q := `SELECT id,task_id,scheduled_task_id,source,command,model,started_at,completed_at,output,error,exit_code,resume_uuid
 	        FROM executions WHERE task_id=? ORDER BY started_at DESC LIMIT ?`
 	rows, err := r.db.Query(q, taskID, limit)
 	if err != nil {
@@ -1068,10 +1081,10 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 	var out []*Execution
 	for rows.Next() {
 		var e Execution
-		var taskID, schedID, model, output, errOut sql.NullString
+		var taskID, schedID, model, output, errOut, resumeUUID sql.NullString
 		var completedAt sql.NullTime
 		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &model,
-			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode); err != nil {
+			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
@@ -1079,6 +1092,7 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 		e.Model = model.String
 		e.Output = output.String
 		e.Error = errOut.String
+		e.ResumeUUID = resumeUUID.String
 		if completedAt.Valid {
 			e.CompletedAt = &completedAt.Time
 		}
@@ -1095,7 +1109,7 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	// LEFT JOIN evaluations 取最近一次分数（每 exec 只关联最新一条）
 	// LEFT JOIN tasks / scheduled_tasks 取标题
 	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.model,
-	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,
+	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,e.session_group_id,
 	             (SELECT ev.score FROM evaluations ev
 	                WHERE ev.execution_id = e.id
 	                ORDER BY ev.created_at DESC LIMIT 1) AS eval_score,
@@ -1113,12 +1127,12 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	var out []*Execution
 	for rows.Next() {
 		var e Execution
-		var taskID, schedID, model, output, errOut, taskTitle, schedTitle sql.NullString
+		var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, sessionGroupID sql.NullString
 		var completedAt sql.NullTime
 		var evalScore sql.NullFloat64
 		var evalCount int
 		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &model,
-			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &evalScore,
+			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &sessionGroupID, &evalScore,
 			&evalCount, &taskTitle, &schedTitle); err != nil {
 			return nil, err
 		}
@@ -1134,6 +1148,8 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 		e.Model = model.String
 		e.Output = output.String
 		e.Error = errOut.String
+		e.ResumeUUID = resumeUUID.String
+		e.SessionGroupID = sessionGroupID.String
 		if completedAt.Valid {
 			e.CompletedAt = &completedAt.Time
 		}
