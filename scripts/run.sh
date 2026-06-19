@@ -121,15 +121,17 @@ find_pid_by_port() {
   echo "$pid"
 }
 
-# 检查端口是否被任何进程占用（跨平台）
-is_port_any_in_use() {
+# 检查端口是否被任何进程 LISTENING（跨平台）
+# 注意：只检查 LISTEN 状态，CLOSE_WAIT 等其他状态的连接不影响重新绑定
+is_port_in_use() {
   local port=$(listen_port)
   case "$os" in
     darwin)
-      lsof -ti:$port >/dev/null 2>&1
+      # -sTCP:LISTEN 只匹配 LISTENING 状态，忽略 CLOSE_WAIT/TIME_WAIT 等
+      lsof -i :$port -sTCP:LISTEN >/dev/null 2>&1
       ;;
     linux)
-      ss -tln 2>/dev/null | grep -q ":$port"
+      ss -tln 2>/dev/null | grep -q ":$port "
       ;;
     windows)
       netstat -ano 2>/dev/null | grep ":$port" | grep -q LISTEN
@@ -192,7 +194,7 @@ stop() {
     for i in 1 2 3 4 5; do
       printf "  等待端口释放 ($i/5)... "
       sleep 1
-      if ! is_port_any_in_use; then
+      if ! is_port_in_use; then
         echo "${GREEN}OK${NC}"
         echo "${GREEN}✓ 已停止${NC}"
         return 0
@@ -227,7 +229,7 @@ start() {
   local port=$(listen_port)
 
   # 端口已被占用
-  if is_port_any_in_use; then
+  if is_port_in_use; then
     local existing_pid=$(find_pid_by_port)
     if [ -n "$existing_pid" ]; then
       echo "${YELLOW}⚠ 端口 $port 已被 xworkbench (pid=$existing_pid) 占用${NC}，先停止..."
