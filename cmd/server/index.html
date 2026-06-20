@@ -188,6 +188,10 @@
         <option value="manual">本地手动</option>
         <option value="remote">远程 Agent</option>
       </select>
+      <select id="filter-saved" onchange="applySavedFilter(this.value)" title="已保存的筛选">
+        <option value="">⭐ 已保存筛选...</option>
+      </select>
+      <button class="btn btn-small" onclick="showSaveFilterDialog()" title="把当前筛选条件存为常用">💾 保存</button>
       <button class="btn btn-primary" onclick="showTaskModal()">+ 新建任务</button>
       <div class="spacer"></div>
       <span class="count" id="task-count"></span>
@@ -432,6 +436,15 @@
 	        <button type="button" class="btn btn-small" style="margin-left:auto" onclick="event.stopPropagation();loadTaskConversation()">🔄 刷新</button>
 	      </label>
 	      <div id="task-conversation-body" class="hidden" style="max-height:300px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg)"></div>
+	    </div>
+	    <!-- 活动历史（后端 task_events 审计流：创建/认领/上报/heartbeat 等） -->
+	    <div id="task-events-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
+	      <label style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px" onclick="toggleTaskEvents()">
+	        <span id="task-events-toggle" style="display:inline-block;transition:transform 0.15s;font-size:10px;width:12px;text-align:center">▶</span>
+	        📜 活动历史 <span id="task-events-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span>
+	        <button type="button" class="btn btn-small" style="margin-left:auto" onclick="event.stopPropagation();loadTaskEvents()">🔄 刷新</button>
+	      </label>
+	      <div id="task-events-body" class="hidden" style="max-height:200px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg)"></div>
 	    </div>
 	    <!-- 评论区 -->
 	    <div id="task-comment-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">

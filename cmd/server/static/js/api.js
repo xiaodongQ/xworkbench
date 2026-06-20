@@ -91,6 +91,7 @@ function switchTab(tab) {
   if (tab === 'dashboard' && typeof loadDashboard === 'function') loadDashboard();
   if (tab === 'tasks' && typeof loadTasks === 'function') {
     try { loadTasks(); } catch(e) { console.error('[loadTasks error]', e); }
+    if (typeof loadSavedFilters === 'function') loadSavedFilters();
   }
   if (tab === 'experiences' && typeof loadExps === 'function') loadExps();
   if (tab === 'automation' && typeof loadAutomation === 'function') { loadAutomation(); if (typeof loadTerminalSetting === 'function') loadTerminalSetting(); }

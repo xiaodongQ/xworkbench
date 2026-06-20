@@ -363,6 +363,8 @@ function viewTask(id) {
   // 对话历史：预加载计数，body 默认折叠，点 ▶ 才展开
   _taskConvLoaded = false;
   loadTaskConversation();
+  // 活动历史：预加载计数，body 默认折叠，点 ▶ 才展开
+  loadTaskEvents();
 }
 
 async function editTask(id) {
@@ -586,3 +588,219 @@ function _convEscape(s) {
     '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
   }[c]));
 }
+
+// ===== 活动历史（task-modal 里的 task_events 区块） =====
+// 后端 GET /api/tasks/{id}/events 返回该 task 产生的所有事件（created/claimed/reported/heartbeat_lost/recovered 等）。
+// 只读展示，不提供写操作。
+function toggleTaskEvents() {
+  const body = document.getElementById('task-events-body');
+  const arrow = document.getElementById('task-events-toggle');
+  if (body.classList.contains('hidden')) {
+    body.classList.remove('hidden');
+    arrow.style.transform = 'rotate(90deg)';
+  } else {
+    body.classList.add('hidden');
+    arrow.style.transform = 'rotate(0deg)';
+  }
+}
+
+async function loadTaskEvents() {
+  const taskId = document.getElementById('task-id').value;
+  if (!taskId) return;
+  const body = document.getElementById('task-events-body');
+  body.innerHTML = '<div style="padding:8px;color:var(--text-secondary);font-size:12px">加载中...</div>';
+  try {
+    const events = await fetchJSON('/api/tasks/' + taskId + '/events?limit=50');
+    renderTaskEvents(events || []);
+  } catch (e) {
+    body.innerHTML = '<div style="padding:8px;color:var(--exception);font-size:12px">⚠ 加载失败：' + e.message + '</div>';
+  }
+}
+
+// renderTaskEvents 按时间倒序展示（后端已是这个顺序）。event_type 分中英友好名。
+// actor 字段可能是 'user' / 'agent:<id>' / 'system'。
+function renderTaskEvents(events) {
+  const countEl = document.getElementById('task-events-count');
+  const body = document.getElementById('task-events-body');
+  if (!events.length) {
+    countEl.textContent = '(0)';
+    body.innerHTML = '<div style="padding:8px;color:var(--text-secondary);font-size:12px">该任务暂无活动事件</div>';
+    return;
+  }
+  countEl.textContent = '(' + events.length + ')';
+  const html = events.map(ev => {
+    const ts = ev.created_at ? new Date(ev.created_at).toLocaleString('zh-CN', {hour12: false}) : '';
+    const typeLabel = _eventTypeLabel(ev.event_type);
+    const actorLabel = _eventActorLabel(ev.actor);
+    const payload = ev.payload ? _eventPayloadSummary(ev.event_type, ev.payload) : '';
+    return `<div style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:8px;align-items:flex-start">
+      <div style="flex-shrink:0;font-size:11px;color:var(--accent);min-width:90px">${_eventTypeBadge(ev.event_type, typeLabel)}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:2px">
+          <span style="color:var(--text-secondary);font-size:10px">${ts}</span>
+          <span style="color:var(--text-secondary);font-size:10px">· ${_eventEsc(actorLabel)}</span>
+        </div>
+        ${payload ? `<div style="color:var(--text);word-break:break-word;font-size:11px">${_eventEsc(payload)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  body.innerHTML = html;
+}
+
+function _eventTypeBadge(type, label) {
+  const palette = {
+    created: '#10b981',
+    claimed: '#0ea5e9',
+    reported: '#8b5cf6',
+    heartbeat_lost: '#ef4444',
+    heartbeat_recovered: '#10b981',
+  };
+  const color = palette[type] || '#6b7280';
+  return `<span style="background:${color};color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">${label}</span>`;
+}
+
+function _eventTypeLabel(type) {
+  return ({
+    created: '创建',
+    claimed: '认领',
+    reported: '上报',
+    heartbeat_lost: '心跳丢失',
+    heartbeat_recovered: '心跳恢复',
+  })[type] || type;
+}
+
+function _eventActorLabel(actor) {
+  if (!actor) return '系统';
+  if (actor === 'user') return '用户';
+  if (actor.startsWith('agent:')) return 'Agent ' + actor.slice(6);
+  return actor;
+}
+
+// payload 是 JSON 字符串（后端 fmt.Sprintf 拼出来的）。提取几个常见字段拼接成可读句子。
+function _eventPayloadSummary(type, payload) {
+  try {
+    const obj = JSON.parse(payload);
+    if (type === 'created' && obj.task_type) return '类型：' + obj.task_type;
+    if (type === 'claimed' && obj.agent_id) return 'agent_id=' + obj.agent_id;
+    if (type === 'reported') {
+      const parts = [];
+      if (obj.score != null) parts.push('score=' + obj.score);
+      if (obj.is_error) parts.push('is_error=true');
+      if (obj.exit_code != null) parts.push('exit_code=' + obj.exit_code);
+      return parts.length ? parts.join(' · ') : payload;
+    }
+    return payload;
+  } catch {
+    return payload;
+  }
+}
+
+function _eventEsc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[c]));
+}
+
+// ===== 已保存筛选 (SavedFilter) =====
+// 后端 CRUD: GET/POST/PUT/DELETE /api/saved-filters
+// filter_json 存的是 JSON 字符串，目前支持两个字段：status / task_type
+// （与现有 toolbar 的 filter-status / filter-task-type select 同步；后续可以加 priority/created_at 等）
+async function loadSavedFilters() {
+  const sel = document.getElementById('filter-saved');
+  if (!sel) return;
+  try {
+    const list = await fetchJSON('/api/saved-filters');
+    // 重画 option
+    sel.innerHTML = '<option value="">⭐ 已保存筛选...</option>';
+    for (const f of (list || [])) {
+      const opt = document.createElement('option');
+      opt.value = f.id;
+      opt.textContent = (f.is_default ? '★ ' : '') + f.name + (f.description ? ' — ' + f.description : '');
+      opt.dataset.filter = f.filter_json;
+      sel.appendChild(opt);
+    }
+    // 加 "删除" 选项（点选后让用户能删）
+    if (list && list.length) {
+      const sep = document.createElement('option');
+      sep.disabled = true;
+      sep.textContent = '─── 管理 ───';
+      sel.appendChild(sep);
+      const del = document.createElement('option');
+      del.value = '__delete__';
+      del.textContent = '🗑 删除当前筛选...';
+      sel.appendChild(del);
+    }
+  } catch (e) {
+    // 接口错误静默 — 这个功能是锦上添花
+  }
+}
+
+function applySavedFilter(id) {
+  const sel = document.getElementById('filter-saved');
+  if (!sel) return;
+  if (id === '__delete__') {
+    // 进入删除模式：弹出下拉选要删哪条
+    showDeleteFilterDialog();
+    sel.value = '';
+    return;
+  }
+  if (!id) { sel.value = ''; loadTasks(); return; }
+  const opt = sel.querySelector('option[value="' + id + '"]');
+  if (!opt) return;
+  let parsed;
+  try { parsed = JSON.parse(opt.dataset.filter || '{}'); } catch { parsed = {}; }
+  // 把保存的筛选值同步到原 toolbar
+  const stEl = document.getElementById('filter-status');
+  const ttEl = document.getElementById('filter-task-type');
+  if (stEl && parsed.status != null) stEl.value = parsed.status;
+  if (ttEl && parsed.task_type != null) ttEl.value = parsed.task_type;
+  loadTasks();
+}
+
+async function showSaveFilterDialog() {
+  const status = document.getElementById('filter-status').value;
+  const taskType = document.getElementById('filter-task-type').value;
+  if (!status && !taskType) {
+    alert('请先设置筛选条件（状态或类型）');
+    return;
+  }
+  const name = prompt('为这个筛选起个名字：', (status || '全部') + ' / ' + (taskType || '全部'));
+  if (!name) return;
+  const description = prompt('备注（可选）：', '') || '';
+  const isDefault = confirm('设为默认筛选？点取消则仅保存为常用');
+  const payload = {
+    name, description,
+    filter_json: JSON.stringify({ status, task_type: taskType }),
+    is_default: isDefault ? 1 : 0,
+    sort_order: 0,
+  };
+  try {
+    await fetchJSON('/api/saved-filters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    await loadSavedFilters();
+  } catch (e) {
+    alert('保存失败：' + e.message);
+  }
+}
+
+async function showDeleteFilterDialog() {
+  let list = [];
+  try { list = await fetchJSON('/api/saved-filters'); } catch (e) { alert('加载失败：' + e.message); return; }
+  if (!list || !list.length) { alert('没有可删除的筛选'); return; }
+  const lines = list.map((f, i) => (i+1) + '. ' + (f.is_default ? '★ ' : '') + f.name).join('\n');
+  const idx = prompt('要删除哪条？输入序号：\n' + lines, '1');
+  if (!idx) return;
+  const i = parseInt(idx) - 1;
+  if (isNaN(i) || i < 0 || i >= list.length) { alert('序号无效'); return; }
+  if (!confirm('确定删除「' + list[i].name + '」？')) return;
+  try {
+    await fetchJSON('/api/saved-filters/' + list[i].id, { method: 'DELETE' });
+    await loadSavedFilters();
+  } catch (e) {
+    alert('删除失败：' + e.message);
+  }
+}
+
