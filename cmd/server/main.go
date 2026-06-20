@@ -29,7 +29,6 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/ratelimit"
 	"github.com/xiaodongQ/xworkbench/internal/scheduler"
 	"github.com/xiaodongQ/xworkbench/internal/shortcuts"
-	"github.com/xiaodongQ/xworkbench/internal/webhook"
 	taskpkg "github.com/xiaodongQ/xworkbench/internal/task"
 	"github.com/xiaodongQ/xworkbench/internal/todo"
 	"github.com/xiaodongQ/xworkbench/internal/httplog"
@@ -58,11 +57,7 @@ type APIServer struct {
 	evalDB *backend.EvaluationRepo
 	agentDB *backend.AgentRepo
 	eventDB *backend.TaskEventRepo
-	depDB   *backend.TaskDependencyRepo
-	tplDB   *backend.TaskTemplateRepo
 	sfDB    *backend.SavedFilterRepo
-	whDB    *backend.WebhookRepo
-	whDisp  *webhook.Dispatcher
 	cmtDB   *backend.TaskCommentRepo
 	execCmtDB *backend.ExecutionCommentRepo
 	sch    *scheduler.Scheduler
@@ -81,9 +76,8 @@ func NewAPIServer(
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
 	schedDB *backend.ScheduledTaskRepo, setDB *backend.AppSettingsRepo,
 	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
-	eventDB *backend.TaskEventRepo, depDB *backend.TaskDependencyRepo,
-	tplDB *backend.TaskTemplateRepo, sfDB *backend.SavedFilterRepo,
-	whDB *backend.WebhookRepo, whDisp *webhook.Dispatcher, cmtDB *backend.TaskCommentRepo,
+	eventDB *backend.TaskEventRepo, sfDB *backend.SavedFilterRepo,
+	cmtDB *backend.TaskCommentRepo,
 	execCmtDB *backend.ExecutionCommentRepo,
 	sch *scheduler.Scheduler, h *hub.Hub,
 	relayRepo relay.Repo,
@@ -91,9 +85,8 @@ func NewAPIServer(
 	s := &APIServer{
 		db: db, expDB: expDB, execDB: execDB,
 		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, setDB: setDB, evalDB: evalDB,
-		agentDB: agentDB, eventDB: eventDB, depDB: depDB,
-		tplDB: tplDB, sfDB: sfDB,
-		whDB: whDB, whDisp: whDisp, cmtDB: cmtDB, execCmtDB: execCmtDB,
+		agentDB: agentDB, eventDB: eventDB,
+		sfDB: sfDB, cmtDB: cmtDB, execCmtDB: execCmtDB,
 		sch: sch, hub: h,
 		relayHandler: relay.NewRelayHandler(relayRepo),
 		mux: http.NewServeMux(), running: map[string]context.CancelFunc{},
@@ -237,31 +230,12 @@ func (s *APIServer) routes() {
 
 	// 审计 + 依赖
 	mux.HandleFunc("GET /api/tasks/{id}/events", s.handleTaskEvents)
-	mux.HandleFunc("POST /api/tasks/{id}/dependencies", s.handleTaskDepAdd)
-	mux.HandleFunc("GET /api/tasks/{id}/dependencies", s.handleTaskDepList)
-	mux.HandleFunc("DELETE /api/tasks/{id}/dependencies/{dep}", s.handleTaskDepDelete)
-
-	// 任务模板
-	mux.HandleFunc("GET /api/task-templates", s.handleTemplateList)
-	mux.HandleFunc("POST /api/task-templates", s.handleTemplateCreate)
-	mux.HandleFunc("GET /api/task-templates/{id}", s.handleTemplateGet)
-	mux.HandleFunc("PUT /api/task-templates/{id}", s.handleTemplateUpdate)
-	mux.HandleFunc("DELETE /api/task-templates/{id}", s.handleTemplateDelete)
-	mux.HandleFunc("POST /api/task-templates/{id}/instantiate", s.handleTemplateInstantiate)
 
 	// 保存过滤器
 	mux.HandleFunc("GET /api/saved-filters", s.handleSFList)
 	mux.HandleFunc("POST /api/saved-filters", s.handleSFCreate)
 	mux.HandleFunc("PUT /api/saved-filters/{id}", s.handleSFUpdate)
 	mux.HandleFunc("DELETE /api/saved-filters/{id}", s.handleSFDelete)
-
-	// Webhook
-	mux.HandleFunc("GET /api/webhooks", s.handleWebhookList)
-	mux.HandleFunc("POST /api/webhooks", s.handleWebhookCreate)
-	mux.HandleFunc("GET /api/webhooks/{id}", s.handleWebhookGet)
-	mux.HandleFunc("PUT /api/webhooks/{id}", s.handleWebhookUpdate)
-	mux.HandleFunc("DELETE /api/webhooks/{id}", s.handleWebhookDelete)
-	mux.HandleFunc("POST /api/webhooks/{id}/test", s.handleWebhookTest)
 
 	// 评论
 	mux.HandleFunc("GET /api/tasks/{id}/comments", s.handleCommentList)
@@ -345,8 +319,6 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Actor: "user", Payload: fmt.Sprintf(`{"task_type":"%s"}`, task.TaskType),
 		CreatedAt: time.Now(),
 	})
-	// Webhook 派发
-	s.whDisp.Dispatch("task.created", map[string]any{"task_id": task.ID, "title": task.Title, "task_type": task.TaskType})
 	writeJSON(w, task)
 }
 
@@ -371,7 +343,6 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	oldPriority := task.Priority
 	task.Title = req.Title
 	task.Description = req.Description
 	task.ExperienceID = req.ExperienceID
@@ -382,13 +353,6 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := s.db.Update(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	if req.Priority != nil && *req.Priority != oldPriority {
-		s.whDisp.Dispatch("task.priority_changed", map[string]any{
-			"task_id": id,
-			"old":     oldPriority,
-			"new":     *req.Priority,
-		})
 	}
 	// 多经验关联：experience_ids 优先；空时回退到旧的 experience_id 单值
 	expIDs := req.ExperienceIDs
@@ -786,11 +750,6 @@ func (s *APIServer) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) handleTaskDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	logger.Infow("task delete", "id", id)
-	// 清理依赖（避免悬空引用）
-	if err := s.depDB.DeleteByTask(id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	if err := s.db.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2009,16 +1968,12 @@ func main() {
 
 	agentRepo := backend.NewAgentRepo(db)
 	eventRepo := backend.NewTaskEventRepo(db)
-	depRepo := backend.NewTaskDependencyRepo(db)
-	tplRepo := backend.NewTaskTemplateRepo(db)
 	sfRepo := backend.NewSavedFilterRepo(db)
-	whRepo := backend.NewWebhookRepo(db)
-	whDisp := webhook.NewDispatcher(whRepo)
 	cmtRepo := backend.NewTaskCommentRepo(db)
 	execCmtRepo := backend.NewExecutionCommentRepo(db)
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
 		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, agentRepo,
-		eventRepo, depRepo, tplRepo, sfRepo, whRepo, whDisp, cmtRepo, execCmtRepo, sch, h, relayRepo)
+		eventRepo, sfRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)
 
 	// 后台 goroutine：心跳超时检测
 	// Agent >30s 未心跳 → 标记为 offline，并把该 agent 手上未完成的任务还回 pending 池
@@ -2380,7 +2335,6 @@ func (s *APIServer) handleTaskClaim(w http.ResponseWriter, r *http.Request) {
 		Actor: "agent:" + req.AgentID, CreatedAt: time.Now(),
 	})
 	// Webhook
-	s.whDisp.Dispatch("task.claimed", map[string]any{"task_id": taskID, "agent_id": req.AgentID})
 	writeJSON(w, map[string]any{"status": "claimed", "task": task, "experiences": experiences})
 }
 
@@ -2427,7 +2381,6 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now(),
 	})
 	// Webhook
-	s.whDisp.Dispatch("task.reported", map[string]any{"task_id": taskID, "agent_id": req.AgentID, "status": req.Status, "score": req.EvaluationScore})
 	// WebSocket 广播任务状态变更
 	task, _ := s.db.Get(taskID)
 	s.hub.Broadcast(wsmsg.ChannelTask, map[string]any{
@@ -2515,242 +2468,6 @@ func (s *APIServer) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, events)
 }
 
-// handleTaskDepAdd 添加任务依赖。
-func (s *APIServer) handleTaskDepAdd(w http.ResponseWriter, r *http.Request) {
-	taskID := r.PathValue("id")
-	var req struct {
-		DependsOn string `json:"depends_on"`
-		Type      string `json:"type"` // hard | soft，默认 hard
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if req.DependsOn == "" {
-		writeErr(w, http.StatusBadRequest, "depends_on is required")
-		return
-	}
-	if req.DependsOn == taskID {
-		writeErr(w, http.StatusBadRequest, "task cannot depend on itself")
-		return
-	}
-	dep := &backend.TaskDependency{
-		TaskID: taskID, DependsOn: req.DependsOn, Type: req.Type,
-	}
-	if err := s.depDB.Add(dep); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// 审计
-	s.eventDB.Record(&backend.TaskEvent{
-		TaskID: taskID, EventType: "dep_added",
-		Actor: "user",
-		Payload: fmt.Sprintf(`{"depends_on":"%s","type":"%s"}`, req.DependsOn, dep.Type),
-		CreatedAt: time.Now(),
-	})
-	writeJSON(w, dep)
-}
-
-// handleTaskDepList 列出某 task 的所有上游依赖。
-func (s *APIServer) handleTaskDepList(w http.ResponseWriter, r *http.Request) {
-	taskID := r.PathValue("id")
-	deps, err := s.depDB.ListByTask(taskID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, deps)
-}
-
-// handleTaskDepDelete 删除一条依赖。
-func (s *APIServer) handleTaskDepDelete(w http.ResponseWriter, r *http.Request) {
-	taskID := r.PathValue("id")
-	dependsOn := r.PathValue("dep")
-	logger.Infow("task dep delete", "task_id", taskID, "depends_on", dependsOn)
-	if err := s.depDB.Delete(taskID, dependsOn); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// 审计
-	s.eventDB.Record(&backend.TaskEvent{
-		TaskID: taskID, EventType: "dep_removed",
-		Actor: "user",
-		Payload: fmt.Sprintf(`{"depends_on":"%s"}`, dependsOn),
-		CreatedAt: time.Now(),
-	})
-	writeJSON(w, map[string]any{"ok": true})
-}
-
-// ---- Task Template Handlers ----
-
-func (s *APIServer) handleTemplateList(w http.ResponseWriter, r *http.Request) {
-	category := r.URL.Query().Get("category")
-	tpls, err := s.tplDB.List(category)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, tpls)
-}
-
-func (s *APIServer) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
-	logger.Infow("template create")
-	var req struct {
-		Name         string `json:"name"`
-		Description  string `json:"description"`
-		Category     string `json:"category"`
-		TaskType     string `json:"task_type"`
-		TemplateBody string `json:"template_body"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	t := &backend.TaskTemplate{
-		Name:         req.Name,
-		Description:  req.Description,
-		Category:     req.Category,
-		TaskType:     req.TaskType,
-		TemplateBody: req.TemplateBody,
-	}
-	if err := s.tplDB.Create(t); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, t)
-}
-
-func (s *APIServer) handleTemplateGet(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	t, err := s.tplDB.Get(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	writeJSON(w, t)
-}
-
-func (s *APIServer) handleTemplateUpdate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	logger.Infow("template update", "id", id)
-	t, err := s.tplDB.Get(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	var req struct {
-		Name         string `json:"name"`
-		Description  string `json:"description"`
-		Category     string `json:"category"`
-		TaskType     string `json:"task_type"`
-		TemplateBody string `json:"template_body"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	t.Name = req.Name
-	t.Description = req.Description
-	t.Category = req.Category
-	t.TaskType = req.TaskType
-	t.TemplateBody = req.TemplateBody
-	if err := s.tplDB.Update(t); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, t)
-}
-
-func (s *APIServer) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	logger.Infow("template delete", "id", id)
-	if err := s.tplDB.Delete(id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
-}
-
-// handleTemplateInstantiate 用模板创建任务。
-// 1) 读模板，解析 template_body
-// 2) 合并传入的 overrides
-// 3) 创建任务，递增 use_count
-func (s *APIServer) handleTemplateInstantiate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	tpl, err := s.tplDB.Get(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	var overrides map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&overrides); err != nil && err.Error() != "EOF" {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// 合并：overrides 优先
-	body := map[string]any{}
-	if tpl.TemplateBody != "" {
-		if err := json.Unmarshal([]byte(tpl.TemplateBody), &body); err != nil {
-			writeErr(w, http.StatusBadRequest, "template_body is not valid JSON: "+err.Error())
-			return
-		}
-	}
-	for k, v := range overrides {
-		body[k] = v
-	}
-	// 创建任务
-	title, _ := body["title"].(string)
-	if title == "" {
-		title = tpl.Name
-	}
-	task := &backend.Task{
-		ID:          uuid.New().String(),
-		Title:       title,
-		Description: getStr(body, "description"),
-		Acceptance:  getStr(body, "acceptance"),
-		Status:      backend.TaskStatusPending,
-		Version:     "v0.0.1",
-		CreatedAt:   time.Now(),
-		TaskType:    tpl.TaskType,
-	}
-	if v := getStr(body, "task_type"); v != "" {
-		task.TaskType = v
-	}
-	if expIDs, ok := body["experience_ids"].([]any); ok {
-		for _, e := range expIDs {
-			if s, ok := e.(string); ok {
-				task.ExperienceIDs = append(task.ExperienceIDs, s)
-			}
-		}
-	} else if v := getStr(body, "experience_id"); v != "" {
-		task.ExperienceID = v
-	}
-	if err := s.db.Create(task); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if len(task.ExperienceIDs) > 0 {
-		s.db.AttachExperiences(task.ID, task.ExperienceIDs)
-	}
-	s.tplDB.IncrementUseCount(id)
-	// 审计
-	s.eventDB.Record(&backend.TaskEvent{
-		TaskID: task.ID, EventType: "created_from_template",
-		Actor: "user", Payload: fmt.Sprintf(`{"template_id":"%s","template_name":"%s"}`, tpl.ID, tpl.Name),
-		CreatedAt: time.Now(),
-	})
-	writeJSON(w, task)
-}
-
-func getStr(m map[string]any, key string) string {
-	if v, ok := m[key].(string); ok { return v }
-	return ""
-}
-
 // ---- Saved Filter Handlers ----
 
 func (s *APIServer) handleSFList(w http.ResponseWriter, r *http.Request) {
@@ -2835,111 +2552,6 @@ func (s *APIServer) handleSFDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
 }
 
-// ---- Webhook Handlers ----
-
-func (s *APIServer) handleWebhookList(w http.ResponseWriter, r *http.Request) {
-	hooks, err := s.whDB.List()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, hooks)
-}
-
-func (s *APIServer) handleWebhookCreate(w http.ResponseWriter, r *http.Request) {
-	logger.Infow("webhook create")
-	var req struct {
-		Name    string `json:"name"`
-		URL     string `json:"url"`
-		Secret  string `json:"secret"`
-		Events  string `json:"events"`
-		Enabled int    `json:"enabled"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if req.Name == "" || req.URL == "" {
-		writeErr(w, http.StatusBadRequest, "name and url are required")
-		return
-	}
-	wh := &backend.Webhook{
-		Name: req.Name, URL: req.URL, Secret: req.Secret, Events: req.Events,
-		Enabled: req.Enabled,
-	}
-	if wh.Enabled == 0 { wh.Enabled = 1 }
-	if err := s.whDB.Create(wh); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, wh)
-}
-
-func (s *APIServer) handleWebhookGet(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	wh, err := s.whDB.Get(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	writeJSON(w, wh)
-}
-
-func (s *APIServer) handleWebhookUpdate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	wh, err := s.whDB.Get(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	var req struct {
-		Name    string `json:"name"`
-		URL     string `json:"url"`
-		Secret  string `json:"secret"`
-		Events  string `json:"events"`
-		Enabled int    `json:"enabled"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	wh.Name = req.Name
-	wh.URL = req.URL
-	wh.Secret = req.Secret
-	wh.Events = req.Events
-	wh.Enabled = req.Enabled
-	if err := s.whDB.Update(wh); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, wh)
-}
-
-func (s *APIServer) handleWebhookDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.whDB.Delete(id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
-}
-
-func (s *APIServer) handleWebhookTest(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	wh, err := s.whDB.Get(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	// 触发一个测试事件
-	s.whDisp.Dispatch("test", map[string]any{
-		"webhook_id": wh.ID, "message": "Hello from xworkbench webhook test!",
-	})
-	writeJSON(w, map[string]string{"status": "test_dispatched"})
-}
-
-// ---- Comment Handlers ----
-
 func (s *APIServer) handleCommentList(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("id")
 	cmts, err := s.cmtDB.ListByTask(taskID)
@@ -2981,7 +2593,6 @@ func (s *APIServer) handleCommentCreate(w http.ResponseWriter, r *http.Request) 
 		Actor: req.Author, CreatedAt: time.Now(),
 	})
 	// Webhook
-	s.whDisp.Dispatch("task.commented", map[string]any{"task_id": taskID, "author": req.Author, "comment_id": c.ID})
 	writeJSON(w, c)
 }
 
@@ -3118,6 +2729,5 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 		Actor: "agent:" + req.AgentID, CreatedAt: time.Now(),
 	})
 	// Webhook
-	s.whDisp.Dispatch("task.claimed", map[string]any{"task_id": taskID, "agent_id": req.AgentID, "via": "claim-next"})
 	writeJSON(w, map[string]any{"status": "claimed", "task": task, "experiences": experiences})
 }

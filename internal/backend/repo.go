@@ -186,26 +186,6 @@ func InitSchema(db *sql.DB) error {
 		created_at DATETIME
 	);
 	CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, created_at DESC);
-	CREATE TABLE IF NOT EXISTS task_dependencies (
-		task_id TEXT NOT NULL,
-		depends_on TEXT NOT NULL,
-		type TEXT DEFAULT 'hard',
-		created_at DATETIME,
-		PRIMARY KEY (task_id, depends_on)
-	);
-	CREATE INDEX IF NOT EXISTS idx_task_deps_dep ON task_dependencies(depends_on);
-	CREATE TABLE IF NOT EXISTS task_templates (
-		id TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		description TEXT,
-		category TEXT,
-		task_type TEXT,
-		template_body TEXT,
-		use_count INTEGER DEFAULT 0,
-		created_at DATETIME,
-		updated_at DATETIME
-	);
-	CREATE INDEX IF NOT EXISTS idx_templates_category ON task_templates(category);
 	CREATE TABLE IF NOT EXISTS saved_filters (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -215,17 +195,6 @@ func InitSchema(db *sql.DB) error {
 		sort_order INTEGER DEFAULT 0,
 		created_at DATETIME,
 		updated_at DATETIME
-	);
-	CREATE TABLE IF NOT EXISTS webhooks (
-		id TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		url TEXT NOT NULL,
-		secret TEXT,
-		events TEXT,
-		enabled INTEGER DEFAULT 1,
-		created_at DATETIME,
-		last_triggered_at DATETIME,
-		fail_count INTEGER DEFAULT 0
 	);
 	CREATE TABLE IF NOT EXISTS task_comments (
 		id TEXT PRIMARY KEY,
@@ -1758,15 +1727,6 @@ func (r *AgentRepo) SetAutoClaimEnabled(id string, enabled bool) error {
 // ClaimTask 原子 claim：只有在 task 状态为 pending 且类型为 remote 且无人认领时才能 claim。
 // 成功返回 nil，失败返回 error（并发抢或状态不对）。
 func (r *TaskRepo) ClaimTask(taskID, agentID string) error {
-	// 先检查 hard 依赖是否都完成
-	depRepo := NewTaskDependencyRepo(r.db)
-	hasUnmet, err := depRepo.HasUnmetHardDeps(taskID)
-	if err != nil {
-		return fmt.Errorf("check dependencies: %w", err)
-	}
-	if hasUnmet {
-		return fmt.Errorf("task %s has unmet hard dependencies", taskID)
-	}
 	result, err := r.db.Exec(`UPDATE tasks SET status=?, claimer_agent_id=?, claimed_at=COALESCE(claimed_at, ?)
 		WHERE id=? AND status='pending' AND task_type='remote' AND (claimer_agent_id='' OR claimer_agent_id IS NULL)`,
 		TaskStatusInProgress, agentID, time.Now(), taskID)
@@ -1894,205 +1854,6 @@ func (r *TaskEventRepo) ListByTask(taskID string, limit int) ([]*TaskEvent, erro
 	return out, rows.Err()
 }
 
-// ---- TaskDependency 任务依赖 ----
-
-type TaskDependency struct {
-	TaskID    string    `json:"task_id"`
-	DependsOn string    `json:"depends_on"`
-	Type      string    `json:"type"` // hard | soft
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type TaskDependencyRepo struct{ db *sql.DB }
-
-func NewTaskDependencyRepo(db *sql.DB) *TaskDependencyRepo { return &TaskDependencyRepo{db: db} }
-
-// Add 添加一条依赖。检测自依赖和直接环（A→B, B→A）。
-func (r *TaskDependencyRepo) Add(d *TaskDependency) error {
-	if d.Type == "" { d.Type = "hard" }
-	d.CreatedAt = time.Now()
-	// 自依赖拒绝
-	if d.TaskID == d.DependsOn {
-		return fmt.Errorf("task %s cannot depend on itself", d.TaskID)
-	}
-	// 循环检测：如果 B 已经依赖 A（含传递闭包），则 A 依赖 B 会成环
-	// 这里只检测直接环：A→B 且 B→A
-	var existing int
-	err := r.db.QueryRow(`SELECT COUNT(*) FROM task_dependencies WHERE task_id=? AND depends_on=?`,
-		d.DependsOn, d.TaskID).Scan(&existing)
-	if err != nil { return err }
-	if existing > 0 {
-		return fmt.Errorf("dependency would create a cycle: %s -> %s and %s -> %s", d.TaskID, d.DependsOn, d.DependsOn, d.TaskID)
-	}
-	_, err = r.db.Exec(`INSERT OR IGNORE INTO task_dependencies (task_id,depends_on,type,created_at)
-		VALUES (?,?,?,?)`, d.TaskID, d.DependsOn, d.Type, d.CreatedAt)
-	if err != nil {
-		logger.Logger.Errorw("[task_dependencies] add failed", "task_id", d.TaskID, "depends_on", d.DependsOn, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[task_dependencies] added", "task_id", d.TaskID, "depends_on", d.DependsOn, "type", d.Type)
-	return nil
-}
-
-// Delete 删除一条依赖。
-func (r *TaskDependencyRepo) Delete(taskID, dependsOn string) error {
-	_, err := r.db.Exec(`DELETE FROM task_dependencies WHERE task_id=? AND depends_on=?`, taskID, dependsOn)
-	if err != nil {
-		logger.Logger.Errorw("[task_dependencies] delete failed", "task_id", taskID, "depends_on", dependsOn, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[task_dependencies] deleted", "task_id", taskID, "depends_on", dependsOn)
-	return nil
-}
-
-// DeleteByTask 删除某 task 的所有依赖（任务删除时清理）。
-func (r *TaskDependencyRepo) DeleteByTask(taskID string) error {
-	_, err := r.db.Exec(`DELETE FROM task_dependencies WHERE task_id=? OR depends_on=?`, taskID, taskID)
-	if err != nil {
-		logger.Logger.Errorw("[task_dependencies] delete by task failed", "task_id", taskID, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[task_dependencies] deleted by task", "task_id", taskID)
-	return nil
-}
-
-// ListByTask 返回某 task 的所有上游依赖。
-func (r *TaskDependencyRepo) ListByTask(taskID string) ([]*TaskDependency, error) {
-	rows, err := r.db.Query(`SELECT task_id,depends_on,type,created_at FROM task_dependencies WHERE task_id=?`, taskID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []*TaskDependency
-	for rows.Next() {
-		var d TaskDependency
-		if err := rows.Scan(&d.TaskID, &d.DependsOn, &d.Type, &d.CreatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, &d)
-	}
-	return out, rows.Err()
-}
-
-// ListDependents 返回依赖某 task 的下游任务 ID 列表。
-func (r *TaskDependencyRepo) ListDependents(taskID string) ([]string, error) {
-	rows, err := r.db.Query(`SELECT task_id FROM task_dependencies WHERE depends_on=?`, taskID)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil { return nil, err }
-		out = append(out, id)
-	}
-	return out, rows.Err()
-}
-
-// HasUnmetHardDeps 检查某 task 是否有未完成的 hard 依赖。如果有则不能 claim。
-func (r *TaskDependencyRepo) HasUnmetHardDeps(taskID string) (bool, error) {
-	q := `SELECT COUNT(*) FROM task_dependencies d
-		JOIN tasks t ON t.id = d.depends_on
-		WHERE d.task_id=? AND d.type='hard' AND t.status != 'archived'`
-	var n int
-	err := r.db.QueryRow(q, taskID).Scan(&n)
-	return n > 0, err
-}
-
-// ---- TaskTemplate 任务模板 ----
-
-type TaskTemplate struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description,omitempty"`
-	Category     string    `json:"category,omitempty"`
-	TaskType     string    `json:"task_type,omitempty"`
-	TemplateBody string    `json:"template_body,omitempty"` // JSON
-	UseCount     int       `json:"use_count"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-type TaskTemplateRepo struct{ db *sql.DB }
-
-func NewTaskTemplateRepo(db *sql.DB) *TaskTemplateRepo { return &TaskTemplateRepo{db: db} }
-
-func (r *TaskTemplateRepo) Create(t *TaskTemplate) error {
-	if t.ID == "" { t.ID = "tpl-" + time.Now().Format("20060102150405") + "-" + randStr(6) }
-	now := time.Now()
-	t.CreatedAt = now
-	t.UpdatedAt = now
-	if t.UseCount == 0 { t.UseCount = 0 }
-	_, err := r.db.Exec(`INSERT INTO task_templates (id,name,description,category,task_type,template_body,use_count,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.Name, t.Description, t.Category, t.TaskType, t.TemplateBody, t.UseCount, t.CreatedAt, t.UpdatedAt)
-	if err != nil {
-		logger.Logger.Errorw("[task_templates] create failed", "id", t.ID, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[task_templates] created", "id", t.ID)
-	return nil
-}
-
-func (r *TaskTemplateRepo) Get(id string) (*TaskTemplate, error) {
-	q := `SELECT id,name,description,category,task_type,template_body,use_count,created_at,updated_at FROM task_templates WHERE id=?`
-	var t TaskTemplate
-	err := r.db.QueryRow(q, id).Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.TaskType, &t.TemplateBody, &t.UseCount, &t.CreatedAt, &t.UpdatedAt)
-	if err == sql.ErrNoRows { return nil, fmt.Errorf("template %s not found", id) }
-	return &t, err
-}
-
-func (r *TaskTemplateRepo) List(category string) ([]*TaskTemplate, error) {
-	var q string
-	var args []any
-	if category != "" {
-		q = `SELECT id,name,description,category,task_type,template_body,use_count,created_at,updated_at FROM task_templates WHERE category=? ORDER BY use_count DESC, created_at DESC`
-		args = []any{category}
-	} else {
-		q = `SELECT id,name,description,category,task_type,template_body,use_count,created_at,updated_at FROM task_templates ORDER BY use_count DESC, created_at DESC`
-	}
-	rows, err := r.db.Query(q, args...)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []*TaskTemplate
-	for rows.Next() {
-		var t TaskTemplate
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.TaskType, &t.TemplateBody, &t.UseCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, &t)
-	}
-	return out, rows.Err()
-}
-
-func (r *TaskTemplateRepo) Update(t *TaskTemplate) error {
-	t.UpdatedAt = time.Now()
-	_, err := r.db.Exec(`UPDATE task_templates SET name=?,description=?,category=?,task_type=?,template_body=?,updated_at=?
-		WHERE id=?`, t.Name, t.Description, t.Category, t.TaskType, t.TemplateBody, t.UpdatedAt, t.ID)
-	if err != nil {
-		logger.Logger.Errorw("[task_templates] update failed", "id", t.ID, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[task_templates] updated", "id", t.ID)
-	return nil
-}
-
-func (r *TaskTemplateRepo) Delete(id string) error {
-	_, err := r.db.Exec(`DELETE FROM task_templates WHERE id=?`, id)
-	if err != nil {
-		logger.Logger.Errorw("[task_templates] delete failed", "id", id, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[task_templates] deleted", "id", id)
-	return nil
-}
-
-func (r *TaskTemplateRepo) IncrementUseCount(id string) error {
-	_, err := r.db.Exec(`UPDATE task_templates SET use_count=use_count+1 WHERE id=?`, id)
-	if err != nil {
-		logger.Logger.Errorw("[task_templates] increment use_count failed", "id", id, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[task_templates] incremented use_count", "id", id)
-	return nil
-}
 
 // ---- SavedFilter 保存过滤器 ----
 
@@ -2183,128 +1944,6 @@ func randStr(n int) string {
 		b[i] = charset[randSrc.Intn(len(charset))]
 	}
 	return string(b)
-}
-
-// ---- Webhook ----
-
-type Webhook struct {
-	ID             string     `json:"id"`
-	Name           string     `json:"name"`
-	URL            string     `json:"url"`
-	Secret         string     `json:"secret,omitempty"`
-	Events         string     `json:"events,omitempty"` // 逗号分隔事件类型
-	Enabled        int        `json:"enabled"`
-	CreatedAt      time.Time  `json:"created_at"`
-	LastTriggeredAt *time.Time `json:"last_triggered_at,omitempty"`
-	FailCount      int        `json:"fail_count"`
-}
-
-type WebhookRepo struct{ db *sql.DB }
-
-func NewWebhookRepo(db *sql.DB) *WebhookRepo { return &WebhookRepo{db: db} }
-
-func (r *WebhookRepo) Create(w *Webhook) error {
-	if w.ID == "" { w.ID = "wh-" + time.Now().Format("20060102150405") + "-" + randStr(6) }
-	w.CreatedAt = time.Now()
-	_, err := r.db.Exec(`INSERT INTO webhooks (id,name,url,secret,events,enabled,created_at,fail_count)
-		VALUES (?,?,?,?,?,?,?,?)`,
-		w.ID, w.Name, w.URL, w.Secret, w.Events, w.Enabled, w.CreatedAt, w.FailCount)
-	if err != nil {
-		logger.Logger.Errorw("[webhooks] create failed", "id", w.ID, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[webhooks] created", "id", w.ID)
-	return nil
-}
-
-func (r *WebhookRepo) List() ([]*Webhook, error) {
-	rows, err := r.db.Query(`SELECT id,name,url,secret,events,enabled,created_at,last_triggered_at,fail_count
-		FROM webhooks ORDER BY created_at DESC`)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []*Webhook
-	for rows.Next() {
-		var w Webhook
-		var lastT sql.NullTime
-		if err := rows.Scan(&w.ID, &w.Name, &w.URL, &w.Secret, &w.Events, &w.Enabled, &w.CreatedAt, &lastT, &w.FailCount); err != nil {
-			return nil, err
-		}
-		if lastT.Valid { w.LastTriggeredAt = &lastT.Time }
-		out = append(out, &w)
-	}
-	return out, rows.Err()
-}
-
-func (r *WebhookRepo) Get(id string) (*Webhook, error) {
-	q := `SELECT id,name,url,secret,events,enabled,created_at,last_triggered_at,fail_count FROM webhooks WHERE id=?`
-	var w Webhook
-	var lastT sql.NullTime
-	err := r.db.QueryRow(q, id).Scan(&w.ID, &w.Name, &w.URL, &w.Secret, &w.Events, &w.Enabled, &w.CreatedAt, &lastT, &w.FailCount)
-	if err == sql.ErrNoRows { return nil, fmt.Errorf("webhook %s not found", id) }
-	if lastT.Valid { w.LastTriggeredAt = &lastT.Time }
-	return &w, err
-}
-
-func (r *WebhookRepo) Update(w *Webhook) error {
-	_, err := r.db.Exec(`UPDATE webhooks SET name=?,url=?,secret=?,events=?,enabled=? WHERE id=?`,
-		w.Name, w.URL, w.Secret, w.Events, w.Enabled, w.ID)
-	if err != nil {
-		logger.Logger.Errorw("[webhooks] update failed", "id", w.ID, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[webhooks] updated", "id", w.ID)
-	return nil
-}
-
-func (r *WebhookRepo) Delete(id string) error {
-	_, err := r.db.Exec(`DELETE FROM webhooks WHERE id=?`, id)
-	if err != nil {
-		logger.Logger.Errorw("[webhooks] delete failed", "id", id, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[webhooks] deleted", "id", id)
-	return nil
-}
-
-// ListEnabled 返回所有 enabled=1 的 webhook（dispatcher 触发用）。
-func (r *WebhookRepo) ListEnabled() ([]*Webhook, error) {
-	rows, err := r.db.Query(`SELECT id,name,url,secret,events,enabled,created_at,last_triggered_at,fail_count
-		FROM webhooks WHERE enabled=1`)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []*Webhook
-	for rows.Next() {
-		var w Webhook
-		var lastT sql.NullTime
-		if err := rows.Scan(&w.ID, &w.Name, &w.URL, &w.Secret, &w.Events, &w.Enabled, &w.CreatedAt, &lastT, &w.FailCount); err != nil {
-			return nil, err
-		}
-		if lastT.Valid { w.LastTriggeredAt = &lastT.Time }
-		out = append(out, &w)
-	}
-	return out, rows.Err()
-}
-
-// MarkTriggered 记录触发成功，更新 last_triggered_at + 重置 fail_count。
-func (r *WebhookRepo) MarkTriggered(id string) error {
-	_, err := r.db.Exec(`UPDATE webhooks SET last_triggered_at=?, fail_count=0 WHERE id=?`, time.Now(), id)
-	if err != nil {
-		logger.Logger.Errorw("[webhooks] mark triggered failed", "id", id, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[webhooks] marked triggered", "id", id)
-	return nil
-}
-
-// IncrementFail 触发失败，fail_count++。
-func (r *WebhookRepo) IncrementFail(id string) error {
-	_, err := r.db.Exec(`UPDATE webhooks SET fail_count=fail_count+1 WHERE id=?`, id)
-	if err != nil {
-		logger.Logger.Errorw("[webhooks] increment fail failed", "id", id, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[webhooks] incremented fail count", "id", id)
-	return nil
 }
 
 // ---- TaskComment 评论 ----
@@ -2454,17 +2093,11 @@ func (r *ExecutionCommentRepo) Delete(id string) error {
 	return nil
 }
 
-// NextClaimable 返回下一个可 claim 的 remote 任务（按 priority DESC, claimed_at ASC 排序）。
-// 排除：有未完成 hard 依赖的任务。
+// NextClaimable 返回下一个可 claim 的 remote 任务（按 priority DESC, created_at ASC 排序）。
 func (r *TaskRepo) NextClaimable(agentID string) (string, error) {
 	q := `SELECT id FROM tasks
 		WHERE status='pending' AND task_type='remote'
 		  AND (claimer_agent_id='' OR claimer_agent_id IS NULL)
-		  AND NOT EXISTS (
-		    SELECT 1 FROM task_dependencies d
-		    WHERE d.task_id = tasks.id AND d.type='hard'
-		      AND d.depends_on IN (SELECT id FROM tasks WHERE status != 'archived')
-		  )
 		ORDER BY priority DESC, created_at ASC
 		LIMIT 1`
 	var id string
