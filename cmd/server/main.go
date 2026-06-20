@@ -722,8 +722,8 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			exitCode = res.ExitCode
 		}
 		// 解析 claude -p --output-format json 输出中的 uuid（用于 --resume 继续对话）
-		resumeUUID := extractResumeUUID(out)
-		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeUUID, "")
+		resumeSessionID := extractResumeSessionID(out)
+		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID, "")
 		_ = s.db.UpdateStatus(id, status, "factory-agent")
 		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 			"execution_id": exec.ID,
@@ -843,7 +843,7 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if orig.ResumeUUID == "" {
+	if orig.ResumeSessionID == "" {
 		writeErr(w, http.StatusBadRequest, "该执行没有 uuid，无法继续对话")
 		return
 	}
@@ -857,7 +857,7 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 	}
 	// 用 --resume 构造新命令
 	cmd, stdin, cleanup, err := runner.BuildCommand("claude", req.Model, "", req.Prompt,
-		runner.WithResume(orig.ResumeUUID))
+		runner.WithResume(orig.ResumeSessionID))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -911,8 +911,16 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 			out, errOut = res.Output, res.ErrorOut
 			exitCode = res.ExitCode
 		}
-		resumeUUID := extractResumeUUID(out)
-		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeUUID, exec.SessionGroupID)
+		// continue 触发的 execution：理论上同 session 下 session_id 与原 exec 相同，
+		// 但为了保持“一次会话 = 一个 session_id”的语义，
+		// **沿用原 exec 的 session_id**，避免边缘情况下出现不一致。
+		// 原 exec 为会话组根（SessionGroupID == orig.ID）或本身是 continue 触发的，都能取到。
+		resumeSessionID := orig.ResumeSessionID
+		if resumeSessionID == "" {
+			// 退化：原 exec 没抓到 session_id（例如是失败的首次执行），用本 exec 抓的。
+			resumeSessionID = extractResumeSessionID(out)
+		}
+		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID, exec.SessionGroupID)
 		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 			"execution_id": exec.ID,
 			"done":         true,
@@ -1854,20 +1862,62 @@ func errStr(err error) string {
 	return err.Error()
 }
 
-// extractResumeUUID 从 claude -p --output-format json 的输出中解析 uuid 字段。
-// 输出格式: {"type":"result","uuid":"588ef06f-...",...}
-func extractResumeUUID(output string) string {
-	// 简单解析：找 "uuid":"<uuid>"
-	idx := strings.Index(output, `"uuid"`)
+// extractResumeSessionID 从 claude -p --output-format json 输出中解析 session_id。
+//
+// claude 2.x 输出是 JSON 事件流（多 event 数组），有 session_id 字段：
+//   - system/init 块：必带 session_id
+//   - 最后 result 块：必带 session_id（session 内稳定，多次 --resume 都是同一个）
+//
+// 注意：不要被 event 块中的 uuid 字段迷惑。uuid 是单次执行的事件标识，**每次都变**，
+// 不是 session 标识，传给 --resume 会让 claude 报 "No conversation found with session ID"。
+// 传给 --resume 的必须是 session_id（一次会话内跨多次 --resume 不变）。
+//
+// 解析策略：先尝试按 JSON 解析（数组或单对象）；从尾到头扫 session_id 字段（拿 result 块）；
+// JSON 解析失败则回退到字符串匹配（防止输出被截断不是合法 JSON）。
+func extractResumeSessionID(output string) string {
+	if output == "" {
+		return ""
+	}
+	// 路径 1：JSON 解析
+	var anyObj any
+	if err := json.Unmarshal([]byte(output), &anyObj); err == nil {
+		// anyObj 可能是 array 或单 object
+		switch v := anyObj.(type) {
+		case []any:
+			// 优先取最后一个含 session_id 的 event（result 块）
+			for i := len(v) - 1; i >= 0; i-- {
+				if m, ok := v[i].(map[string]any); ok {
+					if sid, _ := m["session_id"].(string); sid != "" {
+						return sid
+					}
+				}
+			}
+			// 退化：取第一个含 session_id 的（init 块）
+			for i := 0; i < len(v); i++ {
+				if m, ok := v[i].(map[string]any); ok {
+					if sid, _ := m["session_id"].(string); sid != "" {
+						return sid
+					}
+				}
+			}
+			return ""
+		case map[string]any:
+			if sid, _ := v["session_id"].(string); sid != "" {
+				return sid
+			}
+		}
+	}
+	// 路径 2：字符串匹配回退（输出被截断 / 非合法 JSON）
+	idx := strings.Index(output, `"session_id"`)
 	if idx == -1 {
 		return ""
 	}
-	rest := output[idx+6:] // 跳过 "uuid"
+	rest := output[idx+12:] // 跳过 "session_id"
 	idx2 := strings.Index(rest, `"`)
 	if idx2 == -1 {
 		return ""
 	}
-	rest = rest[idx2+1:] // 跳过开头的引号
+	rest = rest[idx2+1:]
 	end := strings.Index(rest, `"`)
 	if end == -1 {
 		return ""
@@ -2117,8 +2167,8 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 			out, _ = res.Output, res.ErrorOut
 			exitCode = res.ExitCode
 		}
-		resumeUUID := extractResumeUUID(out)
-		s.execDB.Finish(exec.ID, out, "", exitCode, resumeUUID, "")
+		resumeSessionID := extractResumeSessionID(out)
+		s.execDB.Finish(exec.ID, out, "", exitCode, resumeSessionID, "")
 		step := Step{Iteration: i + 1, Model: model, ExitCode: exitCode}
 		if evID, err := evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, req.Prompt, req.CliType, model); err == nil {
 			if evs, _ := s.evalDB.ListByExecution(exec.ID); len(evs) > 0 {

@@ -1058,7 +1058,7 @@ func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	e.Model = model.String
 	e.Output = output.String
 	e.Error = errOut.String
-	e.ResumeUUID = resumeUUID.String
+	e.ResumeSessionID = resumeUUID.String
 	if completedAt.Valid {
 		e.CompletedAt = &completedAt.Time
 	}
@@ -1092,7 +1092,7 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 		e.Model = model.String
 		e.Output = output.String
 		e.Error = errOut.String
-		e.ResumeUUID = resumeUUID.String
+		e.ResumeSessionID = resumeUUID.String
 		if completedAt.Valid {
 			e.CompletedAt = &completedAt.Time
 		}
@@ -1148,7 +1148,7 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 		e.Model = model.String
 		e.Output = output.String
 		e.Error = errOut.String
-		e.ResumeUUID = resumeUUID.String
+		e.ResumeSessionID = resumeUUID.String
 		e.SessionGroupID = sessionGroupID.String
 		if completedAt.Valid {
 			e.CompletedAt = &completedAt.Time
