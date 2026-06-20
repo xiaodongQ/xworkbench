@@ -528,12 +528,26 @@ async function viewExecutionDetail(id) {
     const detailTip = detailLines.join('\n').replace(/"/g, '&quot;');
     const nameDisplay = execTitle.length > 40 ? execTitle.slice(0, 40) + '...' : execTitle;
     document.getElementById('exec-detail-title').innerHTML = '';
+    // 面包屑：如果该 exec 属于某会话链（resume_uuid 存在），计算并显示「第 K 轮 / 共 N 轮」
+    let crumb = '';
+    if (exec.resume_uuid && exec.task_id) {
+      try {
+        const siblings = await fetchJSON('/api/tasks/' + exec.task_id + '/executions');
+        const sameChain = (siblings || []).filter(s => s.resume_uuid === exec.resume_uuid)
+          .sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
+        const idx = sameChain.findIndex(s => s.id === exec.id);
+        if (idx >= 0) {
+          crumb = `<span style="margin-left:8px;color:var(--text-secondary);background:var(--hover);padding:1px 6px;border-radius:3px;font-size:11px">会话链 第 ${idx + 1}/${sameChain.length} 轮</span>`;
+        }
+      } catch (_) { /* 面包屑拉取失败不影响主流程 */ }
+    }
     document.getElementById('exec-detail-meta').innerHTML =
       '<span style="font-size:11px;font-weight:600;' + srcColor + '">' + srcText + '</span>' +
       ' <span style="margin-left:8px;color:var(--text-secondary)">|</span>' +
       ' <span style="cursor:help" title="' + detailTip + '"><b>' + esc(nameDisplay) + '</b> ⓘ</span>' +
       ' <span style="margin-left:8px;color:var(--text-secondary)">|</span>' +
-      ' exit_code=' + exitDisplay + ' · ' + new Date(exec.started_at).toLocaleString() + ' · 耗时 ' + dur;
+      ' exit_code=' + exitDisplay + ' · ' + new Date(exec.started_at).toLocaleString() + ' · 耗时 ' + dur +
+      crumb;
 
     const isEvalNow = _evaluatingIds.has(id);
     const evalBtn = document.getElementById('exec-detail-eval-btn');
@@ -598,11 +612,14 @@ async function submitContinue() {
       method: 'POST',
       body: JSON.stringify({ prompt }),
     });
+    const newExecId = res && res.execution_id;
     document.getElementById('exec-continue-section').classList.add('hidden');
     document.getElementById('exec-continue-prompt').value = '';
-    closeExecDetailModal();
     // 刷新执行列表
     loadRecentExecutions();
+    // 不立即关 modal：用户刚发的 prompt 重要，要让用户看到反馈。
+    // 在 modal 顶部插入一条反馈条带（包含新 exec ID + 点击跳转详情）。
+    _showContinueFeedback(newExecId, prompt);
     // 若 task-modal 打开着，同步刷新它的对话历史（C 方案：原任务上下文看会话链）
     const taskModal = document.getElementById('task-modal');
     if (taskModal && !taskModal.classList.contains('hidden') && typeof loadTaskConversation === 'function') {
@@ -612,6 +629,38 @@ async function submitContinue() {
     alert('继续对话失败：' + e.message);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '▶ 发送'; }
+  }
+}
+
+// _showContinueFeedback 在 exec-detail-modal 顶部插入一条反馈条带，
+// 告诉用户“你刚发的 prompt 是什么 / 产生的新执行 ID / 点此跳详情”。
+// 这解决了之前 closeExecDetailModal 后用户丢失上下文的 UX 问题。
+function _showContinueFeedback(newExecId, promptText) {
+  // 移除旧条带（如果有）
+  const old = document.getElementById('continue-feedback-strip');
+  if (old) old.remove();
+  const meta = document.getElementById('exec-detail-meta');
+  if (!meta) return;
+  const strip = document.createElement('div');
+  strip.id = 'continue-feedback-strip';
+  strip.style.cssText = 'background:rgba(16,185,129,0.12);border:1px solid #10b981;border-radius:6px;padding:10px 12px;margin-bottom:8px;font-size:12px;line-height:1.5';
+  const promptShort = promptText.length > 80 ? promptText.slice(0, 80) + '...' : promptText;
+  strip.innerHTML = `
+    <div style="color:#10b981;font-weight:600;margin-bottom:4px">✓ 继续对话已提交</div>
+    <div style="color:var(--text-secondary);margin-bottom:4px">你的 prompt：<span style="color:var(--text)">${esc(promptShort)}</span></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span style="color:var(--text-secondary)">新执行 ID：</span>
+      <code style="background:var(--hover);padding:1px 6px;border-radius:3px;font-size:11px">${esc(newExecId || '?')}</code>
+      <button class="btn btn-small" onclick="if('${esc(newExecId || '')}'){viewExecutionDetail('${esc(newExecId || '')}')}">📄 查看新执行详情</button>
+      <button class="btn btn-small btn-secondary" onclick="document.getElementById('continue-feedback-strip')?.remove()">✕ 关闭反馈</button>
+    </div>
+  `;
+  // 插在 meta 元素后，但要在滚动容器前
+  const scrollContainer = meta.closest('div[style*="overflow-y:auto"]');
+  if (scrollContainer && scrollContainer.parentNode) {
+    scrollContainer.parentNode.insertBefore(strip, scrollContainer);
+  } else {
+    meta.parentNode.insertBefore(strip, meta.nextSibling);
   }
 }
 

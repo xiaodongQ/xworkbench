@@ -831,7 +831,7 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		ID:     uuid.New().String(),
 		TaskID: orig.TaskID,
 		Source: "continue",
-		Command: runner.CmdString(cmd),
+		Command: runner.CmdStringWithPrompt(cmd, req.Prompt),
 		Prompt: req.Prompt,
 		Model:  req.Model,
 		StartedAt: time.Now(),

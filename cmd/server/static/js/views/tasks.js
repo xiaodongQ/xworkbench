@@ -506,6 +506,16 @@ async function loadTaskConversation() {
     const execs = await fetchJSON('/api/tasks/' + taskId + '/executions');
     _taskConvLoaded = true;
     renderTaskConversation(execs || []);
+    // 自动展开：如果该 task 有 exec 历史，默认展开对话历史（避免用户不知要点 ▶）
+    // 空对话则保持折叠，不占视觉空间。
+    if ((execs || []).length > 0) {
+      const b = document.getElementById('task-conversation-body');
+      const arrow = document.getElementById('task-conversation-toggle');
+      if (b && b.classList.contains('hidden')) {
+        b.classList.remove('hidden');
+        if (arrow) arrow.style.transform = 'rotate(90deg)';
+      }
+    }
   } catch (e) {
     body.innerHTML = '<div style="padding:8px;color:var(--exception);font-size:12px">⚠ 加载失败：' + e.message + '</div>';
   }
@@ -513,6 +523,8 @@ async function loadTaskConversation() {
 
 // renderTaskConversation: 按 resume_uuid 分组，每组内按 started_at 升序。
 // 根节点（resume_uuid == id）标记为「原始执行」；continue 节点标「继续 N」。
+// 视觉走时间线：左侧时间轴（竖线 + 圆点）+ 右侧卡片。
+// 命令 / 命令中含的 prompt 摘要默认折叠，需要时点 ▶ 展开。
 function renderTaskConversation(execs) {
   const countEl = document.getElementById('task-conversation-count');
   const body = document.getElementById('task-conversation-body');
@@ -539,38 +551,86 @@ function renderTaskConversation(execs) {
   let totalRounds = 0;
   for (const arr of sortedGroups) totalRounds += arr.length;
   countEl.textContent = '(' + totalRounds + ' 轮 / ' + sortedGroups.length + ' 会话)';
-  // 渲染
+  // 渲染时间线。每个会话一条时间轴；会话内多个轮次，竖线贯穿。
+  // 结构：
+  //   <div class="conv-tl">  // 外层容器
+  //     <div class="conv-session">  // 每个会话一个
+  //       <div class="conv-session-header">💬 会话 N</div>
+  //       <div class="conv-tl-rail">  // 时间轴竖线
+  //         <div class="conv-node">  // 每个 exec 一个节点
+  //           <div class="conv-node-dot"></div>  // 圆点
+  //           <div class="conv-node-card">  // 卡片
+  //             <div class="conv-node-header">原始/继续 K · 模型 · 时间</div>
+  //             <div class="conv-node-prompt">问: ...</div>
+  //             <div class="conv-node-output">答: ...</div>
+  //             <div class="conv-node-cmd">命令 ... (折叠)</div>
+  //             <div class="conv-node-actions">[详情]</div>
+  //           </div>
+  //         </div>
+  //       </div>
+  //     </div>
+  //   </div>
   const html = sortedGroups.map((arr, gi) => {
     const isChain = arr.length > 1;
     const header = isChain
-      ? `<div style="background:var(--accent-soft);padding:4px 8px;font-size:11px;color:var(--accent);font-weight:600">💬 会话 ${gi+1} · ${arr.length} 轮</div>`
+      ? `<div style="background:var(--accent-soft);padding:4px 10px;font-size:11px;color:var(--accent);font-weight:600;border-radius:3px;margin:6px 0 4px 22px">💬 会话 ${gi+1} · ${arr.length} 轮</div>`
       : '';
     const items = arr.map((e, idx) => {
       const isRoot = idx === 0;
-      const isContinue = !isRoot;
+      const isLast = idx === arr.length - 1;
       const tag = isRoot
         ? '<span style="background:var(--accent);color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">原始</span>'
         : '<span style="background:#0ea5e9;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">继续 ' + idx + '</span>';
       const status = _convStatusBadge(e);
       const ts = e.started_at ? new Date(e.started_at).toLocaleString('zh-CN', {hour12: false}) : '';
-      const prompt = e.prompt ? _convTruncate(e.prompt, 80) : '(无 prompt)';
-      const output = e.output ? _convTruncate(e.output, 100) : '';
-      return `<div style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:6px;align-items:flex-start">
-        <div style="flex-shrink:0;min-width:36px">${tag}</div>
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;gap:6px;align-items:center;margin-bottom:2px">
+      const prompt = e.prompt ? _convEscape(e.prompt) : '<i style="color:var(--text-secondary)">(无 prompt)</i>';
+      const output = e.output ? _convEscape(e.output) : '';
+      const modelBadge = e.model ? `<span style="background:#6366f1;color:#fff;padding:1px 5px;border-radius:3px;font-size:9px;margin-left:4px">${_convEscape(e.model)}</span>` : '';
+      const cmdShort = e.command ? _convTruncate(e.command.replace(/\n/g, ' '), 60) : '';
+      // 每个节点的 dot 颜色：成功=绿、失败=红、进行中=蓝
+      const dotColor = (e.exit_code === 0) ? '#10b981' : (e.exit_code != null && e.exit_code !== 0) ? '#ef4444' : (e.error ? '#ef4444' : '#0ea5e9');
+      // 最后一个节点不画竖线底部线帽
+      const railStyle = isLast ? 'border-bottom:1px solid transparent' : '';
+      // 时间线节点
+      const nodeId = 'tl-node-' + _sanitizeId(e.id);
+      const cmdPanelId = 'tl-cmd-' + _sanitizeId(e.id);
+      return `<div style="display:flex;gap:0;align-items:stretch;position:relative;padding:4px 0">
+        <div style="flex-shrink:0;width:18px;display:flex;flex-direction:column;align-items:center">
+          <div style="width:10px;height:10px;border-radius:50%;background:${dotColor};border:2px solid var(--card-bg);margin-top:8px;box-shadow:0 0 0 1px ${dotColor};flex-shrink:0"></div>
+          <div style="flex:1;width:2px;background:var(--border);${railStyle}"></div>
+        </div>
+        <div style="flex:1;min-width:0;margin-left:8px">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:3px">
+            ${tag}${modelBadge}
             <span style="color:var(--text-secondary);font-size:10px">${ts}</span>
             ${status}
           </div>
-          <div style="color:var(--text);word-break:break-word"><b>问:</b> ${_convEscape(prompt)}</div>
-          ${output ? `<div style="color:var(--text-secondary);margin-top:2px;word-break:break-word"><b>答:</b> ${_convEscape(output)}</div>` : ''}
+          <div style="background:var(--hover);border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:12px;margin-bottom:3px">
+            <div style="color:var(--text);word-break:break-word;margin-bottom:${output ? '4px' : '0'}"><b style="color:#0ea5e9">问:</b> ${prompt}</div>
+            ${output ? `<div style="color:var(--text-secondary);word-break:break-word"><b style="color:#10b981">答:</b> ${output}</div>` : ''}
+          </div>
+          ${cmdShort ? `<div style="margin-bottom:4px">
+            <span style="font-size:10px;color:var(--text-secondary);cursor:pointer;user-select:none" onclick="(function(){
+              var p=document.getElementById('${cmdPanelId}');
+              if(!p) return;
+              if(p.classList.contains('hidden')){p.classList.remove('hidden');}
+              else{p.classList.add('hidden');}
+            })()">▶ 命令</span>
+            <div id="${cmdPanelId}" class="hidden" style="margin-top:3px;padding:4px 6px;background:var(--card-bg);border:1px solid var(--border);border-radius:3px;font-family:monospace;font-size:11px;color:var(--text-secondary);word-break:break-all;max-height:80px;overflow-y:auto">${_convEscape(e.command || '')}</div>
+          </div>` : ''}
+          <div style="text-align:right;margin-bottom:2px">
+            <button class="btn btn-small" style="flex-shrink:0" onclick="viewExecutionDetail('${e.id}')">详情</button>
+          </div>
         </div>
-        <button class="btn btn-small" style="flex-shrink:0" onclick="viewExecutionDetail('${e.id}')">详情</button>
       </div>`;
     }).join('');
     return header + items;
   }).join('');
   body.innerHTML = html;
+}
+
+function _sanitizeId(s) {
+  return String(s || '').replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 function _convStatusBadge(e) {

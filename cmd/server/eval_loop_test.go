@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -34,6 +35,8 @@ func newEvalTestServer(t *testing.T) *APIServer {
 	}
 	// AI 自治能力默认开启（3 个 handler 走完整逻辑）
 	_ = s.setDB.Set("ai_loop_enabled", "1")
+	// running map 默认初始化（continue/evaluate 类 handler 会用）
+	s.running = map[string]context.CancelFunc{}
 	return s
 }
 
