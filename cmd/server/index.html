@@ -424,6 +424,15 @@
       <label>⚠️ 待交互内容 <span class="field-hint" style="background:rgba(202,138,4,0.15);color:#ca8a04">需要人工介入</span></label>
       <div id="task-waiting-input-content" style="background:#fff8e1;border:1px solid #ffc107;border-radius:4px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:150px;overflow-y:auto;"></div>
     </div>
+	    <!-- 对话历史（按需展开） -->
+	    <div id="task-conversation-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
+	      <label style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px" onclick="toggleTaskConversation()">
+	        <span id="task-conversation-toggle" style="display:inline-block;transition:transform 0.15s;font-size:10px;width:12px;text-align:center">▶</span>
+	        💬 对话历史 <span id="task-conversation-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span>
+	        <button type="button" class="btn btn-small" style="margin-left:auto" onclick="event.stopPropagation();loadTaskConversation()">🔄 刷新</button>
+	      </label>
+	      <div id="task-conversation-body" class="hidden" style="max-height:300px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg)"></div>
+	    </div>
 	    <!-- 评论区 -->
 	    <div id="task-comment-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
 	      <label>💬 评论 <span id="task-comment-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span></label>

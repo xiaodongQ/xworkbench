@@ -362,6 +362,9 @@ function viewTask(id) {
   }
   document.getElementById('task-modal').classList.remove('hidden');
   loadTaskComments(t.id);
+  // 对话历史：预加载计数，body 默认折叠，点 ▶ 才展开
+  _taskConvLoaded = false;
+  loadTaskConversation();
 }
 
 async function editTask(id) {
@@ -473,4 +476,115 @@ async function submitTaskComment() {
     body: JSON.stringify({author: 'user', content})
   });
   await loadTaskComments(taskId);
+}
+
+// ===== 对话历史（task-modal 内嵌区块） =====
+// 按 session_group_id 分组展示该 task 下所有 execution 的对话链。
+// 仅在 task-modal 打开时占用，关闭时不占资源（无全局轮询）。
+let _taskConvLoaded = false; // 防止 viewTask 多次触发
+
+function toggleTaskConversation() {
+  const body = document.getElementById('task-conversation-body');
+  const arrow = document.getElementById('task-conversation-toggle');
+  if (body.classList.contains('hidden')) {
+    body.classList.remove('hidden');
+    arrow.style.transform = 'rotate(90deg)';
+  } else {
+    body.classList.add('hidden');
+    arrow.style.transform = 'rotate(0deg)';
+  }
+}
+
+async function loadTaskConversation() {
+  const taskId = document.getElementById('task-id').value;
+  if (!taskId) return;
+  const body = document.getElementById('task-conversation-body');
+  body.innerHTML = '<div style="padding:8px;color:var(--text-secondary);font-size:12px">加载中...</div>';
+  try {
+    const execs = await fetchJSON('/api/tasks/' + taskId + '/executions');
+    _taskConvLoaded = true;
+    renderTaskConversation(execs || []);
+  } catch (e) {
+    body.innerHTML = '<div style="padding:8px;color:var(--exception);font-size:12px">⚠ 加载失败：' + e.message + '</div>';
+  }
+}
+
+// renderTaskConversation: 按 session_group_id 分组，每组内按 started_at 升序。
+// 根节点（session_group_id == id 或为空）标记为「原始执行」；continue 节点标「继续 N」。
+function renderTaskConversation(execs) {
+  const countEl = document.getElementById('task-conversation-count');
+  const body = document.getElementById('task-conversation-body');
+  if (!execs.length) {
+    countEl.textContent = '(0)';
+    body.innerHTML = '<div style="padding:8px;color:var(--text-secondary);font-size:12px">该任务暂无执行记录</div>';
+    return;
+  }
+  // 分组
+  const groups = new Map(); // groupKey -> [execs]
+  for (const e of execs) {
+    const key = e.session_group_id || e.id; // 没有组的单次执行也单独成组（key = 自身 id）
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  }
+  // 组内按 started_at 排序
+  for (const arr of groups.values()) {
+    arr.sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
+  }
+  // 按最近活跃（最后一条 started_at）倒序
+  const sortedGroups = [...groups.values()].sort(
+    (a, b) => new Date(b[b.length-1].started_at) - new Date(a[a.length-1].started_at)
+  );
+  let totalRounds = 0;
+  for (const arr of sortedGroups) totalRounds += arr.length;
+  countEl.textContent = '(' + totalRounds + ' 轮 / ' + sortedGroups.length + ' 会话)';
+  // 渲染
+  const html = sortedGroups.map((arr, gi) => {
+    const isChain = arr.length > 1;
+    const header = isChain
+      ? `<div style="background:var(--accent-soft);padding:4px 8px;font-size:11px;color:var(--accent);font-weight:600">💬 会话 ${gi+1} · ${arr.length} 轮</div>`
+      : '';
+    const items = arr.map((e, idx) => {
+      const isRoot = idx === 0;
+      const isContinue = !isRoot;
+      const tag = isRoot
+        ? '<span style="background:var(--accent);color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">原始</span>'
+        : '<span style="background:#0ea5e9;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">继续 ' + idx + '</span>';
+      const status = _convStatusBadge(e);
+      const ts = e.started_at ? new Date(e.started_at).toLocaleString('zh-CN', {hour12: false}) : '';
+      const prompt = e.prompt ? _convTruncate(e.prompt, 80) : '(无 prompt)';
+      const output = e.output ? _convTruncate(e.output, 100) : '';
+      return `<div style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;display:flex;gap:6px;align-items:flex-start">
+        <div style="flex-shrink:0;min-width:36px">${tag}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:2px">
+            <span style="color:var(--text-secondary);font-size:10px">${ts}</span>
+            ${status}
+          </div>
+          <div style="color:var(--text);word-break:break-word"><b>问:</b> ${_convEscape(prompt)}</div>
+          ${output ? `<div style="color:var(--text-secondary);margin-top:2px;word-break:break-word"><b>答:</b> ${_convEscape(output)}</div>` : ''}
+        </div>
+        <button class="btn btn-small" style="flex-shrink:0" onclick="viewExecutionDetail('${e.id}')">详情</button>
+      </div>`;
+    }).join('');
+    return header + items;
+  }).join('');
+  body.innerHTML = html;
+}
+
+function _convStatusBadge(e) {
+  if (e.exit_code === 0) return '<span style="color:#10b981;font-size:10px">✓ 完成</span>';
+  if (e.exit_code != null && e.exit_code !== 0) return '<span style="color:var(--exception);font-size:10px">✗ 失败(' + e.exit_code + ')</span>';
+  if (e.error) return '<span style="color:var(--exception);font-size:10px">✗ 错误</span>';
+  return '<span style="color:#0ea5e9;font-size:10px">⏳ 执行中</span>';
+}
+
+function _convTruncate(s, n) {
+  if (!s) return '';
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+function _convEscape(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[c]));
 }

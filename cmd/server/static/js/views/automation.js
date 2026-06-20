@@ -518,6 +518,11 @@ async function submitContinue() {
     closeExecDetailModal();
     // 刷新执行列表
     loadRecentExecutions();
+    // 若 task-modal 打开着，同步刷新它的对话历史（C 方案：原任务上下文看会话链）
+    const taskModal = document.getElementById('task-modal');
+    if (taskModal && !taskModal.classList.contains('hidden') && typeof loadTaskConversation === 'function') {
+      loadTaskConversation();
+    }
   } catch (e) {
     alert('继续对话失败：' + e.message);
   } finally {
