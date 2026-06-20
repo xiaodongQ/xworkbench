@@ -481,7 +481,7 @@ async function submitTaskComment() {
 }
 
 // ===== 对话历史（task-modal 内嵌区块） =====
-// 按 session_group_id 分组展示该 task 下所有 execution 的对话链。
+// 按 resume_uuid 分组展示该 task 下所有 execution 的对话链。
 // 仅在 task-modal 打开时占用，关闭时不占资源（无全局轮询）。
 let _taskConvLoaded = false; // 防止 viewTask 多次触发
 
@@ -511,8 +511,8 @@ async function loadTaskConversation() {
   }
 }
 
-// renderTaskConversation: 按 session_group_id 分组，每组内按 started_at 升序。
-// 根节点（session_group_id == id 或为空）标记为「原始执行」；continue 节点标「继续 N」。
+// renderTaskConversation: 按 resume_uuid 分组，每组内按 started_at 升序。
+// 根节点（resume_uuid == id）标记为「原始执行」；continue 节点标「继续 N」。
 function renderTaskConversation(execs) {
   const countEl = document.getElementById('task-conversation-count');
   const body = document.getElementById('task-conversation-body');
@@ -524,7 +524,7 @@ function renderTaskConversation(execs) {
   // 分组
   const groups = new Map(); // groupKey -> [execs]
   for (const e of execs) {
-    const key = e.session_group_id || e.id; // 没有组的单次执行也单独成组（key = 自身 id）
+    const key = e.resume_uuid || e.id; // 没有 resume_uuid 的单次执行也单独成组（key = 自身 id）
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(e);
   }

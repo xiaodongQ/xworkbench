@@ -378,22 +378,22 @@ async function loadRecentExecutions() {
         + `<div style="padding:8px;text-align:center"><button class="btn btn-small" onclick="loadMoreExecutions()">📥 加载更多 (尝试加载 ${recentExecLimit} 条)</button></div>`;
       return;
     }
-    // 按 session_group_id 分组：同组的所有 execution 归为一条展示
-    // 规则：session_group_id == id 的是根节点（显示为一行，含子项折叠）；session_group_id != "" && != id 的是子节点（隐藏顶层，归入父节点）
-    const groupMap = {}; // session_group_id -> { root: exec, children: [] }
-    const topLevel = []; // 没有 session_group_id 或 session_group_id == id 的
+    // 按 resume_uuid 分组：同 session 的所有 execution 归为一条展示
+    // 规则：resume_uuid == id 的是根节点（显示为一行，含子项折叠）；resume_uuid != "" && != id 的是子节点
+    const groupMap = {}; // resume_uuid -> { root: exec, children: [] }
+    const topLevel = []; // 没有 resume_uuid 或 resume_uuid == id 的
     for (const e of list) {
-      if (!e.session_group_id) {
+      if (!e.resume_uuid) {
         // 独立 execution，无分组
         topLevel.push(e);
-      } else if (e.session_group_id === e.id) {
+      } else if (e.resume_uuid === e.id) {
         // 自己是根节点
         groupMap[e.id] = { root: e, children: [] };
         topLevel.push(e);
       } else {
         // 是某根节点的子节点
-        if (groupMap[e.session_group_id]) {
-          groupMap[e.session_group_id].children.push(e);
+        if (groupMap[e.resume_uuid]) {
+          groupMap[e.resume_uuid].children.push(e);
         } else {
           // 根节点不在当前列表中（被截断了），当作独立行
           topLevel.push(e);
@@ -547,7 +547,7 @@ async function viewExecutionDetail(id) {
       if (evalBtn) { evalBtn.disabled = false; evalBtn.textContent = '📊 AI 评估'; }
       if (evalSel) evalSel.disabled = false;
     }
-    // 继续对话按钮：有 session_id 时可点，否则显示但置灰 + tooltip 提示
+    // 继续对话按钮：有 resume_uuid 时可点，否则禁用 + tooltip 提示
     //（不隐藏：让用户知道这个功能存在，理解为什么这个 execution 不可续）
     const continueBtn = document.getElementById('exec-continue-btn');
     if (continueBtn) {
@@ -558,7 +558,7 @@ async function viewExecutionDetail(id) {
       } else {
         continueBtn.classList.remove('hidden');
         continueBtn.disabled = true;
-        continueBtn.title = '该执行未生成 session id（首次失败 / 未跑的 execution 无法继续对话）';
+        continueBtn.title = '该执行未生成 session_id，无法继续对话（执行失败或尚未完成）';
       }
     }
     // 拉已有评估（展示所有历史）

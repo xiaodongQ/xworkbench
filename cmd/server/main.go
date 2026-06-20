@@ -690,7 +690,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		}
 		// 解析 claude -p --output-format json 输出中的 session_id（用于 --resume 继续对话）
 		resumeSessionID := extractResumeSessionID(out)
-		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID, "")
+		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
 		_ = s.db.UpdateStatus(id, status, "factory-agent")
 		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 			"execution_id": exec.ID,
@@ -826,24 +826,15 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// 创建新 execution
-	// SessionGroupID 逻辑：首次 continue 时，把原始 execution 升级为组根（设其 session_group_id = orig.ID），
-	// 后续 continue 则复用已有的组 id。确保原始 execution 在 UI 中也显示为会话链的根节点。
-	if orig.SessionGroupID == "" {
-		// 原始 execution 还没有组 id，升级为根：设其 session_group_id = 自身 id
-		_ = s.execDB.SetSessionGroupID(orig.ID, orig.ID)
-		orig.SessionGroupID = orig.ID
-	}
-	groupID := orig.SessionGroupID // 后续 continue 都用同一个组 id
+	// 创建新 execution（continue 触发的）
 	exec := &backend.Execution{
-		ID:             uuid.New().String(),
-		TaskID:         orig.TaskID,
-		Source:         "continue",
-		Command:        runner.CmdString(cmd),
-		Prompt:         req.Prompt,
-		Model:          req.Model,
-		StartedAt:      time.Now(),
-		SessionGroupID: groupID,
+		ID:     uuid.New().String(),
+		TaskID: orig.TaskID,
+		Source: "continue",
+		Command: runner.CmdString(cmd),
+		Prompt: req.Prompt,
+		Model:  req.Model,
+		StartedAt: time.Now(),
 	}
 	if err := s.execDB.Create(exec); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -875,16 +866,10 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 			out, errOut = res.Output, res.ErrorOut
 			exitCode = res.ExitCode
 		}
-		// continue 触发的 execution：理论上同 session 下 session_id 与原 exec 相同，
-		// 但为了保持“一次会话 = 一个 session_id”的语义，
-		// **沿用原 exec 的 session_id**，避免边缘情况下出现不一致。
-		// 原 exec 为会话组根（SessionGroupID == orig.ID）或本身是 continue 触发的，都能取到。
+		// continue 触发的 execution：沿用原 exec 的 resume_uuid（session_id）。
+		// 如果原 exec 没有 resume_uuid，说明原始会话没有成功建立，无法继续。
 		resumeSessionID := orig.ResumeSessionID
-		if resumeSessionID == "" {
-			// 退化：原 exec 没抓到 session_id（例如是失败的首次执行），用本 exec 抓的。
-			resumeSessionID = extractResumeSessionID(out)
-		}
-		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID, exec.SessionGroupID)
+		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
 		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 			"execution_id": exec.ID,
 			"done":         true,
@@ -1620,7 +1605,7 @@ func (s *APIServer) handleSchedulerReload(w http.ResponseWriter, r *http.Request
 }
 
 // handleAILoopStatus 返回 AI 自治能力开关状态。优先级：AppSettings > config.json。
-// 前端 task-modal 打开时调这个，决定是否渲染“AI 自治”区块。
+// 前端 task-modal 打开时调这个，决定是否渲染"AI 自治"区块。
 func (s *APIServer) handleAILoopStatus(w http.ResponseWriter, r *http.Request) {
 	// 查询主源（AppSettings）和后备源（config.json），同时返回让前端能提示用户从哪开的
 	var source string
@@ -2202,7 +2187,7 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 			exitCode = res.ExitCode
 		}
 		resumeSessionID := extractResumeSessionID(out)
-		s.execDB.Finish(exec.ID, out, "", exitCode, resumeSessionID, "")
+		s.execDB.Finish(exec.ID, out, "", exitCode, resumeSessionID)
 		step := Step{Iteration: i + 1, Model: model, ExitCode: exitCode}
 		if evID, err := evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, req.Prompt, req.CliType, model); err == nil {
 			if evs, _ := s.evalDB.ListByExecution(exec.ID); len(evs) > 0 {

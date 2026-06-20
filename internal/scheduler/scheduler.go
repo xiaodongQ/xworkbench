@@ -223,7 +223,7 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 	}
 	// 解析 claude/cbc -p --output-format json 输出中的 session_id/sessionId（用于 --resume 继续对话）
 	resumeSessionID := extractSessionID(out)
-	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID, "")
+	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
 	_ = s.repo.UpdateAfterRun(t.ID, status, exec.ID)
 	logger.Logger.Infow("scheduler: task finished", "task", t.Name, "exec_id", exec.ID, "session_id", resumeSessionID, "status", status, "exit_code", exitCode)
 	s.hub.Broadcast(wsmsg.ChannelScheduled, map[string]any{

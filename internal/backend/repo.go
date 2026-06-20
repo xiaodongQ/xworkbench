@@ -95,8 +95,7 @@ func InitSchema(db *sql.DB) error {
 		output TEXT NOT NULL DEFAULT '',
 		error TEXT NOT NULL DEFAULT '',
 		exit_code INTEGER NOT NULL DEFAULT 0,
-		resume_uuid TEXT,
-		session_group_id TEXT
+		resume_uuid TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_executions_task ON executions(task_id, started_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_executions_scheduled ON executions(scheduled_task_id, started_at DESC);
@@ -239,6 +238,9 @@ func InitSchema(db *sql.DB) error {
 		return err
 	}
 	if err := migrateExecutionsColumns(db); err != nil {
+		return err
+	}
+	if err := migrateDropSessionGroupID(db); err != nil {
 		return err
 	}
 	if err := migrateEvaluationsColumns(db); err != nil {
@@ -523,7 +525,6 @@ func migrateExecutionsColumns(db *sql.DB) error {
 	add := []struct{ n, d string }{
 		{"prompt", "prompt TEXT"},
 		{"resume_uuid", "resume_uuid TEXT"},
-		{"session_group_id", "session_group_id TEXT"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
@@ -531,6 +532,34 @@ func migrateExecutionsColumns(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// migrateDropSessionGroupID 移除废弃的 session_group_id 列。
+func migrateDropSessionGroupID(db *sql.DB) error {
+	// 检查列是否存在
+	rows, err := db.Query(`PRAGMA table_info(executions)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	hasCol := false
+	for rows.Next() {
+		var cid int
+		var name string
+		if err := rows.Scan(&cid, &name, nil, nil, nil, nil); err != nil {
+			continue
+		}
+		if name == "session_group_id" {
+			hasCol = true
+			break
+		}
+	}
+	if !hasCol {
+		return nil // 列不存在，跳过
+	}
+	// SQLite 3.35.0+ 支持 DROP COLUMN
+	_, err = db.Exec(`ALTER TABLE executions DROP COLUMN session_group_id`)
+	return err
 }
 
 func migrateEvaluationsColumns(db *sql.DB) error {
@@ -981,10 +1010,10 @@ func (r *ExecutionRepo) Create(e *Execution) error {
 	return nil
 }
 
-func (r *ExecutionRepo) Finish(id, output, errOut string, exitCode int, resumeUUID string, sessionGroupID string) error {
+func (r *ExecutionRepo) Finish(id, output, errOut string, exitCode int, resumeUUID string) error {
 	now := time.Now()
-	_, err := r.db.Exec(`UPDATE executions SET completed_at=?, output=?, error=?, exit_code=?, resume_uuid=?, session_group_id=? WHERE id=?`,
-		now, output, errOut, exitCode, resumeUUID, sessionGroupID, id)
+	_, err := r.db.Exec(`UPDATE executions SET completed_at=?, output=?, error=?, exit_code=?, resume_uuid=? WHERE id=?`,
+		now, output, errOut, exitCode, resumeUUID, id)
 	if err != nil {
 		logger.Logger.Errorw("executions finish failed", "id", id, "error", err.Error())
 		return err
@@ -993,15 +1022,13 @@ func (r *ExecutionRepo) Finish(id, output, errOut string, exitCode int, resumeUU
 	return nil
 }
 
-// SetSessionGroupID 将某 execution 的 session_group_id 设为指定值。
-// 用于"继续对话"时把原始 execution 升级为会话组根节点。
+// SetSessionGroupID 已废弃，不再使用。
 func (r *ExecutionRepo) SetSessionGroupID(id, groupID string) error {
-	_, err := r.db.Exec(`UPDATE executions SET session_group_id=? WHERE id=?`, groupID, id)
-	return err
+	return nil
 }
 
 func (r *ExecutionRepo) Get(id string) (*Execution, error) {
-	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.model,
+	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.prompt,e.model,
 	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,
 	             t.title, s.name
 	        FROM executions e
@@ -1009,9 +1036,9 @@ func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	        LEFT JOIN scheduled_tasks s ON e.scheduled_task_id = s.id
 	        WHERE e.id=?`
 	var e Execution
-	var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID sql.NullString
+	var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, prompt sql.NullString
 	var completedAt sql.NullTime
-	err := r.db.QueryRow(q, id).Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &model,
+	err := r.db.QueryRow(q, id).Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
 		&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID,
 		&taskTitle, &schedTitle)
 	if err == sql.ErrNoRows {
@@ -1024,6 +1051,7 @@ func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	e.ScheduledTaskID = schedID.String
 	e.TaskTitle = taskTitle.String
 	e.ScheduledTaskTitle = schedTitle.String
+	e.Prompt = prompt.String
 	e.Model = model.String
 	e.Output = output.String
 	e.Error = errOut.String
@@ -1040,7 +1068,7 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 	if limit <= 0 {
 		limit = 20
 	}
-	q := `SELECT id,task_id,scheduled_task_id,source,command,model,started_at,completed_at,output,error,exit_code,resume_uuid
+	q := `SELECT id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid
 	        FROM executions WHERE task_id=? ORDER BY started_at DESC LIMIT ?`
 	rows, err := r.db.Query(q, taskID, limit)
 	if err != nil {
@@ -1050,14 +1078,15 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 	var out []*Execution
 	for rows.Next() {
 		var e Execution
-		var taskID, schedID, model, output, errOut, resumeUUID sql.NullString
+		var taskID, schedID, model, output, errOut, resumeUUID, prompt sql.NullString
 		var completedAt sql.NullTime
-		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &model,
+		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
 			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
 		e.ScheduledTaskID = schedID.String
+		e.Prompt = prompt.String
 		e.Model = model.String
 		e.Output = output.String
 		e.Error = errOut.String
@@ -1077,8 +1106,8 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	}
 	// LEFT JOIN evaluations 取最近一次分数（每 exec 只关联最新一条）
 	// LEFT JOIN tasks / scheduled_tasks 取标题
-	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.model,
-	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,e.session_group_id,
+	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.prompt,e.model,
+	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,
 	             (SELECT ev.score FROM evaluations ev
 	                WHERE ev.execution_id = e.id
 	                ORDER BY ev.created_at DESC LIMIT 1) AS eval_score,
@@ -1096,12 +1125,12 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	var out []*Execution
 	for rows.Next() {
 		var e Execution
-		var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, sessionGroupID sql.NullString
+		var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, prompt sql.NullString
 		var completedAt sql.NullTime
 		var evalScore sql.NullFloat64
 		var evalCount int
-		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &model,
-			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &sessionGroupID, &evalScore,
+		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
+			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &evalScore,
 			&evalCount, &taskTitle, &schedTitle); err != nil {
 			return nil, err
 		}
@@ -1114,11 +1143,11 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 		e.ScheduledTaskID = schedID.String
 		e.TaskTitle = taskTitle.String
 		e.ScheduledTaskTitle = schedTitle.String
+		e.Prompt = prompt.String
 		e.Model = model.String
 		e.Output = output.String
 		e.Error = errOut.String
 		e.ResumeSessionID = resumeUUID.String
-		e.SessionGroupID = sessionGroupID.String
 		if completedAt.Valid {
 			e.CompletedAt = &completedAt.Time
 		}
