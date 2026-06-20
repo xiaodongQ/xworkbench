@@ -123,10 +123,8 @@ async function loadTasks() {
   if (status) params.push('status=' + status);
   if (taskType) params.push('task_type=' + taskType);
   const url = API + '/api/tasks' + (params.length ? '?' + params.join('&') : '');
-  console.log('[loadTasks] url=', url, 'task-list el:', !!document.getElementById('task-list'));
   try {
     tasks = await fetchJSON(url);
-    console.log('[loadTasks] got', tasks.length, 'tasks');
     renderTaskTable(tasks);
   } catch(e) { console.error('[loadTasks] err:', e); }
 }
@@ -438,7 +436,7 @@ async function submitTask() {
   if (currentTab === 'tasks') loadTasks();
 }
 
-async function loadTaskComments(taskId) { console.log("loadTaskComments called, taskId:", taskId);
+async function loadTaskComments(taskId) {
   const container = document.getElementById('task-comment-list');
   const countEl = document.getElementById('task-comment-count');
   if (!container) { console.warn('comment container not found'); return; }

@@ -88,10 +88,8 @@ function switchTab(tab) {
   localStorage.setItem('sf-current-tab', tab);
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
   document.querySelectorAll('.main > div').forEach(p => p.classList.toggle('hidden', p.id !== 'page-' + tab));
-  console.log('[switchTab]', tab, 'loadTasks typeof:', typeof loadTasks, 'has task-list:', !!document.getElementById('task-list'));
   if (tab === 'dashboard' && typeof loadDashboard === 'function') loadDashboard();
   if (tab === 'tasks' && typeof loadTasks === 'function') {
-    console.log('[switchTab] calling loadTasks');
     try { loadTasks(); } catch(e) { console.error('[loadTasks error]', e); }
   }
   if (tab === 'experiences' && typeof loadExps === 'function') loadExps();
