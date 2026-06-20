@@ -32,8 +32,8 @@ func TestBuildTaskPrompt_SingleExperience(t *testing.T) {
 		Keywords: "MOVED,ASK",
 	}
 	got := BuildTaskPrompt(task, exp)
-	if !strings.Contains(got, "## 模块\nredis\n") {
-		t.Errorf("single exp should keep plain '## 模块' (no index suffix), got:\n%s", got)
+	if !strings.Contains(got, "## 分类\nredis\n") {
+		t.Errorf("single exp should keep plain '## 分类' (no index suffix), got:\n%s", got)
 	}
 	if strings.Contains(got, "（1/1") {
 		t.Errorf("single exp should NOT have index suffix, got:\n%s", got)

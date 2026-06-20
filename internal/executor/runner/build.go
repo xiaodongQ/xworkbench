@@ -36,6 +36,7 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 	logger.Logger.Debugw("runner: BuildCommand", "type", typ, "model", model, "prompt_chars", len(prompt))
 	o := &buildOpts{
 		allowedTools: []string{"Bash", "Write", "Edit", "Read", "Grep"},
+		useStdin:     true, // 默认走 stdin
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -195,8 +196,8 @@ func WithAllowedTools(tools ...string) func(*buildOpts) {
 type buildOpts struct {
 	actionReport bool
 	allowedTools []string
-	useStdin    bool
-	resumeUUID  string
+	useStdin     bool // 默认走 stdin（避免 Windows 8191 字符限制 + shell 注入）；传 WithoutStdin() 可走 cmd 末尾
+	resumeUUID   string
 }
 
 // WithStdin prompt 通过 stdin 传递（评估用，避免命令行参数过长）。

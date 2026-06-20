@@ -467,13 +467,18 @@ async function viewExecutionDetail(id) {
       if (evalBtn) { evalBtn.disabled = false; evalBtn.textContent = '📊 AI 评估'; }
       if (evalSel) evalSel.disabled = false;
     }
-    // 继续对话按钮：有 resume_uuid 时显示
+    // 继续对话按钮：有 session_id 时可点，否则显示但置灰 + tooltip 提示
+    //（不隐藏：让用户知道这个功能存在，理解为什么这个 execution 不可续）
     const continueBtn = document.getElementById('exec-continue-btn');
     if (continueBtn) {
       if (exec.resume_uuid) {
         continueBtn.classList.remove('hidden');
+        continueBtn.disabled = false;
+        continueBtn.removeAttribute('title');
       } else {
-        continueBtn.classList.add('hidden');
+        continueBtn.classList.remove('hidden');
+        continueBtn.disabled = true;
+        continueBtn.title = '该执行未生成 session id（首次失败 / 未跑的 execution 无法继续对话）';
       }
     }
     // 拉已有评估（展示所有历史）

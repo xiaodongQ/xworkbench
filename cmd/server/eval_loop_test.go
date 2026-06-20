@@ -9,12 +9,18 @@ import (
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
+	"go.uber.org/zap"
 )
 
 func newEvalTestServer(t *testing.T) *APIServer {
 	db, _, err := backend.TestDB()
 	if err != nil {
 		t.Fatalf("TestDB: %v", err)
+	}
+	// writeErr 依赖 main.go 的全局 logger（nil 会 panic），这里给个 noop。
+	if logger == nil {
+		z, _ := zap.NewProduction()
+		logger = z.Sugar()
 	}
 	return &APIServer{
 		db:      backend.NewTaskRepo(db),
