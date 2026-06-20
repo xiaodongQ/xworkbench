@@ -99,7 +99,7 @@ func NewAPIServer(
 		mux: http.NewServeMux(), running: map[string]context.CancelFunc{},
 	}
 	s.routes()
-	s.wrapped = httplog.Middleware(s.mux)
+	s.wrapped = httplog.Middleware(s.mux, loglib.Logger)
 	return s
 }
 
