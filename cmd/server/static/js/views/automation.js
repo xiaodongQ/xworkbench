@@ -6,6 +6,25 @@ const REFRESH_KEY = 'automation.refreshSeconds';
 let autoRefreshTimer = null;
 let _autoRefreshEnabled = true;
 
+// ===== 高级设置弹窗 =====
+function showAdvancedSettings() {
+  // 加载 AI 自治状态
+  if (typeof loadAILoopStatus === 'function') loadAILoopStatus();
+  document.getElementById('advanced-settings-modal').classList.remove('hidden');
+}
+function closeAdvancedSettings() {
+  document.getElementById('advanced-settings-modal').classList.add('hidden');
+}
+// AI 自治区块折叠/展开
+function toggleAILoopSection() {
+  const content = document.getElementById('ailoop-section-content');
+  const arrow = document.getElementById('ailoop-section-arrow');
+  if (!content) return;
+  const isHidden = content.classList.contains('hidden');
+  content.classList.toggle('hidden');
+  arrow.style.transform = isHidden ? 'rotate(90deg)' : '';
+}
+
 // 暴露全局状态供其他页面使用（如总览页）
 window._autoRefreshEnabled = true;
 
@@ -105,6 +124,67 @@ function updateAutoRefreshStatusIndicator(running) {
 // 调度器控制（供 HTML 按钮调用）
 function schedulerStart() { fetch('/api/scheduler/start', {method:'POST'}).then(() => { loadScheduler(); loadScheduledSummary(); }); }
 function schedulerStop() { fetch('/api/scheduler/stop', {method:'POST'}).then(() => { loadScheduler(); }); }
+
+// ===== AI 自治能力开关（UI 入口：高级设置弹窗）=====
+// 后端：AppSettings (ai_loop_enabled) > config.json (ai_loop.enabled) > 默认 false
+// 页面只能改 AppSettings（运行时热调）；config.json 需要手动编辑重启。
+// 从设置页 toggle 后会刷 task-modal 上的 AI 自治区块可见性。
+async function loadAILoopStatus() {
+  try {
+    const resp = await fetchJSON('/api/ai-loop/status');
+    const enabled = !!resp.enabled;
+    const source = resp.source || 'default';
+    // 1. 同步 widget 状态
+    const checkbox = document.getElementById('ailoop-toggle');
+    if (checkbox) checkbox.checked = enabled;
+    const badge = document.getElementById('ailoop-badge');
+    if (badge) {
+      badge.textContent = enabled ? '已启用' : '未启用';
+      badge.style.background = enabled ? '#10b981' : '#6b7280';
+    }
+    const srcEl = document.getElementById('ailoop-source');
+    if (srcEl) {
+      const label = {default: '默认', 'config.json': '位置文件', app_settings: '设置页'}[source] || source;
+      srcEl.textContent = '· 来源：' + label;
+    }
+    // 2. 同步 task-modal 的 AI 自治区块（如果 modal 打开着）
+    const section = document.getElementById('ai-loop-section');
+    if (section) {
+      section.classList.toggle('hidden', !enabled);
+      const srcBadge = document.getElementById('ai-loop-source-badge');
+      if (srcBadge) srcBadge.textContent = enabled ? '(' + source + ')' : '';
+    }
+    return enabled;
+  } catch (e) {
+    console.error('[ai-loop] status load failed:', e);
+    return false;
+  }
+}
+
+async function toggleAILoop(checked) {
+  try {
+    await fetchJSON('/api/settings/ai_loop_enabled', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: checked ? '1' : '0' }),
+    });
+    await loadAILoopStatus();
+  } catch (e) {
+    alert('切换 AI 自治开关失败：' + e.message);
+    // 回滚 checkbox 状态
+    const checkbox = document.getElementById('ailoop-toggle');
+    if (checkbox) checkbox.checked = !checked;
+  }
+}
+
+// 自动化页面加载时同步 AI 自治状态
+if (typeof window !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      if (typeof loadAILoopStatus === 'function') loadAILoopStatus();
+    }, 500);
+  });
+}
 
 // 页面首次进入：根据本地存储恢复自动刷新状态
 if (typeof window !== 'undefined') {
@@ -709,17 +789,19 @@ function _markEvaluating(execId, on) {
 function renderExecOutput(raw) {
   if (!raw) return '(无输出)';
   const trimmed = raw.trim();
-  // 必须以 { 开头且可解析为 JSON
-  if (!trimmed.startsWith('{')) return raw;
+  // 尝试解析 session_id/sessionId（用于继续对话）
+  const sessionId = extractSessionId(trimmed);
+  // 必须以 { 或 [ 开头才能解析
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return raw;
   let obj;
   try { obj = JSON.parse(trimmed); } catch { return raw; }
-  // claude json 输出结构
+  // claude json 输出结构（单对象）
   if (typeof obj.result === 'string') {
     const lines = [];
     lines.push(obj.result);
     // 附加元数据头部（方便人工核查）
     const meta = [];
-    if (obj.uuid) meta.push(`uuid=${obj.uuid}`);
+    if (sessionId) meta.push(`sessionId=${sessionId}`);
     if (typeof obj.num_turns === 'number') meta.push(`num_turns=${obj.num_turns}`);
     if (obj.is_error) meta.push('is_error=true');
     if (obj.stop_reason) meta.push(`stop_reason=${obj.stop_reason}`);
@@ -732,7 +814,61 @@ function renderExecOutput(raw) {
     }
     return lines.join('\n');
   }
+  // cbc 分段 JSON 输出（数组），找第一个有 sessionId 的块
+  if (Array.isArray(obj)) {
+    let resultText = '';
+    for (const item of obj) {
+      if (item.type === 'message' && Array.isArray(item.content)) {
+        for (const c of item.content) {
+          if (c.type === 'text' || c.type === 'output_text') {
+            resultText += c.text + '\n';
+          }
+        }
+      }
+    }
+    const lines = resultText ? [resultText.trim()] : ['(无result内容)'];
+    const meta = [];
+    if (sessionId) meta.push(`sessionId=${sessionId}`);
+    if (meta.length) {
+      lines.unshift('--- Claude JSON 元数据 ---');
+      lines.unshift(meta.join(' | '));
+    }
+    return lines.join('\n');
+  }
   return raw;
+}
+
+// extractSessionId 从原始输出中提取 session_id（claude）或 sessionId（cbc）。
+function extractSessionId(raw) {
+  if (!raw) return null;
+  // 尝试 JSON 解析
+  try {
+    const obj = JSON.parse(raw);
+    // claude: session_id 在顶层
+    if (obj.session_id) return obj.session_id;
+    // cbc: sessionId 在 message 类型的块中
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        if (item.sessionId) return item.sessionId;
+      }
+    }
+  } catch {}
+  // 字符串匹配回退
+  // cbc: "sessionId": "xxx"
+  let idx = raw.indexOf('"sessionId"');
+  if (idx >= 0) {
+    const rest = raw.slice(idx + 12);
+    const m = rest.match(/^[^"]*"\s*:\s*"([^"]+)"/);
+    if (m) return m[1];
+  }
+  // claude: "session_id": "xxx"
+  idx = raw.indexOf('"session_id"');
+  if (idx >= 0) {
+    const rest = raw.slice(idx + 12);
+    const m = rest.match(/^[^"]*"\s*:\s*"([^"]+)"/);
+    if (m) return m[1];
+  }
+  return null;
 }
 
 // ===== 终端类型设置 =====

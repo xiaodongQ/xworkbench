@@ -688,7 +688,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			out, errOut = res.Output, res.ErrorOut
 			exitCode = res.ExitCode
 		}
-		// 解析 claude -p --output-format json 输出中的 uuid（用于 --resume 继续对话）
+		// 解析 claude -p --output-format json 输出中的 session_id（用于 --resume 继续对话）
 		resumeSessionID := extractResumeSessionID(out)
 		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID, "")
 		_ = s.db.UpdateStatus(id, status, "factory-agent")
@@ -702,6 +702,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			logger.Errorw("task run finished",
 				"task_id", id,
 				"execution_id", exec.ID,
+				"session_id", resumeSessionID,
 				"exit_code", exitCode,
 				"status", status,
 				"dur_ms", time.Since(started).Milliseconds(),
@@ -711,10 +712,10 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			logger.Infow("task run finished",
 				"task_id", id,
 				"execution_id", exec.ID,
+				"session_id", resumeSessionID,
 				"exit_code", exitCode,
 				"status", status,
 				"dur_ms", time.Since(started).Milliseconds(),
-				"err", errStr(runErr),
 			)
 		}
 	}()
@@ -806,9 +807,10 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if orig.ResumeSessionID == "" {
-		writeErr(w, http.StatusBadRequest, "该执行没有 uuid，无法继续对话")
+		writeErr(w, http.StatusBadRequest, "该执行没有 session_id，无法继续对话（可能是该任务执行时未能获取到会话 ID）")
 		return
 	}
+	logger.Infow("execution continue start", "orig_id", id, "session_id", orig.ResumeSessionID)
 	var req struct {
 		Prompt string `json:"prompt"`
 		Model  string `json:"model"`
@@ -889,7 +891,7 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 			"exit_code":    exitCode,
 		})
 		logger.Infow("execution continue finished",
-			"orig_id", id, "exec_id", exec.ID, "exit_code", exitCode,
+			"orig_id", id, "exec_id", exec.ID, "session_id", orig.ResumeSessionID, "exit_code", exitCode,
 			"dur_ms", time.Since(exec.StartedAt).Milliseconds())
 	}()
 	writeJSON(w, map[string]any{
@@ -1867,17 +1869,19 @@ func errStr(err error) string {
 	return err.Error()
 }
 
-// extractResumeSessionID 从 claude -p --output-format json 输出中解析 session_id。
+// extractResumeSessionID 从 claude -p / cbc -p --output-format json 输出中解析 session_id/sessionId。
 //
 // claude 2.x 输出是 JSON 事件流（多 event 数组），有 session_id 字段：
 //   - system/init 块：必带 session_id
 //   - 最后 result 块：必带 session_id（session 内稳定，多次 --resume 都是同一个）
 //
+// codebuddy 输出是分段 JSON 数组，每个段都有 sessionId 字段（同一个值）。
+//
 // 注意：不要被 event 块中的 uuid 字段迷惑。uuid 是单次执行的事件标识，**每次都变**，
 // 不是 session 标识，传给 --resume 会让 claude 报 "No conversation found with session ID"。
 // 传给 --resume 的必须是 session_id（一次会话内跨多次 --resume 不变）。
 //
-// 解析策略：先尝试按 JSON 解析（数组或单对象）；从尾到头扫 session_id 字段（拿 result 块）；
+// 解析策略：先尝试按 JSON 解析（数组或单对象）；从尾到头扫 session_id/sessionId 字段；
 // JSON 解析失败则回退到字符串匹配（防止输出被截断不是合法 JSON）。
 func extractResumeSessionID(output string) string {
 	if output == "" {
@@ -1889,18 +1893,24 @@ func extractResumeSessionID(output string) string {
 		// anyObj 可能是 array 或单 object
 		switch v := anyObj.(type) {
 		case []any:
-			// 优先取最后一个含 session_id 的 event（result 块）
+			// 优先取最后一个含 session_id 或 sessionId 的 event（result 块）
 			for i := len(v) - 1; i >= 0; i-- {
 				if m, ok := v[i].(map[string]any); ok {
 					if sid, _ := m["session_id"].(string); sid != "" {
 						return sid
 					}
+					if sid, _ := m["sessionId"].(string); sid != "" {
+						return sid
+					}
 				}
 			}
-			// 退化：取第一个含 session_id 的（init 块）
+			// 退化：取第一个含 session_id 或 sessionId 的（init 块）
 			for i := 0; i < len(v); i++ {
 				if m, ok := v[i].(map[string]any); ok {
 					if sid, _ := m["session_id"].(string); sid != "" {
+						return sid
+					}
+					if sid, _ := m["sessionId"].(string); sid != "" {
 						return sid
 					}
 				}
@@ -1910,24 +1920,39 @@ func extractResumeSessionID(output string) string {
 			if sid, _ := v["session_id"].(string); sid != "" {
 				return sid
 			}
+			if sid, _ := v["sessionId"].(string); sid != "" {
+				return sid
+			}
 		}
 	}
 	// 路径 2：字符串匹配回退（输出被截断 / 非合法 JSON）
+	// 优先匹配 "session_id"（claude）
 	idx := strings.Index(output, `"session_id"`)
-	if idx == -1 {
-		return ""
+	if idx >= 0 {
+		rest := output[idx+12:] // 跳过 "session_id"
+		idx2 := strings.Index(rest, `"`)
+		if idx2 >= 0 {
+			rest = rest[idx2+1:]
+			end := strings.Index(rest, `"`)
+			if end >= 0 {
+				return rest[:end]
+			}
+		}
 	}
-	rest := output[idx+12:] // 跳过 "session_id"
-	idx2 := strings.Index(rest, `"`)
-	if idx2 == -1 {
-		return ""
+	// 回退：匹配 "sessionId"（codebuddy）
+	idx = strings.Index(output, `"sessionId"`)
+	if idx >= 0 {
+		rest := output[idx+11:] // 跳过 "sessionId"
+		idx2 := strings.Index(rest, `"`)
+		if idx2 >= 0 {
+			rest = rest[idx2+1:]
+			end := strings.Index(rest, `"`)
+			if end >= 0 {
+				return rest[:end]
+			}
+		}
 	}
-	rest = rest[idx2+1:]
-	end := strings.Index(rest, `"`)
-	if end == -1 {
-		return ""
-	}
-	return rest[:end]
+	return ""
 }
 
 func main() {

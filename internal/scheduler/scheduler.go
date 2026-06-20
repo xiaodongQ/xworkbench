@@ -3,6 +3,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"time"
@@ -220,27 +221,11 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 			status = "timeout"
 		}
 	}
-	// 解析 claude -p --output-format json 输出中的 uuid（用于 --resume 继续对话）
-	resumeUUID := func(o string) string {
-		idx := strings.Index(o, `"uuid"`)
-		if idx == -1 {
-			return ""
-		}
-		rest := o[idx+6:]
-		idx2 := strings.Index(rest, `"`)
-		if idx2 == -1 {
-			return ""
-		}
-		rest = rest[idx2+1:]
-		end := strings.Index(rest, `"`)
-		if end == -1 {
-			return ""
-		}
-		return rest[:end]
-	}(out)
-	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeUUID, "")
+	// 解析 claude/cbc -p --output-format json 输出中的 session_id/sessionId（用于 --resume 继续对话）
+	resumeSessionID := extractSessionID(out)
+	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID, "")
 	_ = s.repo.UpdateAfterRun(t.ID, status, exec.ID)
-	logger.Logger.Infow("scheduler: task finished", "task", t.Name, "exec_id", exec.ID, "status", status, "exit_code", exitCode)
+	logger.Logger.Infow("scheduler: task finished", "task", t.Name, "exec_id", exec.ID, "session_id", resumeSessionID, "status", status, "exit_code", exitCode)
 	s.hub.Broadcast(wsmsg.ChannelScheduled, map[string]any{
 		"scheduled_task_id": t.ID,
 		"execution_id":      exec.ID,
@@ -248,4 +233,75 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 		"status":            status,
 		"exit_code":         exitCode,
 	})
+}
+
+// extractSessionID 从 claude/cbc -p --output-format json 输出中解析 session_id/sessionId。
+// 优先匹配 session_id（claude），未找到则匹配 sessionId（codebuddy）。
+func extractSessionID(output string) string {
+	if output == "" {
+		return ""
+	}
+	// 路径 1：JSON 解析
+	var anyObj interface{}
+	if err := json.Unmarshal([]byte(output), &anyObj); err == nil {
+		switch v := anyObj.(type) {
+		case []any:
+			// 优先取最后一个含 session_id 或 sessionId 的
+			for i := len(v) - 1; i >= 0; i-- {
+				if m, ok := v[i].(map[string]any); ok {
+					if sid, _ := m["session_id"].(string); sid != "" {
+						return sid
+					}
+					if sid, _ := m["sessionId"].(string); sid != "" {
+						return sid
+					}
+				}
+			}
+			// 退化：取第一个
+			for i := 0; i < len(v); i++ {
+				if m, ok := v[i].(map[string]any); ok {
+					if sid, _ := m["session_id"].(string); sid != "" {
+						return sid
+					}
+					if sid, _ := m["sessionId"].(string); sid != "" {
+						return sid
+					}
+				}
+			}
+			return ""
+		case map[string]any:
+			if sid, _ := v["session_id"].(string); sid != "" {
+				return sid
+			}
+			if sid, _ := v["sessionId"].(string); sid != "" {
+				return sid
+			}
+		}
+	}
+	// 路径 2：字符串匹配回退
+	idx := strings.Index(output, `"session_id"`)
+	if idx >= 0 {
+		rest := output[idx+12:]
+		idx2 := strings.Index(rest, `"`)
+		if idx2 >= 0 {
+			rest = rest[idx2+1:]
+			end := strings.Index(rest, `"`)
+			if end >= 0 {
+				return rest[:end]
+			}
+		}
+	}
+	idx = strings.Index(output, `"sessionId"`)
+	if idx >= 0 {
+		rest := output[idx+11:]
+		idx2 := strings.Index(rest, `"`)
+		if idx2 >= 0 {
+			rest = rest[idx2+1:]
+			end := strings.Index(rest, `"`)
+			if end >= 0 {
+				return rest[:end]
+			}
+		}
+	}
+	return ""
 }

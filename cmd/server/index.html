@@ -147,25 +147,6 @@
         </div>
         <div id="scheduled-summary" class="scheduled-list" style="max-height:200px;overflow-y:auto"></div>
       </div>
-      <div class="widget" id="dash-ailoop-widget" style="flex: 1;min-width:240px">
-        <div class="widget-title">
-          <span>🤖 AI 自治</span>
-          <span id="ailoop-badge" style="font-size:11px;padding:1px 6px;border-radius:3px;background:#6b7280;color:#fff">未启用</span>
-        </div>
-        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
-          run-loop / reevaluate / learn 三个 AI 能力。默认关闭，启用后 task-modal 会出现 AI 自治区块。
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
-            <input type="checkbox" id="ailoop-toggle" onchange="toggleAILoop(this.checked)">
-            启用
-          </label>
-          <span id="ailoop-source" style="font-size:10px;color:var(--text-secondary)"></span>
-        </div>
-        <div id="ailoop-hint" style="font-size:11px;color:var(--text-secondary);margin-top:8px;font-style:italic">
-          提示：位置文件控制 config.json → ai_loop.enabled
-        </div>
-      </div>
       <div class="widget" id="dash-execs-widget" style="flex: 2">
         <div class="widget-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span>⚡ 最近执行</span>
@@ -234,11 +215,13 @@
   <div id="page-automation" class="hidden">
     <h1 class="page-title">自动化</h1>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px">
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span style="font-size:13px;font-weight:500;color:var(--text)">调度器</span>
         <span id="scheduler-badge-2"></span>
         <button class="btn" data-sched-action="start" onclick="schedulerStart()">▶ 启动</button>
         <button class="btn" data-sched-action="stop" onclick="schedulerStop()">⏸ 停止</button>
+        <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+        <button class="btn btn-small" onclick="showAdvancedSettings()">⚙️ 高级设置</button>
       </div>
       <button class="btn btn-primary" onclick="showScheduledModal()">+ 新建定时任务</button>
     </div>
@@ -781,6 +764,70 @@
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeDirSettingsModal()">取消</button>
       <button class="btn btn-primary" onclick="submitDirSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 高级设置弹窗 -->
+<div id="advanced-settings-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeAdvancedSettings()">
+  <div class="modal" style="max-width:520px;max-height:85vh;overflow-y:auto">
+    <h2 style="margin:0 0 16px 0;font-size:16px">⚙️ 高级设置</h2>
+
+    <!-- AI 自治区块 -->
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:16px">
+      <div onclick="toggleAILoopSection()" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;background:var(--hover);user-select:none">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px;font-weight:600">🤖 AI 自治</span>
+          <span id="ailoop-badge" style="font-size:11px;padding:1px 8px;border-radius:10px;background:#6b7280;color:#fff">未启用</span>
+        </div>
+        <span id="ailoop-section-arrow" style="font-size:12px;color:var(--text-secondary);transition:transform 0.2s">▶</span>
+      </div>
+      <div id="ailoop-section-content" class="hidden" style="padding:14px;background:var(--card)">
+        <!-- 功能说明 -->
+        <div style="margin-bottom:14px">
+          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px">功能说明</div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+            AI 自治让 AI 自动从任务池认领任务并执行，形成<strong>自动 → 评估 → 学习</strong>的闭环。
+            启用后，任务详情弹窗中会出现 AI 自治区块，支持三个动作：
+          </div>
+          <div style="margin-top:8px;padding-left:12px">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">
+              <span style="color:var(--info)">▶ run-loop</span> — 让 AI 自动循环执行任务，直到达到阈值分数
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">
+              <span style="color:var(--info)">📊 reevaluate</span> — 重新评估任务最新执行结果
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary)">
+              <span style="color:var(--info)">📚 learn</span> — 从执行记录生成经验，写入经验库
+            </div>
+          </div>
+        </div>
+        <!-- 用法说明 -->
+        <div style="margin-bottom:14px">
+          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px">用法说明</div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+            开启后，打开任意任务的详情弹窗，可见 AI 自治区块。执行结果会自动评估打分，优质经验自动入库。
+          </div>
+          <div style="margin-top:6px;font-size:11px;color:var(--archived);background:rgba(16,185,129,0.1);padding:8px 10px;border-radius:6px">
+            💡 提示：评估依赖 AI 模型，返回结果可能需要 5-30 秒
+          </div>
+        </div>
+        <!-- 开关 -->
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="ailoop-toggle" onchange="toggleAILoop(this.checked)">
+            <span style="font-weight:500">启用 AI 自治</span>
+          </label>
+          <span id="ailoop-source" style="font-size:11px;color:var(--text-secondary)"></span>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">
+          提示：位置文件控制 config.json → ai_loop.enabled
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="closeAdvancedSettings()">完成</button>
     </div>
   </div>
 </div>
