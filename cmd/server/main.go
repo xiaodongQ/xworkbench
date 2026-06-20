@@ -188,6 +188,9 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/scheduler/status", s.handleSchedulerStatus)
 	mux.HandleFunc("POST /api/scheduler/reload", s.handleSchedulerReload)
 
+	// AI 自治能力开关状态查询（前端 task-modal 根据这个决定是否显示运行区块）
+	mux.HandleFunc("GET /api/ai-loop/status", s.handleAILoopStatus)
+
 	mux.HandleFunc("GET /api/todo", s.handleTodo)
 	mux.HandleFunc("POST /api/todo", s.handleTodoAdd)
 	mux.HandleFunc("PUT /api/todo/{line_no}", s.handleTodoToggle)
@@ -1614,6 +1617,30 @@ func (s *APIServer) handleSchedulerReload(w http.ResponseWriter, r *http.Request
 	writeJSON(w, map[string]string{"status": "reloaded"})
 }
 
+// handleAILoopStatus 返回 AI 自治能力开关状态。优先级：AppSettings > config.json。
+// 前端 task-modal 打开时调这个，决定是否渲染“AI 自治”区块。
+func (s *APIServer) handleAILoopStatus(w http.ResponseWriter, r *http.Request) {
+	// 查询主源（AppSettings）和后备源（config.json），同时返回让前端能提示用户从哪开的
+	var source string
+	var enabled bool
+	if s.setDB != nil {
+		if v, err := s.setDB.Get("ai_loop_enabled"); err == nil && v != "" {
+			enabled = v == "1" || v == "true"
+			source = "app_settings"
+		}
+	}
+	if source == "" {
+		if config.AppConfig != nil && config.AppConfig.AILoop.Enabled {
+			enabled = true
+			source = "config.json"
+		}
+	}
+	if source == "" {
+		source = "default"
+	}
+	writeJSON(w, map[string]any{"enabled": enabled, "source": source})
+}
+
 // --- Todo.md ---
 
 func (s *APIServer) handleTodo(w http.ResponseWriter, r *http.Request) {
@@ -1812,6 +1839,25 @@ func parseInt(s string, def int) int {
 		n = n*10 + int(c-'0')
 	}
 	return n
+}
+
+// aiLoopEnabled 判断 AI 自治能力是否启用。
+// 优先级：AppSettings (ai_loop_enabled) > config.json (ai_loop.enabled) > 默认 false
+// 返回值是 s.setDB 查表的最新值（运行时热调），调用方负责传 s。
+// 这个函数在 3 个 handler 入口都查，变化后下一次请求生效。
+func (s *APIServer) aiLoopEnabled() bool {
+	if s == nil || s.setDB == nil {
+		return false
+	}
+	// AppSettings 优先
+	if v, err := s.setDB.Get("ai_loop_enabled"); err == nil && v != "" {
+		return v == "1" || v == "true"
+	}
+	// 退化到 config.json
+	if config.AppConfig != nil {
+		return config.AppConfig.AILoop.Enabled
+	}
+	return false
 }
 
 func errStr(err error) string {
@@ -2038,6 +2084,10 @@ func (s *APIServer) handleTaskEvalHistory(w http.ResponseWriter, r *http.Request
 
 // handleTaskReevaluate 用新模型重新评估最新 execution。
 func (s *APIServer) handleTaskReevaluate(w http.ResponseWriter, r *http.Request) {
+	if !s.aiLoopEnabled() {
+		writeErr(w, http.StatusForbidden, "AI 自治能力未启用（设 AI_LOOP_ENABLED=1 或 config.json ai_loop.enabled=true）")
+		return
+	}
 	id := r.PathValue("id")
 	if _, err := s.db.Get(id); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
@@ -2065,6 +2115,10 @@ func (s *APIServer) handleTaskReevaluate(w http.ResponseWriter, r *http.Request)
 
 // handleTaskRunLoop 评估闭环：执行→评估→分数<阈值则换更强模型重试。
 func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
+	if !s.aiLoopEnabled() {
+		writeErr(w, http.StatusForbidden, "AI 自治能力未启用（设 AI_LOOP_ENABLED=1 或 config.json ai_loop.enabled=true）")
+		return
+	}
 	id := r.PathValue("id")
 	if _, err := s.db.Get(id); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
@@ -2142,6 +2196,10 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 
 // handleTaskLearn 对完成任务触发自我学习，从执行记录生成经验写入 experiences 表。
 func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
+	if !s.aiLoopEnabled() {
+		writeErr(w, http.StatusForbidden, "AI 自治能力未启用（设 AI_LOOP_ENABLED=1 或 config.json ai_loop.enabled=true）")
+		return
+	}
 	id := r.PathValue("id")
 	task, err := s.db.Get(id)
 	if err != nil {

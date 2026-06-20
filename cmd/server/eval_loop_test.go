@@ -22,7 +22,9 @@ func newEvalTestServer(t *testing.T) *APIServer {
 		z, _ := zap.NewProduction()
 		logger = z.Sugar()
 	}
-	return &APIServer{
+	// AI 自治能力默认开启，以便 run-loop/reevaluate/learn 现有测试能走完整逻辑。
+	// 如果某个测试需要验证“未启用返 403”路径，应跳过 helper 默认开（手设 setDB）。
+	s := &APIServer{
 		db:      backend.NewTaskRepo(db),
 		setDB:   backend.NewAppSettingsRepo(db),
 		dirDB:   backend.NewDirShortcutRepo(db),
@@ -30,6 +32,9 @@ func newEvalTestServer(t *testing.T) *APIServer {
 		execDB:  backend.NewExecutionRepo(db),
 		evalDB:  backend.NewEvaluationRepo(db),
 	}
+	// AI 自治能力默认开启（3 个 handler 走完整逻辑）
+	_ = s.setDB.Set("ai_loop_enabled", "1")
+	return s
 }
 
 func TestHandleTaskEvalHistory_NotFound(t *testing.T) {

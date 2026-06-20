@@ -147,6 +147,25 @@
         </div>
         <div id="scheduled-summary" class="scheduled-list" style="max-height:200px;overflow-y:auto"></div>
       </div>
+      <div class="widget" id="dash-ailoop-widget" style="flex: 1;min-width:240px">
+        <div class="widget-title">
+          <span>🤖 AI 自治</span>
+          <span id="ailoop-badge" style="font-size:11px;padding:1px 6px;border-radius:3px;background:#6b7280;color:#fff">未启用</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+          run-loop / reevaluate / learn 三个 AI 能力。默认关闭，启用后 task-modal 会出现 AI 自治区块。
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
+            <input type="checkbox" id="ailoop-toggle" onchange="toggleAILoop(this.checked)">
+            启用
+          </label>
+          <span id="ailoop-source" style="font-size:10px;color:var(--text-secondary)"></span>
+        </div>
+        <div id="ailoop-hint" style="font-size:11px;color:var(--text-secondary);margin-top:8px;font-style:italic">
+          提示：位置文件控制 config.json → ai_loop.enabled
+        </div>
+      </div>
       <div class="widget" id="dash-execs-widget" style="flex: 2">
         <div class="widget-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span>⚡ 最近执行</span>
@@ -445,6 +464,22 @@
 	        <button type="button" class="btn btn-small" style="margin-left:auto" onclick="event.stopPropagation();loadTaskEvents()">🔄 刷新</button>
 	      </label>
 	      <div id="task-events-body" class="hidden" style="max-height:200px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg)"></div>
+	    </div>
+	    <!-- AI 自治能力区块（默认隐藏，需要 config.json 或设置页打开 AI_LOOP_ENABLED） -->
+	    <div id="ai-loop-section" class="form-group hidden" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px;background:rgba(139,92,246,0.05);border-radius:6px;padding:10px">
+	      <label style="display:flex;align-items:center;gap:6px;cursor:default">
+	        🤖 AI 自治 <span id="ai-loop-source-badge" style="font-size:10px;color:var(--text-secondary)"></span>
+	      </label>
+	      <div style="font-size:11px;color:var(--text-secondary);margin:4px 0 8px">启用了 AI 自治能力：手动触发多模型评估闭环 / 重评 / 自我学习</div>
+	      <div style="display:flex;gap:6px;flex-wrap:wrap">
+	        <button class="btn btn-small" onclick="runTaskLoop()" id="ai-loop-run-btn" style="background:linear-gradient(135deg,#8b5cf6,#6366f1);color:#fff">🔄 Run Loop</button>
+	        <button class="btn btn-small" onclick="reevaluateTask()" id="ai-loop-reeval-btn" style="background:linear-gradient(135deg,#0ea5e9,#06b6d4);color:#fff">📊 重评</button>
+	        <button class="btn btn-small" onclick="learnFromTask()" id="ai-loop-learn-btn" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff">📝 Learn</button>
+	      </div>
+	      <div id="ai-loop-progress" class="hidden" style="margin-top:10px;padding:8px;background:rgba(139,92,246,0.1);border-radius:4px;font-size:12px">
+	        <div id="ai-loop-progress-text" style="margin-bottom:6px"></div>
+	        <div id="ai-loop-progress-history" style="max-height:200px;overflow-y:auto"></div>
+	      </div>
 	    </div>
 	    <!-- 评论区 -->
 	    <div id="task-comment-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">

@@ -365,6 +365,8 @@ function viewTask(id) {
   loadTaskConversation();
   // 活动历史：预加载计数，body 默认折叠，点 ▶ 才展开
   loadTaskEvents();
+  // AI 自治：加载开关状态、决定是否显示 AI 自治区块
+  if (typeof loadAILoopStatus === 'function') loadAILoopStatus();
 }
 
 async function editTask(id) {
@@ -801,6 +803,104 @@ async function showDeleteFilterDialog() {
     await loadSavedFilters();
   } catch (e) {
     alert('删除失败：' + e.message);
+  }
+}
+
+// ===== AI 自治 三个动作 =====
+// 错误处理：后端返 403 “未启用”时提示用户去 dashboard 开。
+
+function _currentTaskId() {
+  return document.getElementById('task-id')?.value || '';
+}
+
+function _aiLoopProgressShow(text) {
+  const wrap = document.getElementById('ai-loop-progress');
+  const textEl = document.getElementById('ai-loop-progress-text');
+  if (wrap) wrap.classList.remove('hidden');
+  if (textEl) textEl.textContent = text || '进行中...';
+}
+
+function _aiLoopProgressRenderHistory(history) {
+  const histEl = document.getElementById('ai-loop-progress-history');
+  if (!histEl) return;
+  histEl.innerHTML = (history || []).map((step, i) => {
+    const ok = step.exit_code === 0;
+    const score = step.score != null ? '· score=' + step.score.toFixed(2) : '';
+    const err = step.error ? '· ' + step.error : '';
+    const color = ok ? '#10b981' : (step.error ? '#ef4444' : '#f59e0b');
+    return `<div style="padding:4px 6px;border-bottom:1px solid rgba(255,255,255,0.1);font-size:11px">
+      <span style="color:${color}">迭代 ${step.iteration}</span>
+      <span style="color:var(--text-secondary)">· ${step.model}${score}</span>
+      ${err ? `<div style="color:#ef4444;font-size:10px">${err}</div>` : ''}
+    </div>`;
+  }).join('') || '<div style="color:var(--text-secondary)">（无迭代）</div>';
+}
+
+function _aiLoopErrorHandler(e) {
+  if (e.message && e.message.includes('403')) {
+    alert('AI 自治未启用。请在 Dashboard 页面 “🤖 AI 自治” widget 中开启，或修改 config.json。');
+  } else {
+    alert('失败：' + e.message);
+  }
+}
+
+async function runTaskLoop() {
+  const id = _currentTaskId();
+  if (!id) return;
+  const prompt = prompt('Run Loop 的 prompt（必填）:', document.getElementById('task-description')?.value || '');
+  if (!prompt) return;
+  const model = document.getElementById('task-run-model')?.value || '';
+  const thresholdStr = prompt('分数阈值（达到则停止，默认 7）:', '7');
+  const maxIterStr = prompt('最大迭代次数（默认 3）:', '3');
+  const threshold = parseFloat(thresholdStr) || 7;
+  const maxIter = parseInt(maxIterStr) || 3;
+  _aiLoopProgressShow('Run Loop 启动中...');
+  try {
+    const result = await fetchJSON('/api/tasks/' + id + '/run-loop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, model, cli_type: 'claude', threshold, max_iterations: maxIter }),
+    });
+    const text = result.loop_done ? '✓ 达到阈值，循环结束' : '⏸ 达到最大迭代次数';
+    _aiLoopProgressShow(text);
+    _aiLoopProgressRenderHistory(result.history);
+  } catch (e) {
+    _aiLoopProgressShow('❌ ' + e.message);
+    _aiLoopErrorHandler(e);
+  }
+}
+
+async function reevaluateTask() {
+  const id = _currentTaskId();
+  if (!id) return;
+  const model = document.getElementById('task-run-model')?.value || '';
+  if (!confirm('用新模型重新评估该 task 的最新 execution？')) return;
+  _aiLoopProgressShow('重评中...');
+  try {
+    const result = await fetchJSON('/api/tasks/' + id + '/reevaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, cli_type: 'claude' }),
+    });
+    _aiLoopProgressShow('✓ 重评完成·score=' + (result.score != null ? result.score.toFixed(2) : '?'));
+    _aiLoopProgressRenderHistory([{ iteration: 1, model, exit_code: 0, score: result.score }]);
+  } catch (e) {
+    _aiLoopProgressShow('❌ ' + e.message);
+    _aiLoopErrorHandler(e);
+  }
+}
+
+async function learnFromTask() {
+  const id = _currentTaskId();
+  if (!id) return;
+  if (!confirm('从该 task 的执行记录生成经验写入 experiences 表？')) return;
+  _aiLoopProgressShow('学习中...');
+  try {
+    const result = await fetchJSON('/api/tasks/' + id + '/learn', { method: 'POST' });
+    _aiLoopProgressShow('✓ 经验已生成（' + (result.exp_id || '?') + '）');
+  } catch (e) {
+    _aiLoopProgressShow('❌ ' + e.message);
+    _aiLoopErrorHandler(e);
   }
 }
 

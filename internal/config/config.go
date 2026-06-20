@@ -17,6 +17,15 @@ type Config struct {
 	Terminal TerminalConfig `json:"terminal"`
 	Models   ModelsConfig   `json:"models"`
 	Relay    RelayConfig    `json:"relay"`
+	AILoop   AILoopConfig   `json:"ai_loop"`
+}
+
+// AILoopConfig 控制 AI 自治能力是否暴露
+//（run-loop / reevaluate / learn 三个后端能力）前端默认隐藏，
+//启用了才在 task-modal 里看到“AI 自治”区块。
+//三个位置可以控制：config.json → AppSettings（运行时热调，优先级：AppSettings > config.json）
+type AILoopConfig struct {
+	Enabled bool `json:"enabled"`
 }
 
 type RelayConfig struct {
@@ -129,6 +138,9 @@ func mergeConfig(dst, src *Config) {
 	if dst.Relay.APIKey == "" {
 		dst.Relay.APIKey = "xworkbench"
 	}
+	// ai_loop（false 为“未启用”）
+	dst.AILoop.Enabled = src.AILoop.Enabled
+
 	// models
 	for cliType, srcGroup := range src.Models {
 		dstGroup := dst.Models[cliType]
