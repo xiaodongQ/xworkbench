@@ -679,6 +679,25 @@
           <button class="btn btn-small btn-primary" onclick="submitExecComment()">发送</button>
         </div>
       </div>
+      <!-- 对话历史（按需展开） -->
+      <div id="exec-conversation-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
+        <label style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px" onclick="toggleExecConversation()">
+          <span id="exec-conversation-toggle" style="display:inline-block;transition:transform 0.15s;font-size:10px;width:12px;text-align:center">▶</span>
+          💬 对话历史 <span id="exec-conversation-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span>
+          <button type="button" class="btn btn-small" style="margin-left:auto" onclick="event.stopPropagation();loadExecConversation()">🔄 刷新</button>
+        </label>
+        <div id="exec-conversation-body" class="hidden" style="max-height:300px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg)"></div>
+      </div>
+
+      <!-- 活动历史 -->
+      <div id="exec-events-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
+        <label style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px" onclick="toggleExecEvents()">
+          <span id="exec-events-toggle" style="display:inline-block;transition:transform 0.15s;font-size:10px;width:12px;text-align:center">▶</span>
+          📜 活动历史 <span id="exec-events-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span>
+          <button type="button" class="btn btn-small" style="margin-left:auto" onclick="event.stopPropagation();loadExecEvents()">🔄 刷新</button>
+        </label>
+        <div id="exec-events-body" class="hidden" style="max-height:200px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg)"></div>
+      </div>
     </div>
     <div class="modal-actions" style="flex:0 0 auto;background:var(--card);padding-top:10px;margin-top:10px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <label style="font-size:12px;color:var(--text-secondary)">评估:</label>

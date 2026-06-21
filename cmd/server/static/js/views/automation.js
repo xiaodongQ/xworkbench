@@ -439,7 +439,7 @@ async function loadRecentExecutions() {
         : '<span style="width:14px;display:inline-block"></span>';
       const groupIcon = hasKids ? '💬' : src;
       const groupTitle = hasKids ? `<b>[会话链 ${groupMap[e.id].children.length + 1} 轮]</b> ` : '';
-      return `<div style="${rowStyle}">
+      return `<div style="${rowStyle}" data-exec-id="${e.id}">
         ${toggle}
         <span title="${e.source}">${groupIcon}</span>
         <span style="color:var(--text-secondary);font-family:monospace">${dt}</span>
@@ -448,7 +448,8 @@ async function loadRecentExecutions() {
         ${evalBadge}
         <button class="btn btn-small" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
         <button class="btn btn-small" onclick="runEvaluation('${e.id}')" title="AI 评估" style="${isEvaluating?'opacity:0.5;cursor:wait':''}">${isEvaluating?'⏳':'📊'}</button>
-        ${e.resume_uuid ? `<button class="btn btn-small" onclick="toggleExecSessionPanel('${e.id}')" title="查看会话历史并继续对话">📎</button>` : ''}
+        ${e.resume_uuid && e.resume_uuid === e.id ? `<button class="btn btn-small" onclick="toggleExecSessionPanel('${e.id}')" title="查看会话历史并继续对话">📎</button>` : ''}
+        ${e.resume_uuid && e.resume_uuid !== e.id ? `<button class="btn btn-small" onclick="jumpToRoot('${e.resume_uuid}')" title="跳转到根节点展开会话历史">🔗</button>` : ''}
       </div>
       <div id="exec-session-panel-${e.id}" class="hidden" style="display:none;padding:8px 12px 8px 36px;background:var(--hover);border-bottom:1px solid var(--border);font-size:12px"></div>
       <div id="exec-group-${e.id}" style="display:none">${(groupMap[e.id]?.children || []).map(c => renderRow(c, depth + 1)).join('')}</div>`;
@@ -532,6 +533,21 @@ async function renderExecSessionPanel(exec) {
   `;
 }
 
+// jumpToRoot: 子节点点击🔗跳转按钮，滚动到根节点行并触发展开
+function jumpToRoot(resumeUuid) {
+  // 找根节点行（id === resume_uuid）
+  const rootRow = document.querySelector(`[data-exec-id="${resumeUuid}"]`);
+  if (rootRow) {
+    rootRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    rootRow.style.background = 'rgba(16,185,129,0.2)';
+    setTimeout(() => { rootRow.style.background = ''; }, 1000);
+    setTimeout(() => toggleExecSessionPanel(resumeUuid), 300);
+  } else {
+    // 根节点不在当前列表中，直接打开详情弹窗
+    viewExecutionDetail(resumeUuid);
+  }
+}
+
 // toggleExecSessionPanel: 展开或收起执行行的会话历史面板
 async function toggleExecSessionPanel(execId) {
   const panel = document.getElementById('exec-session-panel-' + execId);
@@ -552,8 +568,12 @@ async function toggleExecSessionPanel(execId) {
   // 获取 exec 数据（需要 resume_uuid）
   let exec;
   try {
-    const execs = await fetchJSON('/api/executions?limit=1');
+    // 查找当前 exec（可能是根节点 id，也可能是子节点 id）
+    const execs = await fetchJSON('/api/executions?resume_uuid=' + encodeURIComponent(execId));
     exec = execs && execs.find(e => e.id === execId);
+    if (!exec && execs && execs.length > 0) {
+      exec = execs[0]; // fallback 到第一个
+    }
   } catch (e) {
     panel.innerHTML = '<div style="color:var(--exception);padding:4px">加载失败</div>';
     return;
@@ -715,6 +735,9 @@ async function viewExecutionDetail(id) {
     } catch (e) { /* 忽略 */ }
     // 拉评论
     loadExecComments(id);
+    // 加载对话历史和活动历史
+    loadExecConversation(id);
+    loadExecEvents(id);
     document.getElementById('exec-detail-modal').classList.remove('hidden');
   } catch (e) {
     alert('加载执行详情失败：' + e.message);
@@ -1062,6 +1085,103 @@ async function onTerminalChange(value) {
     });
   } catch (e) {
     console.warn('保存默认终端失败:', e);
+  }
+}
+
+// 对话历史
+function toggleExecConversation() {
+  const body = document.getElementById('exec-conversation-body');
+  const arrow = document.getElementById('exec-conversation-toggle');
+  if (body.classList.contains('hidden')) {
+    body.classList.remove('hidden');
+    arrow.style.transform = 'rotate(90deg)';
+  } else {
+    body.classList.add('hidden');
+    arrow.style.transform = 'rotate(0deg)';
+  }
+}
+
+async function loadExecConversation(execId) {
+  const countEl = document.getElementById('exec-conversation-count');
+  const body = document.getElementById('exec-conversation-body');
+  try {
+    const exec = await fetchJSON('/api/executions/' + execId);
+    const resumeUuid = exec?.resume_uuid;
+    let execs;
+    if (resumeUuid) {
+      execs = await fetchJSON('/api/executions?resume_uuid=' + encodeURIComponent(resumeUuid));
+    } else {
+      execs = [exec];
+    }
+    body.innerHTML = renderExecConversationTimeline(execs);
+    countEl.textContent = '(' + execs.length + ' 轮)';
+  } catch (e) {
+    body.innerHTML = '<div style="padding:8px;color:var(--exception);font-size:12px">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+
+function renderExecConversationTimeline(execs) {
+  if (!execs || execs.length === 0) {
+    return '<div style="padding:8px;color:var(--text-secondary);font-size:12px">暂无对话历史</div>';
+  }
+  execs.sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
+  const root = execs.find(e => e.resume_uuid === e.id) || execs[0];
+  return execs.map((e, idx) => {
+    const isRoot = e.id === root.id;
+    const tag = isRoot
+      ? '<span style="background:var(--accent);color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">原始</span>'
+      : '<span style="background:#0ea5e9;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">继续 ' + idx + '</span>';
+    const ts = e.started_at ? new Date(e.started_at).toLocaleString('zh-CN', {hour12: false}) : '';
+    const status = e.exit_code === 0
+      ? '<span style="color:#10b981;font-size:10px">✓</span>'
+      : '<span style="color:var(--exception);font-size:10px">✗</span>';
+    const prompt = e.prompt ? esc(e.prompt) : '<i style="color:var(--text-secondary)">(无prompt)</i>';
+    return '<div style="display:flex;gap:6px;padding:6px 0;border-bottom:1px solid var(--border)">' +
+      '<div style="flex-shrink:0;margin-top:2px">' + status + '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="display:flex;gap:4px;align-items:center;margin-bottom:2px">' + tag + '<span style="color:var(--text-secondary);font-size:10px">' + ts + '</span></div>' +
+        '<div style="color:var(--text);font-size:11px;word-break:break-word">' + prompt + '</div>' +
+      '</div></div>';
+  }).join('');
+}
+
+// 活动历史
+function toggleExecEvents() {
+  const body = document.getElementById('exec-events-body');
+  const arrow = document.getElementById('exec-events-toggle');
+  if (body.classList.contains('hidden')) {
+    body.classList.remove('hidden');
+    arrow.style.transform = 'rotate(90deg)';
+  } else {
+    body.classList.add('hidden');
+    arrow.style.transform = 'rotate(0deg)';
+  }
+}
+
+async function loadExecEvents(execId) {
+  const countEl = document.getElementById('exec-events-count');
+  const body = document.getElementById('exec-events-body');
+  try {
+    const exec = await fetchJSON('/api/executions/' + execId);
+    if (!exec?.task_id) {
+      body.innerHTML = '<div style="padding:8px;color:var(--text-secondary);font-size:12px">无关联任务</div>';
+      return;
+    }
+    const events = await fetchJSON('/api/tasks/' + exec.task_id + '/events');
+    if (!events || events.length === 0) {
+      body.innerHTML = '<div style="padding:8px;color:var(--text-secondary);font-size:12px">暂无活动记录</div>';
+      countEl.textContent = '(0)';
+      return;
+    }
+    countEl.textContent = '(' + events.length + ' 条)';
+    body.innerHTML = events.map(ev => {
+      const ts = ev.created_at ? new Date(ev.created_at).toLocaleString('zh-CN', {hour12: false}) : '';
+      return '<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">' +
+        '<span style="color:var(--text-secondary)">' + ts + '</span>' +
+        '<span style="margin-left:6px">' + esc(ev.event || '') + '</span></div>';
+    }).join('');
+  } catch (e) {
+    body.innerHTML = '<div style="padding:8px;color:var(--exception);font-size:12px">加载失败：' + esc(e.message) + '</div>';
   }
 }
 
