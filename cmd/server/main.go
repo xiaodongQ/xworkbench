@@ -604,7 +604,10 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		prompt = req.Prompt
 	} else {
 		// 没用 body.prompt,自动从 task + 多 experience 组装
-		prompt = taskpkg.BuildTaskPromptShort(task)
+		// 修复：用 BuildTaskPrompt（完整版，含经验库）而非 BuildTaskPromptShort（不含经验）
+		// 原因：手动任务执行与 agent claim 一致需把经验库喂给 AI CLI
+		exps := s.loadExperiencesForTask(task)
+		prompt = taskpkg.BuildTaskPrompt(task, exps...)
 		if prompt == "" {
 			logger.Warnw("task run rejected: empty prompt after BuildTaskPrompt",
 				"task_id", id,
@@ -997,7 +1000,7 @@ func (s *APIServer) handleExecutionEvaluateChain(w http.ResponseWriter, r *http.
 		)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(req.TimeoutSec)*time.Second)
 		defer cancel()
-		_, err := evaluator.RunAndSaveChain(ctx, s.evalDB, s.execDB, chain, id, prompt, req.CliType, req.Model)
+		_, err := evaluator.RunAndSaveChain(ctx, s.evalDB, s.execDB, chain, prompt, req.CliType, req.Model)
 		if err != nil {
 			logger.Errorf("evaluator chain: %v", err)
 		}
