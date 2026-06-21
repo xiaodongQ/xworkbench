@@ -634,6 +634,7 @@
           <span id="exec-conversation-toggle" style="display:inline-block;transition:transform 0.15s;font-size:10px;width:12px;text-align:center">▶</span>
           💬 对话历史 <span id="exec-conversation-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span>
           <button type="button" class="btn btn-small" style="margin-left:auto" onclick="event.stopPropagation();loadExecConversation(currentExecId)">🔄 刷新</button>
+          <button type="button" class="btn btn-small" onclick="toggleAllExecDetails()">详情</button>
         </label>
         <div id="exec-conversation-body" class="hidden" style="max-height:300px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg)"></div>
       </div>
@@ -653,7 +654,7 @@
       <input id="eval-timeout" type="number" value="120" min="30" max="600" style="width:50px;font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text)" title="超时(秒)">
       <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--text-secondary);cursor:pointer" title="勾选后合并会话链所有 input/output 一次评估">
         <input id="eval-chain-checkbox" type="checkbox" style="margin:0">
-        <span>链</span>
+        <span>会话链</span>
       </label>
       <button id="exec-detail-eval-btn" class="btn" onclick="runEvaluation()">📊 评估</button>
       <button id="exec-continue-btn" class="btn btn-secondary hidden" disabled title="该执行未生成 session id，无法继续对话（仅首次成功执行的 execution 可继续）" onclick="showContinuePrompt()">💬 继续对话</button>

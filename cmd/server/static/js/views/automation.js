@@ -1063,6 +1063,24 @@ function toggleExecConversation() {
   }
 }
 
+// 一键展开/收起所有命令和输出详情
+let _execDetailsExpanded = false;
+function toggleAllExecDetails() {
+  _execDetailsExpanded = !_execDetailsExpanded;
+  const body = document.getElementById('exec-conversation-body');
+  if (!body) return;
+  body.querySelectorAll('pre[id^="tl-cmd-"], pre[id^="tl-out-"]').forEach(el => {
+    if (_execDetailsExpanded) {
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  });
+  // 更新按钮文字
+  const btn = document.querySelector('button[onclick="toggleAllExecDetails()"]');
+  if (btn) btn.textContent = _execDetailsExpanded ? '收起详情' : '展开详情';
+}
+
 async function loadExecConversation(execId) {
   const countEl = document.getElementById('exec-conversation-count');
   const body = document.getElementById('exec-conversation-body');
@@ -1086,13 +1104,18 @@ function renderExecConversationTimeline(execs) {
   if (!execs || execs.length === 0) {
     return '<div style="padding:8px;color:var(--text-secondary);font-size:12px">暂无对话历史</div>';
   }
-  execs.sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
-  const root = execs.find(e => e.resume_uuid === e.id) || execs[0];
+  const totalRounds = execs.length;
+  // 倒序排列：最近的在前，最早的在后
+  execs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  // 在排序后的数组中找根节点位置
+  const rootIdx = execs.findIndex(e => e.resume_uuid === e.id);
   return execs.map((e, idx) => {
-    const isRoot = e.id === root.id;
+    // idx=0 是最新的，显示最大轮次；idx=rootIdx 显示"原始"
+    const isRoot = idx === rootIdx;
+    const roundNum = totalRounds - idx;
     const tag = isRoot
       ? '<span style="background:var(--accent);color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">原始</span>'
-      : '<span style="background:#0ea5e9;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">继续 ' + idx + '</span>';
+      : '<span style="background:#0ea5e9;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">第' + roundNum + '轮</span>';
     const ts = e.started_at ? new Date(e.started_at).toLocaleString('zh-CN', {hour12: false}) : '';
     const status = e.exit_code === 0
       ? '<span style="color:#10b981;font-size:10px">✓</span>'
