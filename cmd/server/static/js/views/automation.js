@@ -928,33 +928,15 @@ async function runEvaluation(id) {
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   _markEvaluating(execId, true);
 
-  // 如果是评估整个会话链，先获取同 resume_uuid 的所有 exec
-  let execIdsToEval = [execId];
-  if (evalChain) {
-    try {
-      const exec = await fetchJSON('/api/executions/' + execId);
-      if (exec && exec.resume_uuid) {
-        const chain = await fetchJSON('/api/executions?resume_uuid=' + encodeURIComponent(exec.resume_uuid));
-        if (chain && chain.length > 0) {
-          execIdsToEval = chain.map(e => e.id);
-        }
-      }
-    } catch (_) {}
-  }
-
-  // 逐个评估
-  const total = execIdsToEval.length;
-  let completed = 0;
+  // 如果是评估整个会话链，直接调用 chain API
   const evalStartedAt = new Date();
   try {
-    for (const eid of execIdsToEval) {
-      await fetchJSON('/api/executions/' + eid + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cli_type: getEvalCliType(), model: getEvalModel(), timeout_sec: timeoutSec})});
-      completed++;
-      // 更新状态
-      if (currentExecId === execId) {
-        const card = document.getElementById('exec-detail-eval');
-        card.innerHTML = `<div style="font-size:13px"><span style="color:var(--info,#3b82f6)">⏳ 评估中…</span> <span style="color:var(--text-secondary);font-size:11px">${completed}/${total} 已提交 · ${esc(getEvalModel())}</span></div>`;
-      }
+    if (evalChain) {
+      // 合并评估
+      await fetchJSON('/api/executions/' + execId + '/evaluate-chain', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cli_type: getEvalCliType(), model: getEvalModel(), timeout_sec: timeoutSec})});
+    } else {
+      // 单个评估
+      await fetchJSON('/api/executions/' + execId + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cli_type: getEvalCliType(), model: getEvalModel(), timeout_sec: timeoutSec})});
     }
     // 轮询拿结果（评估异步执行，最长 3 分钟）
     for (let i = 0; i < 60; i++) {
@@ -963,7 +945,7 @@ async function runEvaluation(id) {
       if (evals && evals.length > 0) {
         // 只认定本次评估开始后创建的新评估
         const newEvals = evals.filter(e => e.created_at && new Date(e.created_at) > evalStartedAt);
-        if (newEvals.length >= total) {
+        if (newEvals.length > 0) {
           if (currentExecId === execId) renderEvalHistory(evals);
           _markEvaluating(execId, false);
           loadRecentExecutions();
@@ -973,7 +955,8 @@ async function runEvaluation(id) {
       // 还在评估中，持续更新状态
       if (currentExecId === execId && i % 2 === 0) {
         const card = document.getElementById('exec-detail-eval');
-        card.innerHTML = `<div style="font-size:13px"><span style="color:var(--info,#3b82f6)">⏳ 评估中…</span> <span style="color:var(--text-secondary);font-size:11px">${completed}/${total} · 已 ${(i+1)*2}s</span></div>`;
+        const chainTip = evalChain ? '（会话链）' : '';
+        card.innerHTML = `<div style="font-size:13px"><span style="color:var(--info,#3b82f6)">⏳ 评估中${chainTip}…</span> <span style="color:var(--text-secondary);font-size:11px">已 ${(i+1)*2}s</span></div>`;
       }
     }
     alert('评估超时（>2 分钟），请检查 claude CLI 是否可用');

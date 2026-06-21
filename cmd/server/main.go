@@ -141,6 +141,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/executions/{id}", s.handleExecutionGet)
 	mux.HandleFunc("POST /api/executions/{id}/continue", s.handleExecutionContinue)
 	mux.HandleFunc("POST /api/executions/{id}/evaluate", s.handleExecutionEvaluate)
+	mux.HandleFunc("POST /api/executions/{id}/evaluate-chain", s.handleExecutionEvaluateChain)
 	mux.HandleFunc("GET /api/executions/{id}/evaluations", s.handleExecutionEvaluations)
 	mux.HandleFunc("GET /api/experiences", s.handleExperiences)
 	mux.HandleFunc("POST /api/experiences", s.handleExpCreate)
@@ -940,6 +941,68 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 		}
 	}()
 	writeJSON(w, map[string]string{"execution_id": id, "status": "evaluating", "cli_type": req.CliType, "model": req.Model})
+}
+
+// handleExecutionEvaluateChain 评估整个会话链：获取同 resume_uuid 的所有执行，合并 input/output 后一次评估。
+func (s *APIServer) handleExecutionEvaluateChain(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	exec, err := s.execDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var req struct {
+		CliType    string `json:"cli_type"`
+		Model      string `json:"model"`
+		TimeoutSec int    `json:"timeout_sec"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.CliType == "" {
+		req.CliType = "claude"
+	}
+	if req.Model == "" {
+		req.Model = "sonnet"
+	}
+	if req.TimeoutSec <= 0 {
+		req.TimeoutSec = 120
+	}
+
+	// 获取同 resume_uuid 的所有执行
+	var chain []*backend.Execution
+	if exec.ResumeSessionID != "" {
+		chain, _ = s.execDB.ListByResumeUUID(exec.ResumeSessionID, 50)
+	}
+	if len(chain) == 0 {
+		chain = []*backend.Execution{exec}
+	}
+
+	// 找 task prompt
+	prompt := exec.Prompt
+	if prompt == "" {
+		prompt = exec.Command
+	}
+	if exec.TaskID != "" {
+		if t, err := s.db.Get(exec.TaskID); err == nil {
+			prompt = taskpkg.BuildTaskPrompt(t, s.loadExperiencesForTask(t)...)
+		}
+	}
+
+	// 异步执行
+	go func() {
+		logger.Infow("evaluator: chain dispatched",
+			"execution_id", id,
+			"chain_size", len(chain),
+			"cli", req.CliType,
+			"model", req.Model,
+		)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(req.TimeoutSec)*time.Second)
+		defer cancel()
+		_, err := evaluator.RunAndSaveChain(ctx, s.evalDB, s.execDB, chain, prompt, req.CliType, req.Model)
+		if err != nil {
+			logger.Errorf("evaluator chain: %v", err)
+		}
+	}()
+	writeJSON(w, map[string]any{"execution_id": id, "status": "evaluating", "cli_type": req.CliType, "model": req.Model, "chain_size": len(chain)})
 }
 
 func (s *APIServer) handleExecutionEvaluations(w http.ResponseWriter, r *http.Request) {

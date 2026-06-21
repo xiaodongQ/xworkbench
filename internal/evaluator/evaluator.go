@@ -259,6 +259,75 @@ func RunAndSave(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *bac
 	return ev.ID, nil
 }
 
+// EvaluateChain 评估整个会话链：合并所有 execution 的 input/output 为一个合成 execution。
+func EvaluateChain(ctx context.Context, chain []*backend.Execution, taskPrompt, cliType, model string) (*EvalResult, error) {
+	if len(chain) == 0 {
+		return nil, fmt.Errorf("chain is empty")
+	}
+	if model == "" {
+		model = "haiku"
+	}
+
+	// 合并所有 execution 的 input(prompt) 和 output
+	var promptParts, outputParts []string
+	for i, e := range chain {
+		promptParts = append(promptParts, fmt.Sprintf("--- 第 %d 轮 ---\n原始指令: %s\n执行 prompt: %s", i+1, taskPrompt, e.Prompt))
+		outputParts = append(outputParts, fmt.Sprintf("--- 第 %d 轮 ---\n%s", i+1, e.Output))
+	}
+	mergedOutput := strings.Join(outputParts, "\n\n")
+	fullContext := strings.Join(promptParts, "\n\n") + "\n\n" + mergedOutput
+
+	// 构造合成 execution
+	mergedExec := &backend.Execution{
+		ID:     chain[0].ID + "-chain",
+		Output: fullContext,
+		Error:  "",
+	}
+
+	return Evaluate(ctx, mergedExec, taskPrompt, cliType, model)
+}
+
+// RunAndSaveChain 评估并保存整个会话链（只保存到第一个 execution）。
+func RunAndSaveChain(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *backend.ExecutionRepo, chain []*backend.Execution, taskPrompt, cliType, model string) (string, error) {
+	started := time.Now()
+	chainSize := len(chain)
+	logger.Logger.Infow("evaluator chain: run start",
+		"chain_size", chainSize,
+		"cli", cliType,
+		"model", model,
+	)
+	res, err := EvaluateChain(ctx, chain, taskPrompt, cliType, model)
+	ev := &backend.Evaluation{
+		ID:             uuid.New().String(),
+		TaskID:         chain[0].TaskID,
+		ExecutionID:    chain[0].ID,
+		EvaluatorModel: cliType + "/" + model,
+		CreatedAt:      time.Now(),
+	}
+	ev.DurationS = time.Since(started).Seconds()
+	if err != nil {
+		ev.Score = -1
+		ev.Comments = "评估失败: " + err.Error()
+		if evalDB.Create(ev) != nil {
+			logger.Logger.Errorw("evaluator chain: save failed record", "err", err.Error())
+		}
+		logger.Logger.Errorw("evaluator chain: run failed", "err", err.Error(), "dur_ms", ev.DurationS)
+		return "", err
+	}
+	ev.Score = float64(res.Score)
+	ev.Comments = res.Comments
+	if err = evalDB.Create(ev); err != nil {
+		logger.Logger.Errorw("evaluator chain: save failed", "err", err.Error())
+		return "", fmt.Errorf("save evaluation: %w", err)
+	}
+	logger.Logger.Infow("evaluator chain: run done",
+		"chain_size", chainSize,
+		"score", res.Score,
+		"dur_s", ev.DurationS,
+	)
+	return ev.ID, nil
+}
+
 // GetByExecution 查 execution 的最新 evaluation（按时间倒序取 1）。
 func GetByExecution(evalDB *backend.EvaluationRepo, execID string) (*backend.Evaluation, error) {
 	// 简化：返回列表的第一个
