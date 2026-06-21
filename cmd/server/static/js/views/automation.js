@@ -472,6 +472,66 @@ async function loadRecentExecutions() {
   if (el2) render(el2, list, errMsg);
 }
 
+// renderExecSessionPanel: 根据 exec 的 resume_uuid 加载完整会话链，渲染展开面板
+async function renderExecSessionPanel(exec) {
+  if (!exec.resume_uuid) return '<div style="color:var(--text-secondary)">无会话ID</div>';
+
+  // 加载该 resume_uuid 关联的所有 execution（GET /api/executions?resume_uuid=xxx）
+  let execs;
+  try {
+    execs = await fetchJSON('/api/executions?resume_uuid=' + encodeURIComponent(exec.resume_uuid));
+  } catch (e) {
+    return '<div style="color:var(--exception)">加载会话历史失败：' + esc(e.message) + '</div>';
+  }
+
+  if (!execs || execs.length === 0) {
+    return '<div style="color:var(--text-secondary)">暂无会话历史</div>';
+  }
+
+  // 按 started_at 升序排列
+  execs.sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
+
+  // 找到根节点（resume_uuid == id 的那个，或第一条）
+  const root = execs.find(e => e.resume_uuid === e.id) || execs[0];
+
+  // 生成历史列表 HTML（精简版时间线）
+  const historyItems = execs.map((e, idx) => {
+    const isRoot = e.id === root.id;
+    const tag = isRoot
+      ? '<span style="background:var(--accent);color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">原始</span>'
+      : '<span style="background:#0ea5e9;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">继续 ' + idx + '</span>';
+    const ts = e.started_at ? new Date(e.started_at).toLocaleString('zh-CN', {hour12: false}) : '';
+    const status = e.exit_code === 0
+      ? '<span style="color:#10b981;font-size:10px">✓</span>'
+      : '<span style="color:var(--exception);font-size:10px">✗</span>';
+    const prompt = e.prompt ? esc(e.prompt) : '<i style="color:var(--text-secondary)">(无prompt)</i>';
+    return `<div style="display:flex;gap:6px;align-items:flex-start;padding:4px 0;border-bottom:1px solid var(--border)">
+      <div style="flex-shrink:0;margin-top:2px">${status}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:4px;align-items:center;margin-bottom:2px">${tag}<span style="color:var(--text-secondary);font-size:10px">${ts}</span></div>
+        <div style="color:var(--text);font-size:11px;word-break:break-word">${prompt}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // 继续对话输入框
+  const inputId = 'panel-continue-input-' + exec.id;
+  const submitId = 'panel-continue-submit-' + exec.id;
+
+  return `
+    <div style="margin:6px 0">
+      <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;font-weight:600">💬 会话历史 (${execs.length}条)</div>
+      <div style="border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:8px;max-height:200px;overflow-y:auto">
+        ${historyItems}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input id="${inputId}" placeholder="输入想继续问的内容..." style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();submitContinueFromPanel('${exec.id}')}">
+        <button id="${submitId}" class="btn btn-small btn-primary" onclick="submitContinueFromPanel('${exec.id}')">▶</button>
+      </div>
+    </div>
+  `;
+}
+
 function loadMoreExecutions() {
   recentExecLimit += 50;
   // 给所有"加载更多"按钮加 loading 反馈（innerHTML 重渲染前）
