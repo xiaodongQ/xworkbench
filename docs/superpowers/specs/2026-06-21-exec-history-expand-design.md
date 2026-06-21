@@ -1,43 +1,50 @@
-# 执行会话展开面板设计
+# 执行会话展开面板设计（修订版）
 
 ## 背景
 
-当前 xworkbench 中"对话历史"和"继续对话"功能完全分离：
-- 对话历史藏在 task-modal 的嵌套展开区
-- 继续对话入口在 exec-detail-modal 弹窗
+当前 xworkbench 中"继续对话"和"对话历史"功能分散在多个地方，结构混乱：
 
-用户需要在多个层级间跳转才能完成"看历史→继续对话"这个连贯操作。
+- **task-modal**（任务详情弹窗）：有 task-conversation-section（对话历史）、task-events-section（活动历史）— 位置不合适
+- **exec-detail-modal**（执行详情弹窗）：有📋详情、💬继续对话按钮
+- **自动化页面**：执行列表有📎/🔗按钮，可以展开会话历史面板
+
+用户场景：继续对话需求都在**自动化页面**的最近执行列表中，点击执行详情。
 
 ## 目标
 
-在**执行列表行内**，通过📎图标触发展开面板，**原地**展示该执行关联的完整会话历史并提供继续对话输入框。
+1. **task-modal** — 移除 task-conversation-section 和 task-events-section，保持简洁
+2. **exec-detail-modal** — 增加对话历史、活动历史区块，作为执行详情的标配内容
+3. **自动化页面** — 保留📎/🔗展开面板，作为快速继续对话入口
 
 ## 交互设计
 
-### 展开触发
+### task-modal（简化后）
 
-- 在执行列表的操作按钮区（有"详情""复制"等按钮的地方），对有 `resume_uuid` 的执行项，增加📎图标按钮
-- 点击📎图标：展开面板；再次点击或点击空白处：收起
+移除以下区块：
+- ❌ task-conversation-section（对话历史）
+- ❌ task-events-section（活动历史）
+- ❌ ai-loop-section（AI 自治）
+- ❌ task-comment-section（评论）
 
-### 展开面板内容
+保留：
+- ✅ 任务基本信息
+- ✅ 执行历史（仅列表，无展开面板）
+- ✅ 创建/编辑表单
+
+### exec-detail-modal（增强后）
+
+在执行详情弹窗底部增加：
 
 ```
-📎 会话历史 (3条)
-│
-├─ 📝 原始对话 — 2小时前 — ✅ 成功
-├─ 🔄 继续1 — 1小时前 — ✅ 成功
-└─ 🔄 继续2 — 30分钟前 — ✅ 成功
-│
-├─────────────────────────────
-│ 💬 继续对话
-│ [<输入框 placeholder="输入想继续问的内容...">] [发送▶]
+💬 对话历史 (N条) [展开/收起]
+📜 活动历史 (N条) [展开/收起]
 ```
 
-### 数据结构
+点击展开后显示完整历史，逻辑复用现有的 `renderTaskConversation()` 和 `loadTaskEvents()`。
 
-- 按 `resume_uuid` 分组，取该 uuid 关联的所有 Execution
-- 根执行（`resume_uuid` 为 null 但有后续的）标记为"原始对话"
-- 后续执行按 `started_at` 升序排列，标记为"继续K"（K=1,2,3...）
+### 自动化页面（保持不变）
+
+📎/🔗展开面板保持现有设计，作为快速入口。
 
 ## 技术实现
 
@@ -45,23 +52,34 @@
 
 | 文件 | 改动 |
 |------|------|
-| `index.html` | 执行列表按钮区增加📎图标 |
-| `tasks.js` | 新增 `renderExecutionSession(execId)` 返回展开面板 HTML |
-| `automation.js` | 复用 `submitContinue()`；新增图标点击事件绑定和展开收起逻辑 |
+| `index.html` | task-modal 移除对话历史/活动历史区块 |
+| `tasks.js` | 移除 `renderTaskConversation`、`toggleTaskConversation`、`loadTaskConversation`、`loadTaskEvents`、`toggleTaskEvents` |
+| `automation.js` | 保持📎/🔗展开面板；exec-detail-modal 增加对话历史/活动历史区块 |
 
-### 复用逻辑
+### exec-detail-modal 增加内容
 
-- `submitContinue()` 不需要修改，继续用于提交继续对话
-- `renderTaskConversation()` 的数据分组逻辑可参考，但这里是精简版（不需要完整 task 上下文）
-- 面板内的"发送"按钮调用已有的 `submitContinue()` 接口
+在 `automation.js` 的 `viewExecutionDetail()` 中，弹窗底部增加：
 
-### API
+```html
+<div id="exec-conversation-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
+  <label onclick="toggleExecConversation()">
+    <span id="exec-conversation-toggle">▶</span> 💬 对话历史
+  </label>
+  <div id="exec-conversation-body" class="hidden"></div>
+</div>
 
-继续使用现有的 `POST /api/executions/{id}/continue` 接口，无需新增 API。
+<div id="exec-events-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
+  <label onclick="toggleExecEvents()">
+    <span id="exec-events-toggle">▶</span> 📜 活动历史
+  </label>
+  <div id="exec-events-body" class="hidden"></div>
+</div>
+```
+
+复用 `renderTaskConversation()` 渲染对话历史（传入该 execution 的 resume_uuid 关联的所有执行）。
 
 ## 设计优势
 
-1. **单一入口**：不跳离当前 task-modal，原位完成"看历史→继续对话"
-2. **信息分层**：默认仅显示📎图标，不干扰主流程；点击才展开详情
-3. **代码复用**：复用 `submitContinue()` 和现有 API，最小化改动
-4. **符合心智模型**：会话和时间线本就该在一起
+1. **职责清晰**：task-modal 管任务基本信息，exec-detail-modal 管执行详情和历史
+2. **信息分层**：自动化页面看列表找入口，exec-detail-modal 看完整历史
+3. **减少冗余**：同一信息不在多处重复
