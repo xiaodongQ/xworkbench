@@ -448,7 +448,9 @@ async function loadRecentExecutions() {
         ${evalBadge}
         <button class="btn btn-small" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
         <button class="btn btn-small" onclick="runEvaluation('${e.id}')" title="AI 评估" style="${isEvaluating?'opacity:0.5;cursor:wait':''}">${isEvaluating?'⏳':'📊'}</button>
+        ${e.resume_uuid ? `<button class="btn btn-small" onclick="toggleExecSessionPanel('${e.id}')" title="查看会话历史并继续对话">📎</button>` : ''}
       </div>
+      <div id="exec-session-panel-${e.id}" class="hidden" style="display:none;padding:8px 12px 8px 36px;background:var(--hover);border-bottom:1px solid var(--border);font-size:12px"></div>
       <div id="exec-group-${e.id}" style="display:none">${(groupMap[e.id]?.children || []).map(c => renderRow(c, depth + 1)).join('')}</div>`;
     };
     const atEnd = list.length < recentExecLimit;
