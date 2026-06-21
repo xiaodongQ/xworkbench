@@ -776,7 +776,14 @@ func (s *APIServer) handleTaskExecutions(w http.ResponseWriter, r *http.Request)
 
 func (s *APIServer) handleExecutionsRecent(w http.ResponseWriter, r *http.Request) {
 	limit := parseInt(r.URL.Query().Get("limit"), 50)
-	list, err := s.execDB.ListRecent(limit)
+	resumeUUID := r.URL.Query().Get("resume_uuid")
+	var list []*backend.Execution
+	var err error
+	if resumeUUID != "" {
+		list, err = s.execDB.ListByResumeUUID(resumeUUID, limit)
+	} else {
+		list, err = s.execDB.ListRecent(limit)
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

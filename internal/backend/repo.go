@@ -1099,6 +1099,42 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 	return out, rows.Err()
 }
 
+// ListByResumeUUID 返回同一 resume_uuid 的所有执行（同一会话链），按 started_at 升序。
+func (r *ExecutionRepo) ListByResumeUUID(resumeUUID string, limit int) ([]*Execution, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	q := `SELECT id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid
+	        FROM executions WHERE resume_uuid=? ORDER BY started_at ASC LIMIT ?`
+	rows, err := r.db.Query(q, resumeUUID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Execution
+	for rows.Next() {
+		var e Execution
+		var taskID, schedID, model, output, errOut, resumeUuid, prompt sql.NullString
+		var completedAt sql.NullTime
+		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
+			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUuid); err != nil {
+			return nil, err
+		}
+		e.TaskID = taskID.String
+		e.ScheduledTaskID = schedID.String
+		e.Prompt = prompt.String
+		e.Model = model.String
+		e.Output = output.String
+		e.Error = errOut.String
+		e.ResumeSessionID = resumeUuid.String
+		if completedAt.Valid {
+			e.CompletedAt = &completedAt.Time
+		}
+		out = append(out, &e)
+	}
+	return out, rows.Err()
+}
+
 // ListRecent 返回所有最近执行（无 task 过滤），用于 stats/dashboard。
 func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	if limit <= 0 {
