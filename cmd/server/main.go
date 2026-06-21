@@ -235,6 +235,13 @@ func (s *APIServer) routes() {
 	// 审计 + 依赖
 	mux.HandleFunc("GET /api/tasks/{id}/events", s.handleTaskEvents)
 
+	// 远程 Agent 管理 API（主用户调用，不限频、不需要 agent token）
+	mux.HandleFunc("GET /api/agents", s.handleAgentsList)
+	mux.HandleFunc("POST /api/agents/{id}/release-tasks", s.handleAgentReleaseTasks)
+	mux.HandleFunc("POST /api/agents/{id}/reset-token", s.handleAgentResetToken)
+	mux.HandleFunc("POST /api/agents/{id}/auto-claim", s.handleAgentSetAutoClaim)
+	mux.HandleFunc("DELETE /api/agents/{id}", s.handleAgentDelete)
+
 	// 保存过滤器
 	mux.HandleFunc("GET /api/saved-filters", s.handleSFList)
 	mux.HandleFunc("POST /api/saved-filters", s.handleSFCreate)
@@ -335,7 +342,7 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		ExperienceID  string   `json:"experience_id"`
 		ExperienceIDs []string `json:"experience_ids"`
 		Acceptance    string   `json:"acceptance"`
-		// Priority 用指针：nil=未传，&0=显式设为 0。未传时不触发 priority_changed webhook。
+		// Priority 用指针：nil=未传，&0=显式设为 0。
 		Priority *int `json:"priority,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -2528,7 +2535,6 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		Payload: fmt.Sprintf(`{"status":"%s","score":%s}`, req.Status, scoreStr),
 		CreatedAt: time.Now(),
 	})
-	// Webhook
 	// WebSocket 广播任务状态变更
 	task, _ := s.db.Get(taskID)
 	s.hub.Broadcast(wsmsg.ChannelTask, map[string]any{
@@ -2574,9 +2580,10 @@ func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.
 						Payload: fmt.Sprintf(`{"released_tasks":%d}`, released),
 						CreatedAt: time.Now(),
 					})
-					h.Broadcast(wsmsg.ChannelTask, map[string]any{
-						"event":    "agent_offline",
-						"agent_id": agentID,
+					h.Broadcast(wsmsg.ChannelAgent, map[string]any{
+						"event":          "agent_offline",
+						"agent_id":       agentID,
+						"released_tasks": released,
 					})
 				}
 			}
@@ -2592,7 +2599,7 @@ func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.
 					Payload: fmt.Sprintf(`{"count":%d,"timeout_sec":%d}`, released, int(taskTimeout.Seconds())),
 					CreatedAt: time.Now(),
 				})
-				h.Broadcast(wsmsg.ChannelTask, map[string]any{
+				h.Broadcast(wsmsg.ChannelAgent, map[string]any{
 					"event":  "tasks_released",
 					"count":  released,
 					"reason": "task_claim_timeout",
@@ -2740,7 +2747,6 @@ func (s *APIServer) handleCommentCreate(w http.ResponseWriter, r *http.Request) 
 		TaskID: taskID, EventType: "commented",
 		Actor: req.Author, CreatedAt: time.Now(),
 	})
-	// Webhook
 	writeJSON(w, c)
 }
 
@@ -2883,4 +2889,128 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 		"experiences": experiences,
 		"prompt":      prompt,
 	})
+}
+
+// ---- 远程 Agent 管理 API（主用户调用）----
+
+// handleAgentsList 返回 Agent 列表。可选 ?status=online|offline 过滤。
+func (s *APIServer) handleAgentsList(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+	agents, err := s.agentDB.List(status)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// 附带每个 agent 当前手上的任务数（轻量统计，不查全量）
+	type agentWithStats struct {
+		*backend.Agent
+		CurrentTaskCount int `json:"current_task_count"`
+	}
+	out := make([]agentWithStats, 0, len(agents))
+	for _, a := range agents {
+		n, _ := s.db.CountInProgressByAgent(a.ID)
+		out = append(out, agentWithStats{Agent: a, CurrentTaskCount: n})
+	}
+	writeJSON(w, out)
+}
+
+// handleAgentReleaseTasks 强制释放某 agent 手上所有 in_progress 的 remote 任务回 pending 池。
+// 场景：agent 卡死但心跳还在；管理员想强制回收。
+func (s *APIServer) handleAgentReleaseTasks(w http.ResponseWriter, r *http.Request) {
+	agentID := r.PathValue("id")
+	a, err := s.agentDB.GetByID(agentID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	released, err := s.db.ReleaseTasksFromAgent(agentID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// 审计
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: "", EventType: "force_released",
+		Actor: "user",
+		Payload: fmt.Sprintf(`{"agent_id":"%s","released_tasks":%d}`, agentID, released),
+		CreatedAt: time.Now(),
+	})
+	// ws 广播
+	s.hub.Broadcast(wsmsg.ChannelAgent, map[string]any{
+		"event":          "tasks_released",
+		"agent_id":       agentID,
+		"released_tasks": released,
+	})
+	logger.Infow("agent tasks force released", "agent_id", agentID, "agent_name", a.Name, "count", released)
+	writeJSON(w, map[string]any{"ok": true, "released_tasks": released})
+}
+
+// handleAgentResetToken 重置 agent token，返回新明文 token（仅此次返回）。
+// 旧 token 立即失效。
+func (s *APIServer) handleAgentResetToken(w http.ResponseWriter, r *http.Request) {
+	agentID := r.PathValue("id")
+	a, err := s.agentDB.GetByID(agentID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	newToken, err := s.agentDB.ResetToken(agentID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// 审计
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: "", EventType: "token_reset",
+		Actor: "user",
+		Payload: fmt.Sprintf(`{"agent_id":"%s","agent_name":"%s"}`, agentID, a.Name),
+		CreatedAt: time.Now(),
+	})
+	logger.Warnw("agent token reset", "agent_id", agentID, "agent_name", a.Name)
+	writeJSON(w, map[string]any{
+		"ok":         true,
+		"agent_id":   agentID,
+		"new_token": newToken,
+		"warning":   "旧 token 已立即失效，请把新 token 同步到 agent 端",
+	})
+}
+
+// handleAgentSetAutoClaim 切换 agent 的 auto_claim_enabled 开关。Body: {"enabled": true|false}
+func (s *APIServer) handleAgentSetAutoClaim(w http.ResponseWriter, r *http.Request) {
+	agentID := r.PathValue("id")
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.agentDB.SetAutoClaimEnabled(agentID, req.Enabled); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "agent_id": agentID, "auto_claim_enabled": req.Enabled})
+}
+
+// handleAgentDelete 删除 agent（先释放任务再删，避免遗留 in_progress）。
+func (s *APIServer) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
+	agentID := r.PathValue("id")
+	a, err := s.agentDB.GetByID(agentID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	released, _ := s.db.ReleaseTasksFromAgent(agentID)
+	if err := s.agentDB.Delete(agentID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.eventDB.Record(&backend.TaskEvent{
+		TaskID: "", EventType: "agent_deleted",
+		Actor: "user",
+		Payload: fmt.Sprintf(`{"agent_id":"%s","agent_name":"%s","released_tasks":%d}`, agentID, a.Name, released),
+		CreatedAt: time.Now(),
+	})
+	logger.Warnw("agent deleted", "agent_id", agentID, "agent_name", a.Name, "released_tasks", released)
+	writeJSON(w, map[string]any{"ok": true, "released_tasks": released})
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
@@ -1729,6 +1730,36 @@ func (r *AgentRepo) GetByToken(token string) (*Agent, error) {
 	return r.GetByTokenHash(HashToken(token))
 }
 
+// List 返回所有 Agent，按最后心跳倒序（最近活跃在前）。status 过滤可选（""=全部，"online"=仅在线）。
+func (r *AgentRepo) List(status string) ([]*Agent, error) {
+	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,created_at
+		FROM agents`
+	args := []any{}
+	if status != "" {
+		q += ` WHERE status=?`
+		args = append(args, status)
+	}
+	q += ` ORDER BY (last_heartbeat IS NULL), last_heartbeat DESC, created_at DESC`
+	rows, err := r.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]*Agent, 0)
+	for rows.Next() {
+		var a Agent
+		var hb sql.NullTime
+		if err := rows.Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		if hb.Valid {
+			a.LastHeartbeat = &hb.Time
+		}
+		out = append(out, &a)
+	}
+	return out, rows.Err()
+}
+
 // HashToken 对明文 token 做 SHA-256，返回 hex 字符串作为 token_hash。
 // 使用 SHA-256 而不是明文或 bcrypt：stateless token 不需要 bcrypt 的慢哈希，
 // 但为了避免明文泄露，查表时统一用 hash 匹配。
@@ -1776,6 +1807,30 @@ func (r *AgentRepo) SetStatusOffline(id string) error {
 		return err
 	}
 	logger.Logger.Infow("[agents] set offline", "id", id)
+	return nil
+}
+
+// ResetToken 生成新 token 并写回 hash。返回新明文 token（仅此刻可获取）。
+func (r *AgentRepo) ResetToken(id string) (string, error) {
+	token := uuid.New().String()
+	hash := HashToken(token)
+	_, err := r.db.Exec(`UPDATE agents SET token_hash=? WHERE id=?`, hash, id)
+	if err != nil {
+		logger.Logger.Errorw("[agents] reset token failed", "id", id, "error", err.Error())
+		return "", err
+	}
+	logger.Logger.Infow("[agents] token reset", "id", id)
+	return token, nil
+}
+
+// Delete 删除 Agent（慎用，谨慎级联任务）。
+func (r *AgentRepo) Delete(id string) error {
+	_, err := r.db.Exec(`DELETE FROM agents WHERE id=?`, id)
+	if err != nil {
+		logger.Logger.Errorw("[agents] delete failed", "id", id, "error", err.Error())
+		return err
+	}
+	logger.Logger.Infow("[agents] deleted", "id", id)
 	return nil
 }
 
@@ -1839,6 +1894,13 @@ func (r *TaskRepo) UpdateEvalScore(taskID string, score float64) error {
 	}
 	logger.Logger.Infow("tasks eval score updated", "task_id", taskID, "score", score)
 	return nil
+}
+
+// CountInProgressByAgent 统计某 agent 名下处于 in_progress 的 remote 任务数。
+func (r *TaskRepo) CountInProgressByAgent(agentID string) (int, error) {
+	var n int
+	err := r.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE claimer_agent_id=? AND status='in_progress' AND task_type='remote'`, agentID).Scan(&n)
+	return n, err
 }
 
 // ReleaseTasksFromAgent 释放某个 agent 手上所有 in_progress 的 remote 任务回 pending 池。
