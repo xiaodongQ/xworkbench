@@ -1136,12 +1136,31 @@ function renderExecConversationTimeline(execs) {
       ? '<span style="color:#10b981;font-size:10px">✓</span>'
       : '<span style="color:var(--exception);font-size:10px">✗</span>';
     const prompt = e.prompt ? esc(e.prompt) : '<i style="color:var(--text-secondary)">(无prompt)</i>';
-    return '<div style="display:flex;gap:6px;padding:6px 0;border-bottom:1px solid var(--border)">' +
-      '<div style="flex-shrink:0;margin-top:2px">' + status + '</div>' +
-      '<div style="flex:1;min-width:0">' +
-        '<div style="display:flex;gap:4px;align-items:center;margin-bottom:2px">' + tag + '<span style="color:var(--text-secondary);font-size:10px">' + ts + '</span></div>' +
-        '<div style="color:var(--text);font-size:11px;word-break:break-word">' + prompt + '</div>' +
-      '</div></div>';
+    // command 折叠展示
+    const cmdId = 'tl-cmd-' + e.id.replace(/[^a-zA-Z0-9]/g, '_');
+    const cmd = e.command ? esc(e.command.slice(0, 100) + (e.command.length > 100 ? '...' : '')) : '';
+    const hasCmd = e.command && e.command.length > 0;
+    // output 折叠展示
+    const outId = 'tl-out-' + e.id.replace(/[^a-zA-Z0-9]/g, '_');
+    const out = e.output ? e.output.slice(0, 500) + (e.output.length > 500 ? '...' : '') : '';
+    const hasOut = e.output && e.output.length > 0;
+    // error 折叠展示
+    const errId = 'tl-err-' + e.id.replace(/[^a-zA-Z0-9]/g, '_');
+    const hasErr = e.error && e.error.length > 0;
+    const err = e.error ? esc(e.error.slice(0, 200) + (e.error.length > 200 ? '...' : '')) : '';
+
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--border)">' +
+      '<div style="display:flex;gap:6px;align-items:flex-start">' +
+        '<div style="flex-shrink:0;margin-top:2px">' + status + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">' + tag + '<span style="color:var(--text-secondary);font-size:10px">' + ts + '</span></div>' +
+          '<div style="color:var(--text);font-size:11px;margin-bottom:4px"><b style="color:#0ea5e9">问:</b> ' + prompt + '</div>' +
+          (hasCmd ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(){var p=document.getElementById(\'' + cmdId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');}else{p.classList.add(\'hidden\');}})()">▶ 命令</span><pre id="' + cmdId + '" class="hidden" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow-y:auto">' + cmd + '</pre></div>' : '') +
+          (hasOut ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(){var p=document.getElementById(\'' + outId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');}else{p.classList.add(\'hidden\');}})()">▼ 输出</span><pre id="' + outId + '" class="hidden" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:var(--archived)">' + esc(out) + '</pre></div>' : '') +
+          (hasErr ? '<div style="margin-bottom:4px;color:var(--exception);font-size:10px">✗ 错误: ' + err + '</div>' : '') +
+        '</div>' +
+      '</div>' +
+    '</div>';
   }).join('');
 }
 
