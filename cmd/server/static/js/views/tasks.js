@@ -418,7 +418,7 @@ async function submitTask() {
   const body = {
     title,
     description: document.getElementById('task-desc').value,
-    experience_id: _selectedExps.map(s => s.id).join(','),
+    experience_ids: _selectedExps.map(s => s.id),  // 修复：使用新字段 experience_ids（数组）而非旧 experience_id（单值）
     acceptance: document.getElementById('task-acceptance').value,
     task_type: document.getElementById('task-type').value
   };
