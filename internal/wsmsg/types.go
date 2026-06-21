@@ -9,6 +9,7 @@ const (
 	ChannelScheduled = "scheduled" // 定时任务触发 + 输出
 	ChannelShortcut  = "shortcut"  // 快捷方式打开通知
 	ChannelTodo      = "todo"      // todo.md 解析结果
+	ChannelAgent     = "agent"     // 远程 Agent 状态变更（心跳丢失/任务释放/token 重置/删除）
 )
 
 // Message 通用 WS 消息结构。
