@@ -532,6 +532,77 @@ async function renderExecSessionPanel(exec) {
   `;
 }
 
+// toggleExecSessionPanel: 展开或收起执行行的会话历史面板
+async function toggleExecSessionPanel(execId) {
+  const panel = document.getElementById('exec-session-panel-' + execId);
+  if (!panel) return;
+
+  if (!panel.classList.contains('hidden')) {
+    // 收起
+    panel.classList.add('hidden');
+    panel.style.display = 'none';
+    return;
+  }
+
+  // 先展示空白面板（避免点击无响应感）
+  panel.classList.remove('hidden');
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="color:var(--text-secondary);padding:4px">加载中...</div>';
+
+  // 获取 exec 数据（需要 resume_uuid）
+  let exec;
+  try {
+    const execs = await fetchJSON('/api/executions?limit=1');
+    exec = execs && execs.find(e => e.id === execId);
+  } catch (e) {
+    panel.innerHTML = '<div style="color:var(--exception);padding:4px">加载失败</div>';
+    return;
+  }
+
+  if (!exec) {
+    panel.innerHTML = '<div style="color:var(--text-secondary);padding:4px">未找到执行记录</div>';
+    return;
+  }
+
+  // 渲染面板内容
+  panel.innerHTML = await renderExecSessionPanel(exec);
+}
+
+// submitContinueFromPanel: 从展开面板内提交继续对话
+async function submitContinueFromPanel(execId) {
+  const input = document.getElementById('panel-continue-input-' + execId);
+  const submitBtn = document.getElementById('panel-continue-submit-' + execId);
+  const prompt = input?.value?.trim();
+  if (!prompt) return;
+
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '⏳'; }
+
+  try {
+    const res = await fetchJSON('/api/executions/' + execId + '/continue', {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+    });
+    const newExecId = res && res.execution_id;
+    // 清空输入框
+    if (input) input.value = '';
+    // 刷新执行列表
+    loadRecentExecutions();
+    // 提示用户
+    const panel = document.getElementById('exec-session-panel-' + execId);
+    if (panel) {
+      const feedback = document.createElement('div');
+      feedback.style.cssText = 'margin-top:8px;padding:6px 8px;background:rgba(16,185,129,0.12);border:1px solid #10b981;border-radius:4px;font-size:11px;color:#10b981';
+      feedback.textContent = '✓ 继续对话已提交，新执行ID: ' + (newExecId || '?');
+      panel.appendChild(feedback);
+      setTimeout(() => feedback.remove(), 5000);
+    }
+  } catch (e) {
+    alert('继续对话失败：' + e.message);
+  } finally {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '▶'; }
+  }
+}
+
 function loadMoreExecutions() {
   recentExecLimit += 50;
   // 给所有"加载更多"按钮加 loading 反馈（innerHTML 重渲染前）
