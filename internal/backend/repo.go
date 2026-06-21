@@ -636,12 +636,12 @@ func (r *TaskRepo) Create(t *Task) error {
 
 func (r *TaskRepo) Get(id string) (*Task, error) {
 	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
-		claimed_at,maintainer,repo_address,archived_at,result,
+		claimed_at,maintainer,repo_address,archived_at,completed_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
 		task_type,claimer_agent_id,result_output,evaluation_score,priority
 		FROM tasks WHERE id=?`
 	var t Task
-	var claimedAt, archivedAt sql.NullTime
+	var claimedAt, archivedAt, completedAt sql.NullTime
 	var acc, res, maintainer, repoAddr sql.NullString
 	var execModel, cbcMdl sql.NullString
 	var iterCount, maxIter int
@@ -651,7 +651,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	var priority int
 	err := r.db.QueryRow(q, id).Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 		&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
-		&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
+		&claimedAt, &maintainer, &repoAddr, &archivedAt, &completedAt, &res,
 		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
 		&taskType, &claimerAgentID, &resultOutput, &evalScore, &priority)
 	t.Acceptance = acc.String
@@ -669,6 +669,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	t.Priority = priority
 	if claimedAt.Valid { t.ClaimedAt = &claimedAt.Time }
 	if archivedAt.Valid { t.ArchivedAt = &archivedAt.Time }
+	if completedAt.Valid { t.CompletedAt = &completedAt.Time }
 	if improvThresh.Valid { t.ImprovementThreshold = improvThresh.Float64 }
 	if lastHeartbeat.Valid { t.LastHeartbeat = &lastHeartbeat.Time }
 	if evalScore.Valid { t.EvaluationScore = &evalScore.Float64 }
