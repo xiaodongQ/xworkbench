@@ -430,49 +430,6 @@
       <label>⚠️ 待交互内容 <span class="field-hint" style="background:rgba(202,138,4,0.15);color:#ca8a04">需要人工介入</span></label>
       <div id="task-waiting-input-content" style="background:#fff8e1;border:1px solid #ffc107;border-radius:4px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:150px;overflow-y:auto;"></div>
     </div>
-	    <!-- 对话历史（按需展开） -->
-	    <div id="task-conversation-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
-	      <label style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px" onclick="toggleTaskConversation()">
-	        <span id="task-conversation-toggle" style="display:inline-block;transition:transform 0.15s;font-size:10px;width:12px;text-align:center">▶</span>
-	        💬 对话历史 <span id="task-conversation-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span>
-	        <button type="button" class="btn btn-small" style="margin-left:auto" onclick="event.stopPropagation();loadTaskConversation()">🔄 刷新</button>
-	      </label>
-	      <div id="task-conversation-body" class="hidden" style="max-height:300px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg)"></div>
-	    </div>
-	    <!-- 活动历史（后端 task_events 审计流：创建/认领/上报/heartbeat 等） -->
-	    <div id="task-events-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
-	      <label style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px" onclick="toggleTaskEvents()">
-	        <span id="task-events-toggle" style="display:inline-block;transition:transform 0.15s;font-size:10px;width:12px;text-align:center">▶</span>
-	        📜 活动历史 <span id="task-events-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span>
-	        <button type="button" class="btn btn-small" style="margin-left:auto" onclick="event.stopPropagation();loadTaskEvents()">🔄 刷新</button>
-	      </label>
-	      <div id="task-events-body" class="hidden" style="max-height:200px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg)"></div>
-	    </div>
-	    <!-- AI 自治能力区块（默认隐藏，需要 config.json 或设置页打开 AI_LOOP_ENABLED） -->
-	    <div id="ai-loop-section" class="form-group hidden" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px;background:rgba(139,92,246,0.05);border-radius:6px;padding:10px">
-	      <label style="display:flex;align-items:center;gap:6px;cursor:default">
-	        🤖 AI 自治 <span id="ai-loop-source-badge" style="font-size:10px;color:var(--text-secondary)"></span>
-	      </label>
-	      <div style="font-size:11px;color:var(--text-secondary);margin:4px 0 8px">启用了 AI 自治能力：手动触发多模型评估闭环 / 重评 / 自我学习</div>
-	      <div style="display:flex;gap:6px;flex-wrap:wrap">
-	        <button class="btn btn-small" onclick="runTaskLoop()" id="ai-loop-run-btn" style="background:linear-gradient(135deg,#8b5cf6,#6366f1);color:#fff">🔄 Run Loop</button>
-	        <button class="btn btn-small" onclick="reevaluateTask()" id="ai-loop-reeval-btn" style="background:linear-gradient(135deg,#0ea5e9,#06b6d4);color:#fff">📊 重评</button>
-	        <button class="btn btn-small" onclick="learnFromTask()" id="ai-loop-learn-btn" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff">📝 Learn</button>
-	      </div>
-	      <div id="ai-loop-progress" class="hidden" style="margin-top:10px;padding:8px;background:rgba(139,92,246,0.1);border-radius:4px;font-size:12px">
-	        <div id="ai-loop-progress-text" style="margin-bottom:6px"></div>
-	        <div id="ai-loop-progress-history" style="max-height:200px;overflow-y:auto"></div>
-	      </div>
-	    </div>
-	    <!-- 评论区 -->
-	    <div id="task-comment-section" class="form-group" style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
-	      <label>💬 评论 <span id="task-comment-count" style="font-size:11px;color:var(--text-secondary);font-weight:normal"></span></label>
-	      <div id="task-comment-list" style="max-height:150px;overflow-y:auto;margin-bottom:8px"></div>
-	      <div style="display:flex;gap:6px">
-	        <input id="task-comment-input" placeholder="添加评论..." style="flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:12px">
-	        <button class="btn btn-small btn-primary" onclick="submitTaskComment()">发送</button>
-	      </div>
-	    </div>
 
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTaskModal()">取消</button>
