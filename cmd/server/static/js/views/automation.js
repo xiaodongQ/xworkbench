@@ -916,6 +916,8 @@ function parseEvalEvidence(comments) {
 async function runEvaluation(id) {
   const execId = id || currentExecId;
   if (!execId) { alert('请先打开一条执行'); return; }
+  const chainCheck = document.getElementById('eval-chain-checkbox');
+  const evalChain = chainCheck && chainCheck.checked;
   // 评估时禁用 select 避免反复改
   const sel = document.getElementById('eval-model-select');
   if (sel) sel.disabled = true;
@@ -925,14 +927,34 @@ async function runEvaluation(id) {
   const oldText = btn && btn.textContent;
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   _markEvaluating(execId, true);
-  // 记录评估开始时间（用 Date 对象避免时区字符串比较问题）
+
+  // 如果是评估整个会话链，先获取同 resume_uuid 的所有 exec
+  let execIdsToEval = [execId];
+  if (evalChain) {
+    try {
+      const exec = await fetchJSON('/api/executions/' + execId);
+      if (exec && exec.resume_uuid) {
+        const chain = await fetchJSON('/api/executions?resume_uuid=' + encodeURIComponent(exec.resume_uuid));
+        if (chain && chain.length > 0) {
+          execIdsToEval = chain.map(e => e.id);
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 逐个评估
+  const total = execIdsToEval.length;
+  let completed = 0;
   const evalStartedAt = new Date();
   try {
-    await fetchJSON('/api/executions/' + execId + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cli_type: getEvalCliType(), model: getEvalModel(), timeout_sec: timeoutSec})});
-    // 评估中状态：弹窗 + 列表徽章（_markEvaluating 已刷列表）
-    if (currentExecId === execId) {
-      const card = document.getElementById('exec-detail-eval');
-      card.innerHTML = `<div style="font-size:13px"><span style="color:var(--info,#3b82f6)">⏳ 评估中…</span> <span style="color:var(--text-secondary);font-size:11px">${esc(getEvalModel())} · 预计 5-30s</span></div>`;
+    for (const eid of execIdsToEval) {
+      await fetchJSON('/api/executions/' + eid + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cli_type: getEvalCliType(), model: getEvalModel(), timeout_sec: timeoutSec})});
+      completed++;
+      // 更新状态
+      if (currentExecId === execId) {
+        const card = document.getElementById('exec-detail-eval');
+        card.innerHTML = `<div style="font-size:13px"><span style="color:var(--info,#3b82f6)">⏳ 评估中…</span> <span style="color:var(--text-secondary);font-size:11px">${completed}/${total} 已提交 · ${esc(getEvalModel())}</span></div>`;
+      }
     }
     // 轮询拿结果（评估异步执行，最长 3 分钟）
     for (let i = 0; i < 60; i++) {
@@ -941,10 +963,9 @@ async function runEvaluation(id) {
       if (evals && evals.length > 0) {
         // 只认定本次评估开始后创建的新评估
         const newEvals = evals.filter(e => e.created_at && new Date(e.created_at) > evalStartedAt);
-        if (newEvals.length > 0) {
+        if (newEvals.length >= total) {
           if (currentExecId === execId) renderEvalHistory(evals);
           _markEvaluating(execId, false);
-          // 刷新列表（评分可能影响渲染）
           loadRecentExecutions();
           return;
         }
@@ -952,7 +973,7 @@ async function runEvaluation(id) {
       // 还在评估中，持续更新状态
       if (currentExecId === execId && i % 2 === 0) {
         const card = document.getElementById('exec-detail-eval');
-        card.innerHTML = `<div style="font-size:13px"><span style="color:var(--info,#3b82f6)">⏳ 评估中…</span> <span style="color:var(--text-secondary);font-size:11px">${esc(getEvalModel())} · 已 ${(i+1)*2}s</span></div>`;
+        card.innerHTML = `<div style="font-size:13px"><span style="color:var(--info,#3b82f6)">⏳ 评估中…</span> <span style="color:var(--text-secondary);font-size:11px">${completed}/${total} · 已 ${(i+1)*2}s</span></div>`;
       }
     }
     alert('评估超时（>2 分钟），请检查 claude CLI 是否可用');
@@ -1138,12 +1159,25 @@ function renderExecConversationTimeline(execs) {
     const prompt = e.prompt ? esc(e.prompt) : '<i style="color:var(--text-secondary)">(无prompt)</i>';
     // command 折叠展示
     const cmdId = 'tl-cmd-' + e.id.replace(/[^a-zA-Z0-9]/g, '_');
-    const cmd = e.command ? esc(e.command.slice(0, 100) + (e.command.length > 100 ? '...' : '')) : '';
+    const cmd = e.command ? esc(e.command) : '';
     const hasCmd = e.command && e.command.length > 0;
-    // output 折叠展示
+    // output 默认展开，尝试解析 JSON 提取 result 字段
     const outId = 'tl-out-' + e.id.replace(/[^a-zA-Z0-9]/g, '_');
-    const out = e.output ? e.output.slice(0, 500) + (e.output.length > 500 ? '...' : '') : '';
-    const hasOut = e.output && e.output.length > 0;
+    let out = e.output ? e.output : '';
+    let hasOut = e.output && e.output.length > 0;
+    // 尝试解析 JSON，提取 result 字段作为自然语言展示
+    if (hasOut) {
+      try {
+        const obj = JSON.parse(e.output);
+        if (obj && obj.result) {
+          out = obj.result; // 自然语言内容
+        } else if (obj && obj.error) {
+          out = '错误: ' + obj.error;
+        }
+      } catch (_) {
+        // 解析失败，使用原始内容
+      }
+    }
     // error 折叠展示
     const errId = 'tl-err-' + e.id.replace(/[^a-zA-Z0-9]/g, '_');
     const hasErr = e.error && e.error.length > 0;
@@ -1156,7 +1190,7 @@ function renderExecConversationTimeline(execs) {
           '<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">' + tag + '<span style="color:var(--text-secondary);font-size:10px">' + ts + '</span></div>' +
           '<div style="color:var(--text);font-size:11px;margin-bottom:4px"><b style="color:#0ea5e9">问:</b> ' + prompt + '</div>' +
           (hasCmd ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(){var p=document.getElementById(\'' + cmdId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');}else{p.classList.add(\'hidden\');}})()">▶ 命令</span><pre id="' + cmdId + '" class="hidden" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow-y:auto">' + cmd + '</pre></div>' : '') +
-          (hasOut ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(){var p=document.getElementById(\'' + outId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');}else{p.classList.add(\'hidden\');}})()">▼ 输出</span><pre id="' + outId + '" class="hidden" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:var(--archived)">' + esc(out) + '</pre></div>' : '') +
+          (hasOut ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(){var p=document.getElementById(\'' + outId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');}else{p.classList.add(\'hidden\');}})()">▶ 输出</span><pre id="' + outId + '" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:var(--archived)">' + esc(out) + '</pre></div>' : '') +
           (hasErr ? '<div style="margin-bottom:4px;color:var(--exception);font-size:10px">✗ 错误: ' + err + '</div>' : '') +
         '</div>' +
       '</div>' +

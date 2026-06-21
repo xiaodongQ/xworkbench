@@ -671,6 +671,13 @@
       <span style="position:relative;display:inline-flex;align-items:center;cursor:help;color:var(--text-secondary);font-size:14px;margin:0 4px" onmouseover="this.querySelector('.tooltip').style.display='block'" onmouseout="this.querySelector('.tooltip').style.display='none'">?
         <span class="tooltip" style="position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--card);color:var(--text);font-size:11px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);white-space:nowrap;display:none;z-index:100">评估超时时间（秒）</span>
       </span>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);cursor:pointer">
+        <input id="eval-chain-checkbox" type="checkbox" style="margin:0">
+        <span>评估整个会话链</span>
+      </label>
+      <span style="position:relative;display:inline-flex;align-items:center;cursor:help;color:var(--text-secondary);font-size:14px;margin:0 4px" onmouseover="this.querySelector('.tooltip2').style.display='block'" onmouseout="this.querySelector('.tooltip2').style.display='none'">?
+        <span class="tooltip2" style="position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--card);color:var(--text);font-size:11px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);white-space:nowrap;display:none;z-index:100;width:280px;white-space:normal">不勾选时：每个 execution 单独评估，不会把会话链的所有 output 合并一起评</span>
+      </span>
       <button id="exec-detail-eval-btn" class="btn" onclick="runEvaluation()">📊 AI 评估</button>
       <button id="exec-continue-btn" class="btn btn-secondary hidden" disabled title="该执行未生成 session id，无法继续对话（仅首次成功执行的 execution 可继续）" onclick="showContinuePrompt()">💬 继续对话</button>
       <button class="btn btn-secondary" onclick="closeExecDetailModal()">关闭</button>
