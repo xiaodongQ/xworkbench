@@ -30,6 +30,9 @@ function initWS() {
       } else if (msg.channel === 'shortcut') {
         // 快捷目录被另一个终端打开：重拉 “快捷方式” 列表
         if (currentTab === 'shortcuts' && typeof loadShortcuts === 'function') loadShortcuts();
+      } else if (msg.channel === 'agent') {
+        // 远程 Agent 状态变更（心跳丢失/任务释放）：重拉 agent 列表
+        if (currentTab === 'relay' && typeof loadAgents === 'function') loadAgents();
       }
     } catch (err) {
       console.error('WS parse error:', err);
