@@ -2470,13 +2470,20 @@ func (s *APIServer) handleTaskClaim(w http.ResponseWriter, r *http.Request) {
 	task, _ := s.db.Get(taskID)
 	task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
 	experiences := s.loadExperiencesForTask(task)
+	// 预生成 agent 可直接用的完整 prompt（含 task 三要素 + 经验库内容）
+	// agent 端无需自己拼 prompt，直接调 claude CLI 时把这个字段作为 stdin/参数传入。
+	prompt := taskpkg.BuildTaskPrompt(task, experiences...)
 	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: taskID, EventType: "claimed",
 		Actor: "agent:" + req.AgentID, CreatedAt: time.Now(),
 	})
-	// Webhook
-	writeJSON(w, map[string]any{"status": "claimed", "task": task, "experiences": experiences})
+	writeJSON(w, map[string]any{
+		"status":      "claimed",
+		"task":        task,
+		"experiences": experiences,
+		"prompt":      prompt,
+	})
 }
 
 // handleTaskReport 远程 Agent 上报执行结果。
@@ -2864,11 +2871,16 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 	task, _ := s.db.Get(taskID)
 	task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
 	experiences := s.loadExperiencesForTask(task)
+	prompt := taskpkg.BuildTaskPrompt(task, experiences...)
 	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: taskID, EventType: "claimed_via_priority",
 		Actor: "agent:" + req.AgentID, CreatedAt: time.Now(),
 	})
-	// Webhook
-	writeJSON(w, map[string]any{"status": "claimed", "task": task, "experiences": experiences})
+	writeJSON(w, map[string]any{
+		"status":      "claimed",
+		"task":        task,
+		"experiences": experiences,
+		"prompt":      prompt,
+	})
 }
