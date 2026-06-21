@@ -733,11 +733,8 @@ async function viewExecutionDetail(id) {
       const evals = await fetchJSON('/api/executions/' + id + '/evaluations');
       renderEvalHistory(evals);
     } catch (e) { /* 忽略 */ }
-    // 拉评论
-    loadExecComments(id);
-    // 加载对话历史和活动历史
+    // 加载对话历史
     loadExecConversation(id);
-    loadExecEvents(id);
     document.getElementById('exec-detail-modal').classList.remove('hidden');
   } catch (e) {
     alert('加载执行详情失败：' + e.message);
@@ -820,46 +817,6 @@ function _showContinueFeedback(newExecId, promptText) {
   }
 }
 
-// ===== 执行评论 =====
-
-async function loadExecComments(execId) {
-  const container = document.getElementById('exec-comment-list');
-  const countEl = document.getElementById('exec-comment-count');
-  if (!container) return;
-  let list;
-  try {
-    list = await fetchJSON('/api/executions/' + execId + '/comments');
-  } catch (e) {
-    container.innerHTML = '<span style="color:var(--exception);font-size:12px">加载评论失败</span>';
-    return;
-  }
-  if (countEl) countEl.textContent = list && list.length > 0 ? '(' + list.length + ')' : '';
-  if (!list || !list.length) {
-    container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px">暂无评论</span>';
-    return;
-  }
-  container.innerHTML = list.map(c => {
-    const dt = c.created_at ? new Date(c.created_at).toLocaleString() : '';
-    return '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">' +
-      '<span style="color:var(--text-secondary)">' + esc(c.author || 'user') + ' · ' + dt + '</span>' +
-      '<div style="margin-top:2px">' + esc(c.content) + '</div></div>';
-  }).join('');
-}
-
-async function submitExecComment() {
-  const execId = currentExecId;
-  if (!execId) return;
-  const input = document.getElementById('exec-comment-input');
-  const content = input.value.trim();
-  if (!content) return;
-  input.value = '';
-  await fetchJSON('/api/executions/' + execId + '/comments', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({author: 'user', content})
-  });
-  await loadExecComments(execId);
-}
 
 function renderEvalCard(ev) {
   const score = ev.score;
@@ -938,8 +895,9 @@ async function runEvaluation(id) {
       // 单个评估
       await fetchJSON('/api/executions/' + execId + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cli_type: getEvalCliType(), model: getEvalModel(), timeout_sec: timeoutSec})});
     }
-    // 轮询拿结果（评估异步执行，最长 3 分钟）
-    for (let i = 0; i < 60; i++) {
+    // 轮询拿结果（评估异步执行，根据超时时间动态计算轮次）
+    const maxIterations = Math.max(60, Math.ceil(timeoutSec / 2) + 10); // 至少60次，或 timeoutSec/2 + 10
+    for (let i = 0; i < maxIterations; i++) {
       await new Promise(r => setTimeout(r, 2000));
       const evals = await fetchJSON('/api/executions/' + execId + '/evaluations');
       if (evals && evals.length > 0) {
@@ -959,7 +917,7 @@ async function runEvaluation(id) {
         card.innerHTML = `<div style="font-size:13px"><span style="color:var(--info,#3b82f6)">⏳ 评估中${chainTip}…</span> <span style="color:var(--text-secondary);font-size:11px">已 ${(i+1)*2}s</span></div>`;
       }
     }
-    alert('评估超时（>2 分钟），请检查 claude CLI 是否可用');
+    alert('评估超时（>' + timeoutSec + ' 秒），请检查 claude CLI 是否可用');
     _markEvaluating(execId, false);
     if (currentExecId === execId) {
       const card = document.getElementById('exec-detail-eval');
@@ -1181,45 +1139,6 @@ function renderExecConversationTimeline(execs) {
   }).join('');
 }
 
-// 活动历史
-function toggleExecEvents() {
-  const body = document.getElementById('exec-events-body');
-  const arrow = document.getElementById('exec-events-toggle');
-  if (body.classList.contains('hidden')) {
-    body.classList.remove('hidden');
-    arrow.style.transform = 'rotate(90deg)';
-  } else {
-    body.classList.add('hidden');
-    arrow.style.transform = 'rotate(0deg)';
-  }
-}
-
-async function loadExecEvents(execId) {
-  const countEl = document.getElementById('exec-events-count');
-  const body = document.getElementById('exec-events-body');
-  try {
-    const exec = await fetchJSON('/api/executions/' + execId);
-    if (!exec?.task_id) {
-      body.innerHTML = '<div style="padding:8px;color:var(--text-secondary);font-size:12px">无关联任务</div>';
-      return;
-    }
-    const events = await fetchJSON('/api/tasks/' + exec.task_id + '/events');
-    if (!events || events.length === 0) {
-      body.innerHTML = '<div style="padding:8px;color:var(--text-secondary);font-size:12px">暂无活动记录</div>';
-      countEl.textContent = '(0)';
-      return;
-    }
-    countEl.textContent = '(' + events.length + ' 条)';
-    body.innerHTML = events.map(ev => {
-      const ts = ev.created_at ? new Date(ev.created_at).toLocaleString('zh-CN', {hour12: false}) : '';
-      return '<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">' +
-        '<span style="color:var(--text-secondary)">' + ts + '</span>' +
-        '<span style="margin-left:6px">' + esc(ev.event || '') + '</span></div>';
-    }).join('');
-  } catch (e) {
-    body.innerHTML = '<div style="padding:8px;color:var(--exception);font-size:12px">加载失败：' + esc(e.message) + '</div>';
-  }
-}
 
 // 页面加载时从 /api/config 读取终端类型设置
 async function loadTerminalSetting() {
