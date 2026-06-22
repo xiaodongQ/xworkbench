@@ -55,6 +55,17 @@ func (s *APIServer) handleConfigExport(w http.ResponseWriter, r *http.Request) {
 			"tasks_manual":    jsonRaw(mustMarshal(s.exportTasksByType("manual"))),
 			"tasks_scheduled": jsonRaw(mustMarshal(s.exportScheduledTasks())),
 		}
+	case "tasks":
+		// 合并导出：手动任务 + 定时任务为同一 "tasks" 数组
+		// （前端系统配置页 "任务" tab 用；导入时按 task_type 区分走不同表）
+		manual := s.exportTasksAsUnified("manual")
+		sched := s.exportScheduledAsUnified()
+		merged := append(manual, sched...)
+		out = map[string]json.RawMessage{
+			"version":     jsonRaw(`"1.0"`),
+			"exported_at": jsonRaw(fmt.Sprintf(`"%s"`, time.Now().Format(time.RFC3339))),
+			"tasks":       jsonRaw(mustMarshal(merged)),
+		}
 	default:
 		// 多个 type 用逗号分，每类作为顶层 key（与 all 形态一致）
 		types := strings.Split(typeParam, ",")
@@ -75,6 +86,11 @@ func (s *APIServer) handleConfigExport(w http.ResponseWriter, r *http.Request) {
 				out["tasks_manual"] = jsonRaw(mustMarshal(s.exportTasksByType("manual")))
 			case "tasks_scheduled":
 				out["tasks_scheduled"] = jsonRaw(mustMarshal(s.exportScheduledTasks()))
+			case "tasks":
+				manual := s.exportTasksAsUnified("manual")
+				sched := s.exportScheduledAsUnified()
+				merged := append(manual, sched...)
+				out["tasks"] = jsonRaw(mustMarshal(merged))
 			default:
 				writeErr(w, http.StatusBadRequest, "unknown type: "+t)
 				return
@@ -144,6 +160,56 @@ func (s *APIServer) exportScheduledTasks() []*backend.ScheduledTask {
 	return list
 }
 
+// TaskExportItem "统一任务"导出格式。合并 manual + scheduled 到同一 "tasks" 数组用。
+// 导入时按 task_type 路由到不同表。
+type TaskExportItem struct {
+	backend.Task
+	CommandType    string `json:"command_type,omitempty"`     // claude/cbc/shell
+	Model          string `json:"model,omitempty"`
+	CronExpr       string `json:"cron_expr,omitempty"`        // 仅 scheduled
+	WorkingDir     string `json:"working_dir,omitempty"`      // 仅 scheduled
+	Enabled        bool   `json:"enabled,omitempty"`          // scheduled专用，导入时强制 false
+	TimeoutSec     int    `json:"timeout_sec,omitempty"`
+}
+
+// exportScheduledAsUnified 把 ScheduledTask 转为 *TaskExportItem 格式（ task_type=scheduled），
+// 给“合并导出 tasks”用。导入时按 task_type 路由到不同表。
+func (s *APIServer) exportScheduledAsUnified() []*TaskExportItem {
+	sched := s.exportScheduledTasks()
+	out := make([]*TaskExportItem, 0, len(sched))
+	for _, st := range sched {
+		if st == nil { continue }
+		out = append(out, &TaskExportItem{
+			Task: backend.Task{
+				ID:          st.ID,
+				Title:       st.Name,
+				Description: st.Prompt,
+				Status:      backend.TaskStatusPending,
+				Priority:    5,
+				TaskType:    backend.TaskTypeScheduled,
+			},
+			CommandType: st.CommandType,
+			Model:       st.Model,
+			CronExpr:    st.CronExpr,
+			WorkingDir:  st.WorkingDir,
+			Enabled:     st.Enabled,
+			TimeoutSec:  st.TimeoutSec,
+		})
+	}
+	return out
+}
+
+// exportTasksAsUnified 把 manual tasks 转 *TaskExportItem。补 experience_ids。
+func (s *APIServer) exportTasksAsUnified(t string) []*TaskExportItem {
+	tasks := s.exportTasksByType(t)
+	out := make([]*TaskExportItem, 0, len(tasks))
+	for _, task := range tasks {
+		if task == nil { continue }
+		out = append(out, &TaskExportItem{Task: *task})
+	}
+	return out
+}
+
 // ----- 导入 -----
 
 // configImportRequest 导入请求体
@@ -201,6 +267,11 @@ func (s *APIServer) handleConfigImport(w http.ResponseWriter, r *http.Request) {
 		s.importTasks(items, "manual", &res)
 	case "tasks_scheduled":
 		s.importScheduledTasks(items, &res)
+	case "tasks":
+		// “tasks” 是合并导入：按每个 item 的 task_type 路由到不同表。
+		manualItems, schedItems := s.splitTasksByType(items)
+		s.importTasks(manualItems, "manual", &res)
+		s.importScheduledTasks(schedItems, &res)
 	default:
 		writeErr(w, http.StatusBadRequest, "unknown type: "+req.Type)
 		return
@@ -247,6 +318,15 @@ func (s *APIServer) handleConfigImportPreview(w http.ResponseWriter, r *http.Req
 		out.Items = s.previewTasks(items, "manual")
 	case "tasks_scheduled":
 		out.Items = s.previewScheduledTasks(items)
+	case "tasks":
+		// “tasks” 是合并预览：按 item.task_type 路由，每个 index 返回 1 条 preview。
+		// 理论上同 index 上 manual + scheduled 是两种独立记录，这里为保型一律给“同一条 preview”
+		//（最后取为“只要 type=manual 走 manual preview，type=scheduled 走 scheduled preview”）。
+		manualItems, schedItems := s.splitTasksByType(items)
+		manualPreview := s.previewTasks(manualItems, "manual")
+		schedPreview := s.previewScheduledTasks(schedItems)
+		// 合并: 重新按原始 index 映射
+		out.Items = s.mergeTasksPreview(items, manualPreview, schedPreview)
 	default:
 		writeErr(w, http.StatusBadRequest, "unknown type: "+req.Type)
 		return
@@ -255,6 +335,53 @@ func (s *APIServer) handleConfigImportPreview(w http.ResponseWriter, r *http.Req
 }
 
 // ----- 业务实现：导入/预览 -----
+
+// splitTasksByType 按 task_type 拆分 items 数组为 (manual items, scheduled items)。
+// task_type 为空或“manual”走 manual，其他值都走 scheduled。
+// 返回的两个 slice 中的 raw 保持原状，让后续 previewTasks/importTasks 复用。
+func (s *APIServer) splitTasksByType(items []json.RawMessage) (manual, scheduled []json.RawMessage) {
+	for _, raw := range items {
+		var t struct {
+			TaskType string `json:"task_type"`
+		}
+		_ = json.Unmarshal(raw, &t)
+		switch t.TaskType {
+		case "scheduled":
+			scheduled = append(scheduled, raw)
+		default:
+			manual = append(manual, raw)
+		}
+	}
+	return manual, scheduled
+}
+
+// mergeTasksPreview 按原 items 顺序逐个调对应 preview，重置 Index 为 0..N-1。
+// 避免出现 manualPreview[1] 被当成原数组 index=1 的情况（顺序错位 bug）。
+func (s *APIServer) mergeTasksPreview(items []json.RawMessage, manualPreview, schedPreview []configImportPreviewItem) []configImportPreviewItem {
+	manualIdx, schedIdx := 0, 0
+	out := make([]configImportPreviewItem, len(items))
+	for newI, raw := range items {
+		var t struct {
+			TaskType string `json:"task_type"`
+		}
+		_ = json.Unmarshal(raw, &t)
+		var pv configImportPreviewItem
+		if t.TaskType == "scheduled" {
+			if schedIdx < len(schedPreview) {
+				pv = schedPreview[schedIdx]
+			}
+			schedIdx++
+		} else {
+			if manualIdx < len(manualPreview) {
+				pv = manualPreview[manualIdx]
+			}
+			manualIdx++
+		}
+		pv.Index = newI // 重置为“合并后顺序”的 index
+		out[newI] = pv
+	}
+	return out
+}
 
 func (s *APIServer) importDirShortcuts(items []json.RawMessage, res *configImportResult) {
 	for i, raw := range items {
@@ -549,8 +676,20 @@ func (s *APIServer) importScheduledTasks(items []json.RawMessage, res *configImp
 			res.Errors = append(res.Errors, importError{Index: i, Reason: "parse: " + err.Error()})
 			continue
 		}
+		// 兼容合并导入时用 "title" 字段（统一任务格式）；否则从 "name" 读
+		if st.Name == "" {
+			var alt struct{ Title string `json:"title"` }
+			_ = json.Unmarshal(raw, &alt)
+			st.Name = alt.Title
+		}
+		// 兼容 prompt / description 两种 prompt 字段
+		if st.Prompt == "" {
+			var alt struct{ Description string `json:"description"` }
+			_ = json.Unmarshal(raw, &alt)
+			st.Prompt = alt.Description
+		}
 		if st.Name == "" || st.CronExpr == "" || st.CommandType == "" {
-			res.Errors = append(res.Errors, importError{Index: i, Reason: "name, cron_expr, command_type required"})
+			res.Errors = append(res.Errors, importError{Index: i, Reason: "name/title, cron_expr, command_type required"})
 			continue
 		}
 		existing, _ := s.findScheduledByName(st.Name)
@@ -593,8 +732,19 @@ func (s *APIServer) previewScheduledTasks(items []json.RawMessage) []configImpor
 			out = append(out, configImportPreviewItem{Index: i, Valid: false, Reason: "parse: " + err.Error()})
 			continue
 		}
+		// 兼容合并导入时用 "title" 字段（统一任务格式）
+		if st.Name == "" {
+			var alt struct{ Title string `json:"title"` }
+			_ = json.Unmarshal(raw, &alt)
+			st.Name = alt.Title
+		}
+		if st.Prompt == "" {
+			var alt struct{ Description string `json:"description"` }
+			_ = json.Unmarshal(raw, &alt)
+			st.Prompt = alt.Description
+		}
 		if st.Name == "" || st.CronExpr == "" || st.CommandType == "" {
-			out = append(out, configImportPreviewItem{Index: i, Valid: false, Reason: "name, cron_expr, command_type required"})
+			out = append(out, configImportPreviewItem{Index: i, Valid: false, Reason: "name/title, cron_expr, command_type required"})
 			continue
 		}
 		existing, _ := s.findScheduledByName(st.Name)
