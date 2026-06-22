@@ -244,6 +244,23 @@ function showRunTaskModal(task) {
   // 使用配置的默认模型
   const defaultModel = getDefaultModel('claude') || 'sonnet';
   document.getElementById('run-task-model').value = defaultModel;
+  // 默认填上次同任务的 session_id（实现“续传”便捷入口）：异步拉最近一次 execution
+  const resumeInput = document.getElementById('run-task-resume');
+  if (resumeInput) {
+    resumeInput.value = '';
+    resumeInput.placeholder = '加载中...';
+    fetchJSON(API + '/api/tasks/' + task.id + '/executions').then(execs => {
+      const last = (execs || []).find(e => e.resume_uuid);
+      if (last && last.resume_uuid) {
+        resumeInput.value = last.resume_uuid;
+        resumeInput.placeholder = '上次 session: ' + last.resume_uuid.slice(0,8) + '...（留空开新会话）';
+      } else {
+        resumeInput.placeholder = '留空则开新会话';
+      }
+    }).catch(() => { resumeInput.placeholder = '留空则开新会话'; });
+  }
+  // 填充 agent 列表（异步：拉 + 绑定了远程 dir_shortcut 的 agent）
+  loadRunTaskAgentOptions();
   document.getElementById('run-task-modal').classList.remove('hidden');
   // 存当前 taskId 供 submit 用
   document.getElementById('run-task-modal').dataset.taskId = task.id;
@@ -256,6 +273,31 @@ function showRunTaskModal(task) {
     const type = typeSel.value;
     if (type !== 'shell') saveDefaultModel(type, modelSel.value);
   };
+}
+
+// 填充“运行位置”下拉：列出所有绑定了 dir_shortcut 的 agent。
+async function loadRunTaskAgentOptions() {
+  const sel = document.getElementById('run-task-agent');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">本机执行（默认）</option>';
+  try {
+    const agents = await fetchJSON(API + '/api/agents');
+    // 顺带查 dir_shortcuts 以获取 host name
+    const dirs = await fetchJSON(API + '/api/dir-shortcuts');
+    const dirMap = {};
+    (dirs || []).forEach(d => { dirMap[d.id] = d; });
+    (agents || []).forEach(a => {
+      if (!a.bound_dir_shortcut_id) return; // 跳过未绑定的
+      const ds = dirMap[a.bound_dir_shortcut_id];
+      const label = a.name + (ds ? ' → ' + ds.remote_user + '@' + ds.remote_host : ' → [绑定的远端]');
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    });
+  } catch (e) {
+    console.warn('loadRunTaskAgentOptions failed', e);
+  }
 }
 
 function closeRunTaskModal() {
@@ -286,11 +328,13 @@ async function submitRunTask() {
   const taskId = document.getElementById('run-task-modal').dataset.taskId;
   const type = document.getElementById('run-task-type').value;
   const model = document.getElementById('run-task-model').value;
+  const agentId = document.getElementById('run-task-agent') ? document.getElementById('run-task-agent').value : '';
+  const resumeSessionId = document.getElementById('run-task-resume') ? document.getElementById('run-task-resume').value.trim() : '';
   closeRunTaskModal();
   try {
-    const body = JSON.stringify({command_type: type, model: model});
+    const body = JSON.stringify({command_type: type, model: model, agent_id: agentId, resume_session_id: resumeSessionId});
     const r = await fetchJSON(API + '/api/tasks/' + taskId + '/run', {method:'POST', headers:{'Content-Type':'application/json'}, body});
-    const summary = type + (type !== 'shell' ? ' / ' + model : '');
+    const summary = type + (type !== 'shell' ? ' / ' + model : '') + (agentId ? ' / 远端 agent' : ' / 本机') + (resumeSessionId ? ' / 续传' : '');
     // 询问是否跳转到自动化 Tab 看流式输出
     if (confirm(`✅ 已启动 execution_id=${r.execution_id}\n（${summary}）\n\n跳转到"⚡ 自动化 Tab"查看流式输出吗？`)) {
       switchTab('automation');
