@@ -392,103 +392,138 @@
 
   <!-- 代理 Tab -->
   <div id="page-relay" class="hidden">
-    <h1 class="page-title">🔀 代理</h1>
+    <h1 class="page-title">🔀 代理 <span style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px">执行命令 / 转发请求</span></h1>
 
-    <!-- 命令执行 -->
-    <div class="widget" style="margin-bottom:16px">
-      <div class="widget-title" style="cursor:pointer" onclick="toggleApiDoc('exec-api')">
-        <span>⚡ 命令执行</span>
-        <span style="font-size:11px;color:var(--text-secondary)">▶ 点击展开 API 说明</span>
-      </div>
-      <div id="exec-api" class="hidden" style="margin-bottom:12px;padding:10px;background:var(--hover);border-radius:6px;font-size:12px;line-height:1.6">
-        <div style="margin-bottom:8px"><strong>接口：</strong><code>POST http://xworkbench:8902/api/exec</code> <span style="font-size:10px;color:var(--text-secondary)">（端口为服务实际监听端口，即登录页地址中的端口）</span></div>
-        <div style="margin-bottom:8px"><strong>功能：</strong>在 xworkbench 所在机器上执行指定命令，返回 stdout/stderr/exit_code</div>
-        <div style="margin-bottom:8px"><strong>应用场景：</strong>远程触发脚本执行（如备份、重启服务、部署）、调用本地工具（python/go/二进制工具）</div>
-        <div style="margin-bottom:8px"><strong>参数说明：</strong></div>
-        <table style="margin:0 0 8px 0;font-size:11px;border-collapse:collapse;width:100%">
-          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>Authorization</code></td><td style="padding:4px 8px">Bearer &lt;api_key&gt; 或 X-API-Key 头</td><td style="padding:4px 8px">必填（默认 key：xworkbench）</td></tr>
-          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>command</code></td><td style="padding:4px 8px">要执行的命令字符串</td><td style="padding:4px 8px">必填</td></tr>
-          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>cwd</code></td><td style="padding:4px 8px">工作目录（影响相对路径解析）</td><td style="padding:4px 8px">可选</td></tr>
-          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>timeout_ms</code></td><td style="padding:4px 8px">超时时间（毫秒）</td><td style="padding:4px 8px">可选，默认 30000</td></tr>
-        </table>
-        <div style="margin-bottom:8px"><strong>请求示例：</strong></div>
-        <pre style="margin:0;padding:8px;background:var(--card-bg);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all">curl -X POST http://xworkbench:8902/api/exec \
+    <style>
+      /* 代理页面：两栏区分，命令执行（橙）与 HTTP 转发（蓝） */
+      .relay-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+      @media (max-width: 1100px) { .relay-grid { grid-template-columns: 1fr; } }
+      .relay-panel { border-radius: 10px; padding: 18px; border: 2px solid; }
+      .relay-panel.exec { background: #fff7ed; border-color: #fb923c; }
+      .relay-panel.http { background: #eff6ff; border-color: #60a5fa; }
+      .relay-panel .panel-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+      .relay-panel .panel-icon { font-size: 38px; line-height: 1; }
+      .relay-panel .panel-title { font-size: 19px; font-weight: 600; }
+      .relay-panel.exec .panel-title { color: #c2410c; }
+      .relay-panel.http .panel-title { color: #1d4ed8; }
+      .relay-panel .panel-desc { font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5; }
+      .relay-panel label { font-size: 12px; font-weight: 500; display: block; margin-bottom: 4px; }
+      .relay-panel input, .relay-panel select, .relay-panel textarea { width: 100%; box-sizing: border-box; }
+      .relay-panel .panel-doc { margin-top: 12px; font-size: 11px; user-select: none; }
+      .relay-panel .panel-doc-toggle { color: var(--text-secondary); cursor: pointer; }
+      .relay-panel .panel-doc-body { display: none; margin-top: 8px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px; font-size: 11px; line-height: 1.6; max-height: 240px; overflow-y: auto; }
+      .relay-panel .panel-doc.open .panel-doc-body { display: block; }
+      .relay-panel .result-box { margin-top: 10px; padding: 10px; border-radius: 4px; background: rgba(0,0,0,0.05); font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow-y: auto; display: none; font-family: monospace; }
+      .relay-panel .form-row { display: flex; gap: 10px; margin-top: 8px; }
+      .relay-panel .form-row > div { flex: 1; }
+      .relay-panel .form-row > div:first-child { flex: 0 0 200px; }
+      .relay-panel.http .form-row > div:first-child { flex: 0 0 100px; }
+      .relay-panel .form-row > div:nth-child(2) { flex: 0 0 150px; }
+      .relay-panel button.primary { width: 100%; margin-top: 4px; }
+    </style>
+
+    <div class="relay-grid">
+      <!-- 命令执行（左） -->
+      <div class="relay-panel exec">
+        <div class="panel-head">
+          <span class="panel-icon">⚡</span>
+          <div>
+            <div class="panel-title">命令执行</div>
+            <div class="panel-desc">在本机执行 shell / powershell，返回 stdout / stderr / exit_code</div>
+          </div>
+        </div>
+        <div class="panel-doc" id="exec-api-doc">
+          <span class="panel-doc-toggle" onclick="document.getElementById('exec-api-doc').classList.toggle('open')">▶ 接口说明（点击展开）</span>
+          <div class="panel-doc-body">
+            <div style="margin-bottom:6px"><strong>接口：</strong><code>POST /api/exec</code></div>
+            <div style="margin-bottom:6px"><strong>功能：</strong>在 xworkbench 所在机器执行命令，返回 stdout/stderr/exit_code</div>
+            <div style="margin-bottom:6px"><strong>场景：</strong>远程触发脚本（备份 / 重启 / 部署）、调用本地工具</div>
+            <div style="margin-bottom:6px"><strong>参数：</strong></div>
+            <ul style="margin:0 0 6px 16px;padding:0">
+              <li><code>command</code> 必填，命令字符串</li>
+              <li><code>cwd</code> 可选，工作目录</li>
+              <li><code>timeout_ms</code> 可选，默认 30000</li>
+              <li><code>Authorization</code> 必填，Bearer &lt;api_key&gt;</li>
+            </ul>
+            <div style="margin-bottom:6px"><strong>示例：</strong></div>
+            <pre style="margin:0;padding:8px;background:rgba(255,255,255,0.7);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all">curl -X POST /api/exec \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer xworkbench" \
-  -d '{"command": "python /opt/scripts/backup.py --target db1", "cwd": "/opt", "timeout_ms": 60000}'</pre>
-        <div style="margin-top:8px"><strong>响应字段：</strong><code>output</code>（stdout）、<code>error_out</code>（stderr）、<code>exit_code</code>、<code>duration_ms</code></div>
-      </div>
-      <div class="form-group">
-        <label style="font-size:12px">命令 <span class="field-hint">在 Windows 上执行</span></label>
-        <textarea id="exec-cmd" class="code" rows="3" placeholder="powershell -Command 'Get-Process'"></textarea>
-      </div>
-      <div class="form-row">
-        <div class="form-group" style="flex:0 0 200px">
-          <label style="font-size:12px">工作目录 <span class="field-hint">可选</span></label>
-          <input id="exec-cwd" type="text" placeholder="C:\temp">
+  -d '{"command":"ls -la","cwd":"/","timeout_ms":5000}'</pre>
+          </div>
         </div>
-        <div class="form-group" style="flex:0 0 150px">
-          <label style="font-size:12px">超时 (ms)</label>
-          <input id="exec-timeout" type="number" value="30000" placeholder="30000">
+        <div style="margin-top:12px">
+          <label>命令 <span style="font-size:11px;color:var(--text-secondary);font-weight:normal">Windows 用 powershell</span></label>
+          <textarea id="exec-cmd" class="code" rows="3" placeholder="ls -la /tmp" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:13px;padding:8px;border-radius:4px;border:1px solid var(--border);background:var(--card)"></textarea>
+          <div class="form-row">
+            <div>
+              <label>工作目录 <span style="font-size:11px;color:var(--text-secondary);font-weight:normal">可选</span></label>
+              <input id="exec-cwd" type="text" placeholder="/tmp" style="padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card)">
+            </div>
+            <div>
+              <label>超时 (ms)</label>
+              <input id="exec-timeout" type="number" value="30000" style="padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card)">
+            </div>
+          </div>
+          <button class="btn btn-primary primary" onclick="runExec()" style="background:#ea580c;border-color:#ea580c">▶ 执行</button>
         </div>
-        <div class="form-group" style="flex:1 1 auto;display:flex;align-items:flex-end">
-          <button class="btn btn-primary" onclick="runExec()" style="width:100%">▶ 执行</button>
-        </div>
+        <div id="exec-result" class="result-box"></div>
       </div>
-      <div id="exec-result" class="code" style="margin-top:8px;padding:8px;border-radius:4px;background:var(--hover);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;display:none"></div>
-    </div>
 
-    <!-- HTTP 代理 -->
-    <div class="widget" style="margin-bottom:16px">
-      <div class="widget-title" style="cursor:pointer" onclick="toggleApiDoc('proxy-api')">
-        <span>🌐 HTTP 代理转发</span>
-        <span style="font-size:11px;color:var(--text-secondary)">▶ 点击展开 API 说明</span>
-      </div>
-      <div id="proxy-api" class="hidden" style="margin-bottom:12px;padding:10px;background:var(--hover);border-radius:6px;font-size:12px;line-height:1.6">
-        <div style="margin-bottom:8px"><strong>接口：</strong><code>POST http://xworkbench:8902/api/relay/proxy</code> <span style="font-size:10px;color:var(--text-secondary)">（端口为服务实际监听端口，即登录页地址中的端口）</span></div>
-        <div style="margin-bottom:8px"><strong>功能：</strong>透传 HTTP 请求到目标 URL，自动携带 authorization/x-api-key/x-auth-token/cookie 等认证头</div>
-        <div style="margin-bottom:8px"><strong>应用场景：</strong>跨网络调用第三方 API（如内部服务无外网权限、通过 xworkbench 代理访问）、聚合多个 API 请求</div>
-        <div style="margin-bottom:8px"><strong>参数说明：</strong></div>
-        <table style="margin:0 0 8px 0;font-size:11px;border-collapse:collapse;width:100%">
-          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>Authorization</code></td><td style="padding:4px 8px">Bearer &lt;api_key&gt; 或 X-API-Key 头</td><td style="padding:4px 8px">必填（默认 key：xworkbench）</td></tr>
-          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>url</code></td><td style="padding:4px 8px">目标 URL（必填，绝对路径）</td><td style="padding:4px 8px">必填</td></tr>
-          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>method</code></td><td style="padding:4px 8px">HTTP 方法 GET/POST/PUT/DELETE</td><td style="padding:4px 8px">可选，默认 GET</td></tr>
-          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>headers</code></td><td style="padding:4px 8px">自定义请求头（仅认证头会被转发）</td><td style="padding:4px 8px">可选</td></tr>
-          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>body</code></td><td style="padding:4px 8px">请求体（POST/PUT 时）</td><td style="padding:4px 8px">可选</td></tr>
-          <tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px"><code>timeout_ms</code></td><td style="padding:4px 8px">超时时间（毫秒）</td><td style="padding:4px 8px">可选，默认 30000</td></tr>
-        </table>
-        <div style="margin-bottom:8px"><strong>请求示例：</strong></div>
-        <pre style="margin:0;padding:8px;background:var(--card-bg);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all">curl -X POST http://xworkbench:8902/api/relay/proxy \
+      <!-- HTTP 代理（右） -->
+      <div class="relay-panel http">
+        <div class="panel-head">
+          <span class="panel-icon">🌐</span>
+          <div>
+            <div class="panel-title">HTTP 代理转发</div>
+            <div class="panel-desc">透传 HTTP 请求到目标 URL，自动携带认证头</div>
+          </div>
+        </div>
+        <div class="panel-doc" id="proxy-api-doc">
+          <span class="panel-doc-toggle" onclick="document.getElementById('proxy-api-doc').classList.toggle('open')">▶ 接口说明（点击展开）</span>
+          <div class="panel-doc-body">
+            <div style="margin-bottom:6px"><strong>接口：</strong><code>POST /api/relay/proxy</code></div>
+            <div style="margin-bottom:6px"><strong>功能：</strong>透传 HTTP 请求到目标 URL，自动携带 authorization/x-api-key/x-auth-token/cookie 等认证头</div>
+            <div style="margin-bottom:6px"><strong>场景：</strong>跨网络调第三方 API（内部服务无外网 / 聚合多个 API）</div>
+            <div style="margin-bottom:6px"><strong>参数：</strong></div>
+            <ul style="margin:0 0 6px 16px;padding:0">
+              <li><code>url</code> 必填，目标 URL</li>
+              <li><code>method</code> 可选，默认 GET</li>
+              <li><code>headers</code> 可选，自定义请求头（仅认证头会被转发）</li>
+              <li><code>body</code> 可选，POST/PUT 请求体</li>
+              <li><code>timeout_ms</code> 可选，默认 30000</li>
+              <li><code>Authorization</code> 必填，Bearer &lt;api_key&gt;</li>
+            </ul>
+            <div style="margin-bottom:6px"><strong>示例：</strong></div>
+            <pre style="margin:0;padding:8px;background:rgba(255,255,255,0.7);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all">curl -X POST /api/relay/proxy \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer xworkbench" \
-  -d '{"method": "POST", "url": "https://api.internal.com/data", "body": "{\"key\":\"value\"}", "timeout_ms": 30000}'</pre>
-        <div style="margin-top:8px"><strong>响应字段：</strong><code>status_code</code>、<code>headers</code>、<code>body</code>（响应体）、<code>error</code></div>
-      </div>
-      <div class="form-group">
-        <label style="font-size:12px">目标 URL <span class="field-hint">必填</span></label>
-        <input id="proxy-url" type="text" placeholder="https://api.example.com/data">
-      </div>
-      <div class="form-row">
-        <div class="form-group" style="flex:0 0 100px">
-          <label style="font-size:12px">方法</label>
-          <select id="proxy-method" style="font-size:13px;padding:6px 8px">
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
-            <option value="PUT">PUT</option>
-            <option value="DELETE">DELETE</option>
-          </select>
+  -d '{"method":"POST","url":"https://api.example.com/data","body":"{}","timeout_ms":30000}'</pre>
+          </div>
         </div>
-        <div class="form-group" style="flex:0 0 150px">
-          <label style="font-size:12px">超时 (ms)</label>
-          <input id="proxy-timeout" type="number" value="30000" placeholder="30000">
+        <div style="margin-top:12px">
+          <label>目标 URL <span style="font-size:11px;color:var(--text-secondary);font-weight:normal">必填</span></label>
+          <input id="proxy-url" type="text" placeholder="https://api.example.com/data" style="padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card)">
+          <div class="form-row">
+            <div>
+              <label>方法</label>
+              <select id="proxy-method" style="padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);font-size:13px">
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="DELETE">DELETE</option>
+              </select>
+            </div>
+            <div>
+              <label>超时 (ms)</label>
+              <input id="proxy-timeout" type="number" value="30000" style="padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card)">
+            </div>
+          </div>
+          <button class="btn btn-primary primary" onclick="runProxy()" style="background:#2563eb;border-color:#2563eb">▶ 转发</button>
         </div>
-        <div class="form-group" style="flex:1 1 auto;display:flex;align-items:flex-end">
-          <button class="btn btn-primary" onclick="runProxy()" style="width:100%">▶ 转发</button>
-        </div>
+        <div id="proxy-result" class="result-box"></div>
       </div>
-      <div id="proxy-result" class="code" style="margin-top:8px;padding:8px;border-radius:4px;background:var(--hover);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;display:none"></div>
     </div>
-
     <!-- 转发统计 -->
     <div class="widget">
       <div class="widget-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -960,7 +995,12 @@ document.getElementById('run-task-model').innerHTML = buildModelOptions('claude'
 
 // 恢复上次停留的 tab（必须在所有 view JS 加载完之后，否则 switchTab 内的 loadTasks/loadExps 等都是 undefined）
 (function restoreTab() {
-  const saved = localStorage.getItem('sf-current-tab');
+  // 调试/深度链接：?tab=xxx 优先于 localStorage（仅在运行时由谁带调）
+  let saved = localStorage.getItem('sf-current-tab');
+  try {
+    const p = new URLSearchParams(location.search).get('tab');
+    if (p && document.getElementById('page-' + p)) saved = p;
+  } catch (e) {}
   if (saved && saved !== 'dashboard' && document.getElementById('page-' + saved)) {
     switchTab(saved);
   }
