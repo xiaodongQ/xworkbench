@@ -202,6 +202,9 @@ function cancelPreview() {
 async function confirmImport() {
   if (!_cfgPreviewCache) { alert('请先点"预览"'); return; }
   const dedupe = document.getElementById('cfg-dedupe').value;
+  const panel = _activePanel();
+  const pv = panel && panel.querySelector('.cfg-preview-area');
+  if (pv) pv.innerHTML = '<div style="padding:20px;color:var(--text-secondary)">⏳ 导入中…</div>';
   try {
     const result = await fetchJSON(API + '/api/config/import', {
       method: 'POST',

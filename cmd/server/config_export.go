@@ -88,7 +88,10 @@ func (s *APIServer) exportDirShortcuts() []*backend.DirShortcut {
 	list, err := s.dirDB.List()
 	if err != nil {
 		logger.Warnw("config export: dir shortcuts list failed", "err", err)
-		return nil
+		return []*backend.DirShortcut{}
+	}
+	if list == nil {
+		return []*backend.DirShortcut{}
 	}
 	// remote_password 仍导出；前端导出按钮处有显式提示
 	return list
@@ -108,7 +111,10 @@ func (s *APIServer) exportExperiences() []*backend.Experience {
 	list, err := s.listExpsAll()
 	if err != nil {
 		logger.Warnw("config export: experiences list failed", "err", err)
-		return nil
+		return []*backend.Experience{}
+	}
+	if list == nil {
+		return []*backend.Experience{}
 	}
 	return list
 }
@@ -117,7 +123,10 @@ func (s *APIServer) exportTasksByType(t string) []*backend.Task {
 	tasks, err := s.db.List(backend.TaskFilter{TaskType: t, Limit: 10000})
 	if err != nil {
 		logger.Warnw("config export: tasks list failed", "type", t, "err", err)
-		return nil
+		return []*backend.Task{}
+	}
+	if tasks == nil {
+		return []*backend.Task{}
 	}
 	// 列表接口不填 ExperienceIDs，这里补一下
 	for _, task := range tasks {
