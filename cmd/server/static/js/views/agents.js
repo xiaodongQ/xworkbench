@@ -16,7 +16,7 @@ function formatRelativeTime(t) {
   return day + 'd 前';
 }
 
-function statusTag(status) {
+function agentStatusTag(status) {
   if (status === 'online') return '<span style="color:green;font-weight:600">● 在线</span>';
   if (status === 'offline') return '<span style="color:#999">● 离线</span>';
   return '<span style="color:#999">● ' + escapeHtml(status || 'unknown') + '</span>';
@@ -56,7 +56,7 @@ function renderAgents(agents) {
     const boundLabel = boundId ? `<span style="color:var(--primary)" title="${escapeHtml(boundId)}">🔗 ${escapeHtml(boundId.substring(0,8))}…</span>` : '<span style="color:var(--text-secondary);font-size:10px">未绑定</span>';
     return `
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:8px">${statusTag(a.status)}</td>
+        <td style="padding:8px">${agentStatusTag(a.status)}</td>
         <td style="padding:8px"><strong>${escapeHtml(a.name)}</strong><br><span style="font-size:10px;color:var(--text-secondary)">${escapeHtml(a.id.substring(0, 8))}…</span></td>
         <td style="padding:8px;font-size:11px">${escapeHtml(cap)}</td>
         <td style="padding:8px;font-size:11px">${escapeHtml(ver)}</td>
