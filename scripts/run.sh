@@ -105,7 +105,7 @@ find_pid_by_port() {
         done) || true
       ;;
     linux)
-      pid=$(ss -tp 2>/dev/null | grep ":$port" | grep xworkbench | \
+      pid=$(ss -tlnp 2>/dev/null | grep ":$port " | grep xworkbench | \
         awk '{for(i=1;i<=NF;i++) if($i~/pid=[0-9]+/) {match($i,/pid=([0-9]+)/,m); print m[1]}}' | sort -u) || true
       ;;
     windows)
