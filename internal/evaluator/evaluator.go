@@ -287,12 +287,13 @@ func EvaluateChain(ctx context.Context, chain []*backend.Execution, taskPrompt, 
 	return Evaluate(ctx, mergedExec, taskPrompt, cliType, model)
 }
 
-// RunAndSaveChain 评估并保存整个会话链（只保存到第一个 execution）。
-func RunAndSaveChain(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *backend.ExecutionRepo, chain []*backend.Execution, taskPrompt, cliType, model string) (string, error) {
+// RunAndSaveChain 评估并保存整个会话链（保存到 targetExecId，即用户打开的那个 execution）。
+func RunAndSaveChain(ctx context.Context, evalDB *backend.EvaluationRepo, execDB *backend.ExecutionRepo, chain []*backend.Execution, targetExecId, taskPrompt, cliType, model string) (string, error) {
 	started := time.Now()
 	chainSize := len(chain)
 	logger.Logger.Infow("evaluator chain: run start",
 		"chain_size", chainSize,
+		"target_exec_id", targetExecId,
 		"cli", cliType,
 		"model", model,
 	)
@@ -300,7 +301,7 @@ func RunAndSaveChain(ctx context.Context, evalDB *backend.EvaluationRepo, execDB
 	ev := &backend.Evaluation{
 		ID:             uuid.New().String(),
 		TaskID:         chain[0].TaskID,
-		ExecutionID:    chain[0].ID,
+		ExecutionID:    targetExecId, // 存到用户打开的那个 execution
 		EvaluatorModel: cliType + "/" + model,
 		CreatedAt:      time.Now(),
 	}
