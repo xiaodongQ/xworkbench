@@ -51,6 +51,9 @@ function renderAgents(agents) {
     const isOnline = a.status === 'online';
     const taskCount = a.current_task_count || 0;
     const acChecked = a.auto_claim_enabled ? 'checked' : '';
+    // 绑定的远程机器（类型=remote 的 dir_shortcut）
+    const boundId = a.bound_dir_shortcut_id || '';
+    const boundLabel = boundId ? `<span style="color:var(--primary)" title="${escapeHtml(boundId)}">🔗 ${escapeHtml(boundId.substring(0,8))}…</span>` : '<span style="color:var(--text-secondary);font-size:10px">未绑定</span>';
     return `
       <tr style="border-bottom:1px solid var(--border)">
         <td style="padding:8px">${statusTag(a.status)}</td>
@@ -62,9 +65,11 @@ function renderAgents(agents) {
         <td style="padding:8px;font-size:11px">
           <label style="cursor:pointer;font-size:11px"><input type="checkbox" ${acChecked} onchange="toggleAutoClaim('${a.id}', this.checked)"> auto_claim</label>
         </td>
+        <td style="padding:8px;font-size:11px" id="agent-bound-${a.id}">${boundLabel}</td>
         <td style="padding:8px;font-size:11px">${created}</td>
         <td style="padding:8px;white-space:nowrap">
-          <button class="btn btn-small" onclick="releaseAgentTasks('${a.id}', '${escapeHtml(a.name)}')" title="释放该 agent 手上所有 in_progress 任务回 pending 池" ${!isOnline && taskCount === 0 ? 'disabled' : ''}>🔓 释放任务</button>
+          <button class="btn btn-small" onclick="bindAgentRemote('${a.id}', '${escapeHtml(a.name)}', '${escapeHtml(boundId)}')" title="绑定/解绑 远程机器（type=remote 的 dir_shortcut）">${boundId ? '🔗 改绑' : '🔗 绑定'}</button>
+          <button class="btn btn-small" onclick="releaseAgentTasks('${a.id}', '${escapeHtml(a.name)}')" title="释放该 agent 手上所有 in_progress 任务回 pending 池" ${!isOnline && taskCount === 0 ? 'disabled' : ''} style="margin-left:4px">🔓 释放任务</button>
           <button class="btn btn-small" onclick="resetAgentToken('${a.id}', '${escapeHtml(a.name)}')" title="重置 token（立即作废旧 token）" style="margin-left:4px">🔑 重置 Token</button>
           <button class="btn btn-small" onclick="deleteAgent('${a.id}', '${escapeHtml(a.name)}')" title="删除 agent（会先释放任务）" style="margin-left:4px;color:var(--danger)">🗑️</button>
         </td>
@@ -82,6 +87,7 @@ function renderAgents(agents) {
           <th style="padding:8px">最后心跳</th>
           <th style="padding:8px;text-align:center">手头任务</th>
           <th style="padding:8px">自动领任务</th>
+          <th style="padding:8px">绑定远程机器</th>
           <th style="padding:8px">注册时间</th>
           <th style="padding:8px">操作</th>
         </tr>
@@ -107,6 +113,48 @@ async function toggleAutoClaim(agentID, enabled) {
   } catch (e) {
     alert('切换失败: ' + (e.message || e));
     loadAgents();
+  }
+}
+
+// bindAgentRemote 弹出一个选择器，选已有 type=remote 的 dir_shortcut 来绑 agent。
+// 空串 = 解绑。绑定后任务页选这个 agent 会走 SSH 远端执行（-p / -r 都行）。
+async function bindAgentRemote(agentID, agentName, currentBoundId) {
+  try {
+    const dirs = await fetchJSON(API + '/api/dir-shortcuts');
+    const remoteDirs = (dirs || []).filter(d => d.type === 'remote');
+    if (remoteDirs.length === 0) {
+      alert('没有 type=remote 的 dir_shortcut。\n请先在"⚡ 快捷"页添加一个远程目录。');
+      return;
+    }
+    let lines = ['选一个远程机器绑定到 agent「' + agentName + '」：', ''];
+    remoteDirs.forEach((d, i) => {
+      const mark = (d.id === currentBoundId) ? ' ← 当前绑定' : '';
+      lines.push(`  ${i+1}. ${d.name}  (${d.remote_user || '?'}@${d.remote_host || '?'})${mark}`);
+    });
+    lines.push('', '  0. 解绑（恢复本机/主动 claim 模式）', '  c. 取消', '');
+    const ans = prompt(lines.join('\n'), '1');
+    if (ans == null || ans === 'c') return;
+    let chosenId = '';
+    if (ans !== '0') {
+      const idx = parseInt(ans, 10) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= remoteDirs.length) {
+        alert('序号不合法');
+        return;
+      }
+      chosenId = remoteDirs[idx].id;
+    }
+    const resp = await fetchJSON(`/api/agents/${agentID}/bind-dir-shortcut`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dir_shortcut_id: chosenId}),
+    });
+    if (resp.ok) {
+      loadAgents();
+    } else {
+      alert('绑定失败：' + (resp.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('绑定失败: ' + (e.message || e));
   }
 }
 
