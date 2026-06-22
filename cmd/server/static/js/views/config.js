@@ -37,6 +37,12 @@ const CFG_REQUIRED = {
 };
 
 async function loadConfig() {
+  // 首次进入读 localStorage 恢复子 tab（仅用于屏幕截图 / 从快捷入口跳转）
+  const saved = localStorage.getItem('cfg-active-tab');
+  if (saved && CFG_TAB_LABEL[saved]) {
+    switchCfgTab(saved);
+    return;
+  }
   // 初次进入只刷新"导出区摘要"
   await refreshExportSummary();
 }

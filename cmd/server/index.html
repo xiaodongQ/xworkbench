@@ -261,6 +261,9 @@
       <button class="cfg-tab-btn" data-tab="experiences" onclick="switchCfgTab('experiences')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">📚 经验</button>
       <button class="cfg-tab-btn" data-tab="tasks_manual" onclick="switchCfgTab('tasks_manual')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">📋 手动任务</button>
       <button class="cfg-tab-btn" data-tab="tasks_scheduled" onclick="switchCfgTab('tasks_scheduled')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">⏰ 自动化任务</button>
+      <style>
+        .cfg-tab-btn.active { background: var(--primary) !important; color: #fff !important; border-color: var(--primary) !important; font-weight: 500; }
+      </style>
       <div style="flex:1"></div>
       <button class="btn btn-small" onclick="exportAll()" title="下载完整备份 (含全部类型)">📥 导出全部</button>
       <button class="btn btn-small" onclick="copyAllToClipboard()" title="复制完整备份 JSON 到剪贴板">📋 复制全部</button>
