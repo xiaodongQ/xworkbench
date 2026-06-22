@@ -240,6 +240,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/agents/{id}/release-tasks", s.handleAgentReleaseTasks)
 	mux.HandleFunc("POST /api/agents/{id}/reset-token", s.handleAgentResetToken)
 	mux.HandleFunc("POST /api/agents/{id}/auto-claim", s.handleAgentSetAutoClaim)
+	mux.HandleFunc("POST /api/agents/{id}/bind-dir-shortcut", s.handleAgentSetBoundDirShortcut)
 	mux.HandleFunc("DELETE /api/agents/{id}", s.handleAgentDelete)
 
 	// 保存过滤器
@@ -601,9 +602,11 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		CommandType string `json:"command_type"`
-		Model       string `json:"model"`
-		Prompt      string `json:"prompt"`
+		CommandType    string `json:"command_type"`
+		Model          string `json:"model"`
+		Prompt         string `json:"prompt"`
+		AgentID        string `json:"agent_id"`         // 指定远端 agent 走 SSH 执行（空 = 本机）
+		ResumeSessionID string `json:"resume_session_id"` // agent 模式下续传 claude 会话
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req) // body 可选
 	if req.CommandType == "" {
@@ -631,7 +634,50 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Prompt = prompt
 
-	cmd, stdin, cleanup, err := runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt)
+	// 决定执行位置：agent_id 非空 + 绑定 dir_shortcut → SSH 远端；否则本机。
+	var sshCfg *executor.SSHConfig
+	if req.AgentID != "" {
+		ag, err := s.agentDB.GetByID(req.AgentID)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "agent not found: "+err.Error())
+			return
+		}
+		if ag.BoundDirShortcutID == "" {
+			writeErr(w, http.StatusBadRequest,
+				fmt.Sprintf("agent %s has no bound_dir_shortcut_id; bind it to a remote dir_shortcut first", ag.Name))
+			return
+		}
+		ds, err := s.dirDB.GetByID(ag.BoundDirShortcutID)
+		if err != nil || ds == nil {
+			writeErr(w, http.StatusNotFound, "bound dir_shortcut not found")
+			return
+		}
+		if ds.Type != backend.DirShortcutTypeRemote {
+			writeErr(w, http.StatusBadRequest, "bound dir_shortcut is not type=remote")
+			return
+		}
+		if ds.RemoteHost == "" || ds.RemoteUser == "" {
+			writeErr(w, http.StatusBadRequest, "bound dir_shortcut missing remote_host/remote_user")
+			return
+		}
+		sshCfg = &executor.SSHConfig{
+			Host:       ds.RemoteHost,
+			User:       ds.RemoteUser,
+			AuthMethod: ds.AuthMethod,
+			Password:   ds.RemotePassword,
+			KeyPath:    ds.KeyPath,
+			Port:       22, // 暂不暴露到 UI；未来加
+			TimeoutSec: 10,
+		}
+		logger.Infow("task run: routing to agent via SSH",
+			"task_id", id, "agent_id", req.AgentID,
+			"agent_name", ag.Name, "dir_shortcut_id", ds.ID, "dir_shortcut_name", ds.Name,
+			"remote_host", ds.RemoteHost, "remote_user", ds.RemoteUser)
+	}
+
+	// 构造命令（带可选 --resume）
+	cmd, stdin, cleanup, err := runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt,
+		runner.WithResume(req.ResumeSessionID))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -662,6 +708,12 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		"command_type", req.CommandType,
 		"model", req.Model,
 		"prompt_chars", len(req.Prompt),
+		"via", func() string {
+			if sshCfg != nil {
+				return "ssh:" + sshCfg.Host
+			}
+			return "local"
+		}(),
 		"cmd", exec.Command,
 	)
 	// 打印完整命令（<2K 完整打印，超出截取前 2K）
@@ -687,13 +739,20 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		if cleanup != nil {
 			defer cleanup()
 		}
-		res, runErr := executor.Run(ctx, cmd, "", stdin, func(chunk string) {
+		chunkCB := func(chunk string) {
 			s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 				"execution_id": exec.ID,
 				"task_id":      id,
 				"chunk":        chunk,
 			})
-		})
+		}
+		var res *executor.Result
+		var runErr error
+		if sshCfg != nil {
+			res, runErr = executor.RunSSHViaConfig(ctx, *sshCfg, cmd, stdin, chunkCB)
+		} else {
+			res, runErr = executor.Run(ctx, cmd, "", stdin, chunkCB)
+		}
 		status := backend.TaskStatusArchived
 		if res != nil && res.ExitCode != 0 {
 			status = backend.TaskStatusException
@@ -741,6 +800,12 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		"task_id":      id,
 		"command":      exec.Command,
 		"status":       "started",
+		"via": func() string {
+			if sshCfg != nil {
+				return "ssh:" + sshCfg.Host
+			}
+			return "local"
+		}(),
 	})
 }
 
@@ -2995,6 +3060,42 @@ func (s *APIServer) handleAgentSetAutoClaim(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true, "agent_id": agentID, "auto_claim_enabled": req.Enabled})
+}
+
+// handleAgentSetBoundDirShortcut 绑定/解绑 agent 到一个 type=remote 的 dir_shortcut。
+// Body: {"dir_shortcut_id": "uuid..."}  空字符串 = 解绑（恢复本机/主动 claim 模式）。
+// 绑定后，任务页选这个 agent 走 SSH 远端执行。
+func (s *APIServer) handleAgentSetBoundDirShortcut(w http.ResponseWriter, r *http.Request) {
+	agentID := r.PathValue("id")
+	var req struct {
+		DirShortcutID string `json:"dir_shortcut_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.DirShortcutID != "" {
+		// 验证 id 对得上 + type=remote
+		ds, err := s.dirDB.GetByID(req.DirShortcutID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if ds == nil {
+			writeErr(w, http.StatusNotFound, "dir_shortcut not found")
+			return
+		}
+		if ds.Type != backend.DirShortcutTypeRemote {
+			writeErr(w, http.StatusBadRequest, "dir_shortcut is not type=remote (need remote ssh config)")
+			return
+		}
+	}
+	if err := s.agentDB.SetBoundDirShortcut(agentID, req.DirShortcutID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	logger.Infow("agent bound to dir_shortcut", "agent_id", agentID, "dir_shortcut_id", req.DirShortcutID)
+	writeJSON(w, map[string]any{"ok": true, "agent_id": agentID, "bound_dir_shortcut_id": req.DirShortcutID})
 }
 
 // handleAgentDelete 删除 agent（先释放任务再删，避免遗留 in_progress）。
