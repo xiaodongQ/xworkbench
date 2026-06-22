@@ -615,6 +615,28 @@ func migrateAgentsTable(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("migrateAgentsTable: %w", err)
 	}
+	// 列级迁移：历史 db 可能没有 bound_dir_shortcut_id 字段
+	// 用 PRAGMA table_info 检查列存在性，缺则 ADD COLUMN（幂等）
+	rows, err := db.Query(`PRAGMA table_info(agents)`)
+	if err != nil {
+		return nil // PRAGMA 失败不阻塞（老 db 兼容兜底）
+	}
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	rows.Close()
+	if !cols["bound_dir_shortcut_id"] {
+		if _, err := db.Exec(`ALTER TABLE agents ADD COLUMN bound_dir_shortcut_id TEXT`); err != nil {
+			return fmt.Errorf("migrateAgentsTable add bound_dir_shortcut_id: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -1530,6 +1552,28 @@ func (r *DirShortcutRepo) GetByName(name string) (*DirShortcut, error) {
 	return &d, nil
 }
 
+// GetByID 按 id 精确查找（agent 绑定/任务执行时使用）。不存在返 nil, nil。
+func (r *DirShortcutRepo) GetByID(id string) (*DirShortcut, error) {
+	row := r.db.QueryRow(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,terminal_cmd,created_at,last_accessed_at FROM dir_shortcuts WHERE id=? LIMIT 1`, id)
+	var d DirShortcut
+	var lastAcc sql.NullTime
+	var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, terminalCmd sql.NullString
+	if err := row.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &terminalCmd, &d.CreatedAt, &lastAcc); err != nil {
+		if err == sql.ErrNoRows { return nil, nil }
+		return nil, err
+	}
+	if d.Type == "" { d.Type = DirShortcutTypeLocal }
+	if remoteHost.Valid { d.RemoteHost = remoteHost.String }
+	if remoteUser.Valid { d.RemoteUser = remoteUser.String }
+	if remotePath.Valid { d.RemotePath = remotePath.String }
+	if remotePassword.Valid { d.RemotePassword = remotePassword.String }
+	if authMethod.Valid { d.AuthMethod = authMethod.String }
+	if keyPath.Valid { d.KeyPath = keyPath.String }
+	if terminalCmd.Valid { d.TerminalCmd = terminalCmd.String }
+	if lastAcc.Valid { d.LastAccessedAt = &lastAcc.Time }
+	return &d, nil
+}
+
 // ===== ScheduledTaskRepo =====
 
 type ScheduledTaskRepo struct{ db *sql.DB }
@@ -1809,6 +1853,7 @@ type Agent struct {
 	LastHeartbeat     *time.Time `json:"last_heartbeat,omitempty"`
 	Status            string     `json:"status"` // online | offline
 	AutoClaimEnabled  bool       `json:"auto_claim_enabled"`
+	BoundDirShortcutID string   `json:"bound_dir_shortcut_id,omitempty"` // 关联 dir_shortcuts.id；非空时为该机器启 SSH 执行
 	CreatedAt         time.Time  `json:"created_at"`
 }
 
@@ -1818,9 +1863,9 @@ func NewAgentRepo(db *sql.DB) *AgentRepo { return &AgentRepo{db: db} }
 
 // Register 新建 Agent（id/token 由调用方生成）。
 func (r *AgentRepo) Register(a *Agent) error {
-	q := `INSERT INTO agents (id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,created_at)
-		VALUES (?,?,?,?,?,?,?,?,?)`
-	_, err := r.db.Exec(q, a.ID, a.Name, a.TokenHash, a.Capabilities, a.Version, a.LastHeartbeat, a.Status, a.AutoClaimEnabled, a.CreatedAt)
+	q := `INSERT INTO agents (id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,bound_dir_shortcut_id,created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.Exec(q, a.ID, a.Name, a.TokenHash, a.Capabilities, a.Version, a.LastHeartbeat, a.Status, a.AutoClaimEnabled, a.BoundDirShortcutID, a.CreatedAt)
 	if err != nil {
 		logger.Logger.Errorw("[agents] register failed", "id", a.ID, "error", err.Error())
 		return err
@@ -1831,22 +1876,26 @@ func (r *AgentRepo) Register(a *Agent) error {
 
 // GetByID 根据 ID 查 Agent。
 func (r *AgentRepo) GetByID(id string) (*Agent, error) {
-	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,created_at FROM agents WHERE id=?`
+	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,bound_dir_shortcut_id,created_at FROM agents WHERE id=?`
 	var a Agent
 	var hb sql.NullTime
-	err := r.db.QueryRow(q, id).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &a.CreatedAt)
+	var boundID sql.NullString
+	err := r.db.QueryRow(q, id).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &boundID, &a.CreatedAt)
 	if hb.Valid { a.LastHeartbeat = &hb.Time }
+	if boundID.Valid { a.BoundDirShortcutID = boundID.String }
 	if err == sql.ErrNoRows { return nil, fmt.Errorf("agent %s not found", id) }
 	return &a, err
 }
 
 // GetByTokenHash 根据 token hash 查 Agent（用于登录验证）。
 func (r *AgentRepo) GetByTokenHash(hash string) (*Agent, error) {
-	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,created_at FROM agents WHERE token_hash=?`
+	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,bound_dir_shortcut_id,created_at FROM agents WHERE token_hash=?`
 	var a Agent
 	var hb sql.NullTime
-	err := r.db.QueryRow(q, hash).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &a.CreatedAt)
+	var boundID sql.NullString
+	err := r.db.QueryRow(q, hash).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &boundID, &a.CreatedAt)
 	if hb.Valid { a.LastHeartbeat = &hb.Time }
+	if boundID.Valid { a.BoundDirShortcutID = boundID.String }
 	if err == sql.ErrNoRows { return nil, fmt.Errorf("agent not found") }
 	return &a, err
 }
@@ -1858,7 +1907,7 @@ func (r *AgentRepo) GetByToken(token string) (*Agent, error) {
 
 // List 返回所有 Agent，按最后心跳倒序（最近活跃在前）。status 过滤可选（""=全部，"online"=仅在线）。
 func (r *AgentRepo) List(status string) ([]*Agent, error) {
-	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,created_at
+	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,bound_dir_shortcut_id,created_at
 		FROM agents`
 	args := []any{}
 	if status != "" {
@@ -1875,11 +1924,15 @@ func (r *AgentRepo) List(status string) ([]*Agent, error) {
 	for rows.Next() {
 		var a Agent
 		var hb sql.NullTime
-		if err := rows.Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &a.CreatedAt); err != nil {
+		var boundID sql.NullString
+		if err := rows.Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &boundID, &a.CreatedAt); err != nil {
 			return nil, err
 		}
 		if hb.Valid {
 			a.LastHeartbeat = &hb.Time
+		}
+		if boundID.Valid {
+			a.BoundDirShortcutID = boundID.String
 		}
 		out = append(out, &a)
 	}
@@ -1968,6 +2021,25 @@ func (r *AgentRepo) SetAutoClaimEnabled(id string, enabled bool) error {
 		return err
 	}
 	logger.Logger.Infow("[agents] set auto_claim", "id", id, "enabled", enabled)
+	return nil
+}
+
+// SetBoundDirShortcut 设置 Agent 绑定的 dir_shortcut id。
+// dirShortcutID 为空字符串 = 解绑（恢复本机 / 主动 claim 模式）。
+// 绑定后，主用户在任务页选"指定 agent 远程执行"时，server 会用该 dir_shortcut 的 SSH 配置连远端机器。
+func (r *AgentRepo) SetBoundDirShortcut(id, dirShortcutID string) error {
+	var v interface{}
+	if dirShortcutID == "" {
+		v = nil
+	} else {
+		v = dirShortcutID
+	}
+	_, err := r.db.Exec(`UPDATE agents SET bound_dir_shortcut_id=? WHERE id=?`, v, id)
+	if err != nil {
+		logger.Logger.Errorw("[agents] set bound_dir_shortcut failed", "id", id, "dir_shortcut_id", dirShortcutID, "error", err.Error())
+		return err
+	}
+	logger.Logger.Infow("[agents] set bound_dir_shortcut", "id", id, "dir_shortcut_id", dirShortcutID)
 	return nil
 }
 
