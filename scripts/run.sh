@@ -109,16 +109,37 @@ find_pid_by_port() {
         awk '{for(i=1;i<=NF;i++) if($i~/pid=[0-9]+/) {match($i,/pid=([0-9]+)/,m); print m[1]}}' | sort -u) || true
       ;;
     windows)
-      # 先用 netstat 找到端口对应的 pid，再用 wmic 确认进程名含 xworkbench
+      # 用 netstat 找端口对应的 pid，再用 PowerShell 确认进程名含 xworkbench
       pid=$(netstat -ano 2>/dev/null | grep ":$port" | grep LISTEN | \
         awk '{print $NF}' | sort -u | \
         while read p; do
-          name=$(wmic process where "ProcessId=$p" get Name 2>/dev/null | grep -i xworkbench) || true
-          [ -n "$name" ] && echo "$p"
+          name=$(powershell -NoProfile -Command \
+"(Get-Process -Id $p -ErrorAction SilentlyContinue).ProcessName" 2>/dev/null) || true
+          if echo "$name" | grep -qi "xworkbench"; then echo "$p"; fi
         done) || true
       ;;
   esac
   echo "$pid"
+}
+
+# 检查进程是否存活（跨平台）
+is_process_alive() {
+  if [ "$os" = "windows" ]; then
+    powershell -NoProfile -Command \
+"Get-Process -Id $1 -ErrorAction SilentlyContinue" >/dev/null 2>&1
+    return $?
+  fi
+  kill -0 "$1" 2>/dev/null
+}
+
+# 端口占用调试输出（跨平台）
+dump_port_info() {
+  local port=$1
+  case "$os" in
+    darwin) lsof -i :$port 2>/dev/null || echo "  (无)" ;;
+    linux)  ss -tlnp 2>/dev/null | grep ":$port " || echo "  (无)" ;;
+    *)      netstat -ano 2>/dev/null | grep ":$port" || echo "  (无)" ;;
+  esac
 }
 
 # 检查端口是否被任何进程 LISTENING（跨平台）
@@ -146,12 +167,20 @@ stop() {
 
   if [ -z "$pid" ]; then
     echo "${YELLOW}==> 停止${NC}  未运行"
-    return
+    return 0
   fi
 
   echo "${YELLOW}==> 停止${NC}  端口 $port  pid=$pid"
+
+  # 发送终止信号
   printf "  SIGTERM → ... "
-  if kill "$pid" 2>/dev/null; then
+  local term_ok=0
+  if [ "$os" = "windows" ]; then
+    taskkill /PID "$pid" >/dev/null 2>&1 && term_ok=1
+  else
+    kill "$pid" 2>/dev/null && term_ok=1
+  fi
+  if [ "$term_ok" -eq 1 ]; then
     echo "${GREEN}OK${NC}"
   else
     echo "${YELLOW}失败${NC}"
@@ -170,8 +199,12 @@ stop() {
   if [ -n "$all_pids" ]; then
     for i in 1 2 3; do
       echo "  ${YELLOW}SIGKILL ($i/3) →${NC}  pids=$all_pids"
-      for pid in $all_pids; do
-        kill -9 "$pid" 2>/dev/null || true
+      for p in $all_pids; do
+        if [ "$os" = "windows" ]; then
+          taskkill /F /PID "$p" >/dev/null 2>&1
+        else
+          kill -9 "$p" 2>/dev/null
+        fi
       done
       sleep 0.3
       all_pids=$(find_pid_by_port)
@@ -182,8 +215,7 @@ stop() {
     done
     if [ -n "$all_pids" ]; then
       echo "  ${RED}✗ 强制终止失败，残留 pids=$all_pids${NC}"
-      echo "  lsof -i :$port:"
-      lsof -i :$port 2>/dev/null || echo "  (无)"
+      dump_port_info "$port"
     fi
   fi
 
@@ -202,14 +234,12 @@ stop() {
       echo "${YELLOW}仍占用${NC}"
     done
     echo "${RED}✗ 进程已终止但端口未释放（CLOSE_WAIT 等待中）${NC}"
-    echo "  lsof -i :$port:"
-    lsof -i :$port 2>/dev/null || echo "  (无)"
+    dump_port_info "$port"
     echo "  提示：CLOSE_WAIT 连接会在几分钟后自动消失，可直接运行 start 启动服务"
     return 1
   else
     echo "${RED}✗ 停止失败，残留 pid=$final_check${NC}"
-    echo "  lsof -i :$port:"
-    lsof -i :$port 2>/dev/null || echo "  (无)"
+    dump_port_info "$port"
     return 1
   fi
 }
@@ -237,7 +267,11 @@ start() {
       sleep 1
     else
       echo "${RED}✗ 端口 $port 被其他进程占用，无法启动${NC}"
-      echo "  查看：${YELLOW}lsof -i :$port${NC}"
+      case "$os" in
+        darwin) echo "  查看：${YELLOW}lsof -i :$port${NC}" ;;
+        linux)  echo "  查看：${YELLOW}ss -tlnp | grep :$port${NC}" ;;
+        *)      echo "  查看：${YELLOW}netstat -ano | findstr :$port${NC}" ;;
+      esac
       exit 1
     fi
   fi
@@ -255,7 +289,7 @@ start() {
   local pid=$!
   sleep 1
 
-  if kill -0 "$pid" 2>/dev/null; then
+  if is_process_alive "$pid"; then
     local end_time=$(date +%s)
     echo "${GREEN}✓ 启动成功${NC}  pid=$pid"
     echo "  耗时：$((end_time - start_time))s"
