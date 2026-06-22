@@ -1079,7 +1079,7 @@ func (s *APIServer) handleExecutionEvaluateChain(w http.ResponseWriter, r *http.
 		)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(req.TimeoutSec)*time.Second)
 		defer cancel()
-		_, err := evaluator.RunAndSaveChain(ctx, s.evalDB, s.execDB, chain, prompt, req.CliType, req.Model)
+		_, err := evaluator.RunAndSaveChain(ctx, s.evalDB, s.execDB, chain, id, prompt, req.CliType, req.Model)
 		if err != nil {
 			logger.Errorf("evaluator chain: %v", err)
 		}
