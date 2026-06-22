@@ -9,9 +9,24 @@
 <link rel="stylesheet" href="/static/css/base.css">
 <script src="/static/js/ws-client.js"></script>
 <script>
-  if (navigator.userAgent.includes('Windows')) {
-    document.body.classList.add('windows');
-  }
+  // 平台检测（优先级递减，每层都比 navigator.userAgent 子串更可靠）：
+  //  1. userAgentData.platform（Chromium 90+，权威值，可被 UA 扩展伪造但较少见）
+  //  2. navigator.platform（旧 API，Firefox/Safari 仍可用，"Win32"/"MacIntel"/"Linux x86_64"）
+  //  3. UA 子串（最后兜底）
+  (function () {
+    var uaDataPlat = navigator.userAgentData && navigator.userAgentData.platform;
+    if (uaDataPlat) {
+      if (uaDataPlat === 'Windows') document.body.classList.add('windows');
+      return;
+    }
+    if (navigator.platform) {
+      if (/^win/i.test(navigator.platform)) document.body.classList.add('windows');
+      return;
+    }
+    if (/Windows/i.test(navigator.userAgent || '')) {
+      document.body.classList.add('windows');
+    }
+  })();
 </script>
 </head>
 <body>

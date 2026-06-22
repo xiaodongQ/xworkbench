@@ -1,7 +1,5 @@
 /* xworkbench v2 — 基础样式（设计系统 + 组件 + widget + modal） */
 
-body { zoom: 1.15; }
-
 :root {
   --bg: #f8fafc;
   --card-bg: #ffffff;
