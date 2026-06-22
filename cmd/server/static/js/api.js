@@ -108,6 +108,7 @@ function switchTab(tab) {
   if (tab === 'automation' && typeof loadAutomation === 'function') { loadAutomation(); if (typeof loadTerminalSetting === 'function') loadTerminalSetting(); }
   if (tab === 'aichat' && typeof initTerminal === 'function') initTerminal();
   if (tab === 'relay' && typeof loadRelayStats === 'function') { loadRelayStats(); if (typeof loadAgents === 'function') loadAgents(); }
+  if (tab === 'config' && typeof loadConfig === 'function') loadConfig();
 }
 
 // 初始化：恢复上次停留的 tab（移到 index.html init 脚本末尾执行，依赖所有 view JS 加载完）

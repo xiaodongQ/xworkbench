@@ -917,6 +917,53 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 	return tasks, nil
 }
 
+// FindByTitle 按 title 精确查找（导入去重使用）。不存在返 nil, nil。
+func (r *TaskRepo) FindByTitle(title string) (*Task, error) {
+	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
+		claimed_at,maintainer,repo_address,archived_at,result,
+		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
+		task_type,claimer_agent_id,result_output,evaluation_score,priority
+		FROM tasks WHERE title=? LIMIT 1`
+	var t Task
+	var claimedAt, archivedAt sql.NullTime
+	var acc, res, maintainer, repoAddr sql.NullString
+	var execModel, cbcMdl sql.NullString
+	var iterCount, maxIter int
+	var improvThresh, evalScore sql.NullFloat64
+	var lastHeartbeat sql.NullTime
+	var lastErr, taskType, claimerAgentID, resultOutput sql.NullString
+	var priority int
+	err := r.db.QueryRow(q, title).Scan(&t.ID, &t.Title, &t.Description, &t.Status,
+		&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
+		&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
+		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
+		&taskType, &claimerAgentID, &resultOutput, &evalScore, &priority)
+	if err == sql.ErrNoRows { return nil, nil }
+	if err != nil { return nil, err }
+	t.Acceptance = acc.String
+	t.Result = res.String
+	t.Maintainer = maintainer.String
+	t.RepoAddress = repoAddr.String
+	t.ExecutorModel = execModel.String
+	t.CbcModel = cbcMdl.String
+	t.IterationCount = iterCount
+	t.MaxIterations = maxIter
+	t.LastError = lastErr.String
+	t.TaskType = taskType.String
+	t.ClaimerAgentID = claimerAgentID.String
+	t.ResultOutput = resultOutput.String
+	t.Priority = priority
+	if claimedAt.Valid { t.ClaimedAt = &claimedAt.Time }
+	if archivedAt.Valid { t.ArchivedAt = &archivedAt.Time }
+	if improvThresh.Valid { t.ImprovementThreshold = improvThresh.Float64 }
+	if lastHeartbeat.Valid { t.LastHeartbeat = &lastHeartbeat.Time }
+	if evalScore.Valid { t.EvaluationScore = &evalScore.Float64 }
+	if ids, err := r.ListExperienceIDsForTask(t.ID); err == nil && len(ids) > 0 {
+		t.ExperienceIDs = ids
+	}
+	return &t, nil
+}
+
 type ExperienceRepo struct{ db *sql.DB }
 
 func NewExperienceRepo(db *sql.DB) *ExperienceRepo { return &ExperienceRepo{db: db} }
@@ -980,6 +1027,28 @@ func (r *ExperienceRepo) Delete(id string) error {
 	}
 	logger.Logger.Infow("experiences deleted", "id", id)
 	return nil
+}
+
+// ListAll 列出全部经验（导出场景使用）。无 module 过滤。
+func (r *ExperienceRepo) ListAll() ([]*Experience, error) {
+	return r.Search("")
+}
+
+// FindByModuleKeywords 按 module + keywords 精确查找（导入去重使用）。
+// keywords 为空时按 module 唯一匹配；非空时要求完全相等。
+func (r *ExperienceRepo) FindByModuleKeywords(module, keywords string) (*Experience, error) {
+	q := `SELECT id,module,keywords,scene,details,version,created_at,updated_at FROM experiences WHERE module=?`
+	args := []any{module}
+	if keywords != "" {
+		q += ` AND keywords=?`
+		args = append(args, keywords)
+	}
+	q += ` LIMIT 1`
+	var e Experience
+	err := r.db.QueryRow(q, args...).Scan(&e.ID, &e.Module, &e.Keywords, &e.Scene, &e.Details, &e.Version, &e.CreatedAt, &e.UpdatedAt)
+	if err == sql.ErrNoRows { return nil, nil }
+	if err != nil { return nil, err }
+	return &e, nil
 }
 
 // TestDB 返回 :memory: SQLite + 已 InitSchema 的 *sql.DB。
@@ -1307,6 +1376,18 @@ func (r *WebLinkRepo) List() ([]*WebLink, error) {
 	return out, rows.Err()
 }
 
+// GetByName 按 name 精确查找（导入去重使用）。不存在返 nil, nil。
+func (r *WebLinkRepo) GetByName(name string) (*WebLink, error) {
+	var w WebLink
+	var icon sql.NullString
+	err := r.db.QueryRow(`SELECT id,name,url,icon_url,sort_order,created_at FROM web_links WHERE name=? LIMIT 1`, name).
+		Scan(&w.ID, &w.Name, &w.URL, &icon, &w.SortOrder, &w.CreatedAt)
+	if err == sql.ErrNoRows { return nil, nil }
+	if err != nil { return nil, err }
+	w.IconURL = icon.String
+	return &w, nil
+}
+
 // ===== DirShortcutRepo =====
 
 type DirShortcutRepo struct{ db *sql.DB }
@@ -1427,6 +1508,28 @@ func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
 	return out, rows.Err()
 }
 
+// GetByName 按 name 精确查找（导入去重使用）。不存在返 nil, nil。
+func (r *DirShortcutRepo) GetByName(name string) (*DirShortcut, error) {
+	row := r.db.QueryRow(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,terminal_cmd,created_at,last_accessed_at FROM dir_shortcuts WHERE name=? LIMIT 1`, name)
+	var d DirShortcut
+	var lastAcc sql.NullTime
+	var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, terminalCmd sql.NullString
+	if err := row.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &terminalCmd, &d.CreatedAt, &lastAcc); err != nil {
+		if err == sql.ErrNoRows { return nil, nil }
+		return nil, err
+	}
+	if d.Type == "" { d.Type = DirShortcutTypeLocal }
+	if remoteHost.Valid { d.RemoteHost = remoteHost.String }
+	if remoteUser.Valid { d.RemoteUser = remoteUser.String }
+	if remotePath.Valid { d.RemotePath = remotePath.String }
+	if remotePassword.Valid { d.RemotePassword = remotePassword.String }
+	if authMethod.Valid { d.AuthMethod = authMethod.String }
+	if keyPath.Valid { d.KeyPath = keyPath.String }
+	if terminalCmd.Valid { d.TerminalCmd = terminalCmd.String }
+	if lastAcc.Valid { d.LastAccessedAt = &lastAcc.Time }
+	return &d, nil
+}
+
 // ===== ScheduledTaskRepo =====
 
 type ScheduledTaskRepo struct{ db *sql.DB }
@@ -1499,6 +1602,29 @@ func (r *ScheduledTaskRepo) List() ([]*ScheduledTask, error) {
 
 func (r *ScheduledTaskRepo) ListEnabled() ([]*ScheduledTask, error) {
 	return r.listWhere("WHERE enabled=1")
+}
+
+// FindByName 按 name 精确查找（导入去重使用）。不存在返 nil, nil。
+func (r *ScheduledTaskRepo) FindByName(name string) (*ScheduledTask, error) {
+	row := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,created_at
+		FROM scheduled_tasks WHERE name=? LIMIT 1`, name)
+	var t ScheduledTask
+	var model, prompt, workdir, lastStatus, lastExecID sql.NullString
+	var lastRunAt sql.NullTime
+	var enabled int
+	if err := row.Scan(&t.ID, &t.Name, &t.CronExpr, &t.CommandType,
+		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &t.CreatedAt); err != nil {
+		if err == sql.ErrNoRows { return nil, nil }
+		return nil, err
+	}
+	t.Model = model.String
+	t.Prompt = prompt.String
+	t.WorkingDir = workdir.String
+	t.LastStatus = lastStatus.String
+	t.LastExecutionID = lastExecID.String
+	t.Enabled = enabled != 0
+	if lastRunAt.Valid { t.LastRunAt = &lastRunAt.Time }
+	return &t, nil
 }
 
 func (r *ScheduledTaskRepo) listWhere(where string) ([]*ScheduledTask, error) {

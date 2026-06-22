@@ -248,6 +248,11 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("PUT /api/saved-filters/{id}", s.handleSFUpdate)
 	mux.HandleFunc("DELETE /api/saved-filters/{id}", s.handleSFDelete)
 
+	// 数据管理：导入 / 导出 / 备份
+	mux.HandleFunc("GET /api/config/export", s.handleConfigExport)
+	mux.HandleFunc("POST /api/config/import/preview", s.handleConfigImportPreview)
+	mux.HandleFunc("POST /api/config/import", s.handleConfigImport)
+
 	// 评论
 	mux.HandleFunc("GET /api/tasks/{id}/comments", s.handleCommentList)
 	mux.HandleFunc("POST /api/tasks/{id}/comments", s.handleCommentCreate)
