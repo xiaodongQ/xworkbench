@@ -64,6 +64,22 @@ async function fetchJSON(url, opts) {
   return r.json();
 }
 
+// 全局缓存系统设置：preferred_cli、ai_loop_enabled 等。
+// 页面加载时拉一次，后续使用 window._preferredCLI 等变量访问。
+async function loadSystemSettings() {
+  try {
+    const r = await fetchJSON(API + '/api/config/preferred-cli');
+    window._preferredCLI = r.value || 'claude';
+  } catch (e) {
+    window._preferredCLI = 'claude';
+  }
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', loadSystemSettings);
+} else {
+  loadSystemSettings();
+}
+
 function statusTag(status) {
   const labels = {pending: '待认领', in_progress: '待执行', running: '执行中', archived: '已完成', exception: '异常', waiting_input: '待交互'};
   return `<span class="status-pill status-${status}">${labels[status] || status}</span>`;

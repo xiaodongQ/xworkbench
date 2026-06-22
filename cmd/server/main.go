@@ -191,6 +191,8 @@ func (s *APIServer) routes() {
 
 	// AI 自治能力开关状态查询（前端 task-modal 根据这个决定是否显示运行区块）
 	mux.HandleFunc("GET /api/ai-loop/status", s.handleAILoopStatus)
+	mux.HandleFunc("GET /api/config/preferred-cli", s.handleGetPreferredCLI)
+	mux.HandleFunc("POST /api/config/preferred-cli", s.handleSetPreferredCLI)
 
 	mux.HandleFunc("GET /api/todo", s.handleTodo)
 	mux.HandleFunc("POST /api/todo", s.handleTodoAdd)
@@ -1776,6 +1778,62 @@ func (s *APIServer) handleAILoopStatus(w http.ResponseWriter, r *http.Request) {
 		source = "default"
 	}
 	writeJSON(w, map[string]any{"enabled": enabled, "source": source})
+}
+
+// getPreferredCLI 拉全后端统一动话“优先 CLI”的值。
+// 优先级：AppSettings (运行时) > config.json > 默认 "claude"。
+// 返回 (value, source)。source 是“app_settings” / “config.json” / “default”。
+func (s *APIServer) getPreferredCLI() (string, string) {
+	const key = "preferred_cli"
+	// 1. AppSettings 优先
+	if s.setDB != nil {
+		if v, err := s.setDB.Get(key); err == nil && v != "" {
+			if config.IsValidCLI(v) {
+				return config.NormalizeCLI(v), "app_settings"
+			}
+		}
+	}
+	// 2. config.json
+	if config.AppConfig != nil && config.AppConfig.PreferredCLI != "" {
+		if config.IsValidCLI(config.AppConfig.PreferredCLI) {
+			return config.NormalizeCLI(config.AppConfig.PreferredCLI), "config.json"
+		}
+	}
+	// 3. 默认
+	return "claude", "default"
+}
+
+// handleGetPreferredCLI 读优先 CLI。前端“默认 CLI” tab 调。
+func (s *APIServer) handleGetPreferredCLI(w http.ResponseWriter, r *http.Request) {
+	v, src := s.getPreferredCLI()
+	writeJSON(w, map[string]any{"value": v, "source": src})
+}
+
+// handleSetPreferredCLI 设置优先 CLI。存到 AppSettings（运行时热生效）。
+// body: {"value": "claude" | "cbc"}；取值在 config.IsValidCLI 检查。
+func (s *APIServer) handleSetPreferredCLI(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !config.IsValidCLI(req.Value) {
+		writeErr(w, http.StatusBadRequest, "unsupported cli type: "+req.Value+" (supported: claude, cbc)")
+		return
+	}
+	v := config.NormalizeCLI(req.Value)
+	if s.setDB == nil {
+		writeErr(w, http.StatusInternalServerError, "app settings db not initialized")
+		return
+	}
+	if err := s.setDB.Set("preferred_cli", v); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	logger.Infow("set preferred_cli", "value", v)
+	writeJSON(w, map[string]any{"value": v, "source": "app_settings"})
 }
 
 // --- Todo.md ---

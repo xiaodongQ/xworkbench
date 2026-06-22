@@ -239,10 +239,15 @@ async function runTask(id) {
 
 function showRunTaskModal(task) {
   document.getElementById('run-task-title').textContent = task.title + (task.description ? ' — ' + task.description.slice(0, 60) : '');
-  document.getElementById('run-task-type').value = 'claude';
+  // 默认 command_type 走系统配置中的“优先 CLI”（与“系统配置 · 默认 CLI”联动）
+  const preferredCli = (window._preferredCLI || 'claude');
+  const typeSel = document.getElementById('run-task-type');
+  // 防止 preferred_cli 是未知值（如 shell），不在选项中则退回 claude
+  const opt = Array.from(typeSel.options).find(o => o.value === preferredCli);
+  typeSel.value = opt ? preferredCli : 'claude';
   toggleRunTaskModelGroup();
-  // 使用配置的默认模型
-  const defaultModel = getDefaultModel('claude') || 'sonnet';
+  // 使用配置的默认模型（按当前选中的 command_type）
+  const defaultModel = getDefaultModel(typeSel.value) || 'sonnet';
   document.getElementById('run-task-model').value = defaultModel;
   // 默认填上次同任务的 session_id（实现“续传”便捷入口）：异步拉最近一次 execution
   const resumeInput = document.getElementById('run-task-resume');

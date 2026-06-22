@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // AppConfig 全局应用配置
@@ -14,10 +15,11 @@ var AppConfig *Config
 var configFilePath string
 
 type Config struct {
-	Terminal TerminalConfig `json:"terminal"`
-	Models   ModelsConfig   `json:"models"`
-	Relay    RelayConfig    `json:"relay"`
-	AILoop   AILoopConfig   `json:"ai_loop"`
+	Terminal     TerminalConfig `json:"terminal"`
+	Models       ModelsConfig   `json:"models"`
+	Relay        RelayConfig    `json:"relay"`
+	AILoop       AILoopConfig   `json:"ai_loop"`
+	PreferredCLI string         `json:"preferred_cli,omitempty"` // claude | cbc；默认 claude
 }
 
 // AILoopConfig 控制 AI 自治能力是否暴露
@@ -26,6 +28,23 @@ type Config struct {
 //三个位置可以控制：config.json → AppSettings（运行时热调，优先级：AppSettings > config.json）
 type AILoopConfig struct {
 	Enabled bool `json:"enabled"`
+}
+
+// SupportedCLIs 允许的 CLI 名（不区分大小写）
+var SupportedCLIs = map[string]bool{
+	"claude": true,
+	"cbc":    true,
+}
+
+// NormalizeCLI 归一化（trim + 小写）；空返 ""
+func NormalizeCLI(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	return s
+}
+
+// IsValidCLI 是否为支持的 CLI
+func IsValidCLI(s string) bool {
+	return SupportedCLIs[NormalizeCLI(s)]
 }
 
 type RelayConfig struct {
