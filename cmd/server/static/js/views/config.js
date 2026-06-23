@@ -1,5 +1,5 @@
 // ===== 系统配置 Tab =====
-// 1 个导入/导出子 tab：⚡ 快捷
+// 2 个导入/导出子 tab：📁 快捷目录 / 🔗 快捷链接
 // 1 个设置子 tab：🤖 默认 CLI
 //
 // 每个导入/导出子 tab 分"导出"和"导入"两个面板。
@@ -8,17 +8,19 @@
 // 依赖 api.js (fetchJSON/esc/fmt)
 
 // ---- 状态 ----
-let currentCfgTab = 'shortcuts'; // shortcuts | default_cli
+let currentCfgTab = 'dir_shortcuts'; // dir_shortcuts | web_links | default_cli
 let _cfgPreviewCache = null;     // 最近一次 preview 结果，供"确认导入"使用
 
 const CFG_TAB_LABEL = {
-  shortcuts: '快捷',
+  dir_shortcuts: '快捷目录',
+  web_links: '快捷链接',
   default_cli: '默认 CLI',
 };
 
 // 子 tab  →  后端 type（export/import 用）
 const CFG_TYPE_FOR_TAB = {
-  shortcuts: 'dir_shortcuts',
+  dir_shortcuts: 'dir_shortcuts',
+  web_links: 'web_links',
 };
 
 // 必填字段在预览时高亮
@@ -30,8 +32,10 @@ const CFG_REQUIRED = {
 async function loadConfig() {
   // 首次进入读 localStorage 恢复子 tab（仅用于屏幕截图 / 从快捷入口跳转）
   const saved = localStorage.getItem('cfg-active-tab');
-  if (saved && CFG_TAB_LABEL[saved]) {
-    switchCfgTab(saved);
+  // 旧版 "shortcuts" 已拆为 dir_shortcuts / web_links，落到 dir_shortcuts 保留"上次的视图"
+  const resolved = (saved === 'shortcuts') ? 'dir_shortcuts' : saved;
+  if (resolved && CFG_TAB_LABEL[resolved]) {
+    switchCfgTab(resolved);
     return;
   }
   // 初次进入只刷新"导出区摘要"
