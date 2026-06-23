@@ -234,8 +234,8 @@ tr:last-child td { border-bottom: none; }
 .task-table .col-title { width: auto; }
 .task-table .col-status { width: 80px; }
 .task-table .col-type { width: 60px; }
-.task-table .col-time { width: 110px; }
-.task-table .col-ops { width: 340px; white-space: nowrap; padding-left: 8px; }
+.task-table .col-time { width: 150px; }
+.task-table .col-ops { width: 320px; white-space: nowrap; }
 .task-table th { vertical-align: middle; }
 .task-table td { vertical-align: middle; }
 
