@@ -210,6 +210,7 @@ func TestTaskListIncludesExperienceIDs(t *testing.T) {
 		t.Errorf("list.ExperienceIDs = %v, want [exp-y]", found.ExperienceIDs)
 	}
 }
+
 // TestReleaseTasksFromAgent 验证 agent 心跳超时后任务被正确释放回 pending 池。
 func TestReleaseTasksFromAgent(t *testing.T) {
 	db, cleanup, err := TestDB()
@@ -413,7 +414,9 @@ func TestClaimTaskConcurrent(t *testing.T) {
 // TestTaskEvent 验证 task event CRUD + ListByTask 顺序。
 func TestTaskEvent(t *testing.T) {
 	db, cleanup, err := TestDB()
-	if err != nil { t.Fatalf("TestDB: %v", err) }
+	if err != nil {
+		t.Fatalf("TestDB: %v", err)
+	}
 	defer cleanup()
 	repo := NewTaskEventRepo(db)
 	for i, et := range []string{"created", "claimed", "reported"} {
@@ -425,47 +428,34 @@ func TestTaskEvent(t *testing.T) {
 		}
 	}
 	events, err := repo.ListByTask("task-evt-1", 10)
-	if err != nil { t.Fatalf("ListByTask: %v", err) }
-	if len(events) != 3 { t.Fatalf("events len = %d, want 3", len(events)) }
-	// ListByTask 倒序，最新的（reported）在前
-	if events[0].EventType != "reported" { t.Errorf("events[0] = %s, want reported", events[0].EventType) }
-}
-// TestSavedFilter 验证 saved filter CRUD。
-func TestSavedFilter(t *testing.T) {
-	db, cleanup, err := TestDB()
-	if err != nil { t.Fatalf("TestDB: %v", err) }
-	defer cleanup()
-	repo := NewSavedFilterRepo(db)
-
-	f := &SavedFilter{
-		Name: "我今天要做的", Description: "pending + 高优",
-		FilterJSON: `{"status":"pending","priority":{"$gte":7}}`,
-		IsDefault: 1, SortOrder: 0,
+	if err != nil {
+		t.Fatalf("ListByTask: %v", err)
 	}
-	if err := repo.Create(f); err != nil { t.Fatalf("Create: %v", err) }
-
-	list, _ := repo.List()
-	if len(list) != 1 { t.Errorf("List len = %d, want 1", len(list)) }
-
-	f.Name = "我今天要做的（改）"
-	repo.Update(f)
-	got, _ := repo.Get(f.ID)
-	if got.Name != "我今天要做的（改）" { t.Errorf("Update failed") }
-
-	repo.Delete(f.ID)
-	_, err = repo.Get(f.ID)
-	if err == nil { t.Errorf("should be deleted") }
+	if len(events) != 3 {
+		t.Fatalf("events len = %d, want 3", len(events))
+	}
+	// ListByTask 倒序，最新的（reported）在前
+	if events[0].EventType != "reported" {
+		t.Errorf("events[0] = %s, want reported", events[0].EventType)
+	}
 }
+
 // TestTaskComment 验证评论 CRUD + 嵌套回复。
 func TestTaskComment(t *testing.T) {
 	db, cleanup, err := TestDB()
-	if err != nil { t.Fatalf("TestDB: %v", err) }
+	if err != nil {
+		t.Fatalf("TestDB: %v", err)
+	}
 	defer cleanup()
 	repo := NewTaskCommentRepo(db)
 
 	c1 := &TaskComment{TaskID: "task-cmt-1", Author: "user-1", Content: "第一条评论"}
-	if err := repo.Create(c1); err != nil { t.Fatalf("Create: %v", err) }
-	if c1.ID == "" { t.Errorf("ID auto-gen failed") }
+	if err := repo.Create(c1); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if c1.ID == "" {
+		t.Errorf("ID auto-gen failed")
+	}
 
 	// 嵌套回复
 	c2 := &TaskComment{TaskID: "task-cmt-1", Author: "user-2", Content: "回复第一条", ParentID: c1.ID}
@@ -473,25 +463,35 @@ func TestTaskComment(t *testing.T) {
 
 	// 列出
 	cmts, _ := repo.ListByTask("task-cmt-1")
-	if len(cmts) != 2 { t.Errorf("List len = %d, want 2", len(cmts)) }
-	if cmts[1].ParentID != c1.ID { t.Errorf("parent_id mismatch: %s", cmts[1].ParentID) }
+	if len(cmts) != 2 {
+		t.Errorf("List len = %d, want 2", len(cmts))
+	}
+	if cmts[1].ParentID != c1.ID {
+		t.Errorf("parent_id mismatch: %s", cmts[1].ParentID)
+	}
 
 	// Update
 	c1.Content = "修改后的内容"
 	repo.Update(c1)
 	got, _ := repo.Get(c1.ID)
-	if got.Content != "修改后的内容" { t.Errorf("update failed") }
+	if got.Content != "修改后的内容" {
+		t.Errorf("update failed")
+	}
 
 	// Delete
 	repo.Delete(c2.ID)
 	cmts2, _ := repo.ListByTask("task-cmt-1")
-	if len(cmts2) != 1 { t.Errorf("after delete len = %d, want 1", len(cmts2)) }
+	if len(cmts2) != 1 {
+		t.Errorf("after delete len = %d, want 1", len(cmts2))
+	}
 }
 
 // TestNextClaimable 验证优先级队列：priority 高的先 claim。
 func TestNextClaimable(t *testing.T) {
 	db, cleanup, err := TestDB()
-	if err != nil { t.Fatalf("TestDB: %v", err) }
+	if err != nil {
+		t.Fatalf("TestDB: %v", err)
+	}
 	defer cleanup()
 	taskRepo := NewTaskRepo(db)
 
@@ -502,12 +502,16 @@ func TestNextClaimable(t *testing.T) {
 		{ID: "mid-1", Title: "mid", Status: TaskStatusPending, TaskType: TaskTypeRemote, Version: "v1", CreatedAt: time.Now().Add(-2 * time.Second), Priority: 5},
 	}
 	for _, t1 := range tasks {
-		if err := taskRepo.Create(t1); err != nil { t.Fatalf("Create %s: %v", t1.ID, err) }
+		if err := taskRepo.Create(t1); err != nil {
+			t.Fatalf("Create %s: %v", t1.ID, err)
+		}
 	}
 
 	// NextClaimable 应返回 high-1
 	next, err := taskRepo.NextClaimable("agent-1")
-	if err != nil { t.Fatalf("NextClaimable: %v", err) }
+	if err != nil {
+		t.Fatalf("NextClaimable: %v", err)
+	}
 	if next != "high-1" {
 		t.Errorf("NextClaimable = %s, want high-1", next)
 	}
@@ -523,18 +527,22 @@ func TestNextClaimable(t *testing.T) {
 // TestAutoClaimEnabled 验证 auto_claim_enabled 开关默认 false。
 func TestAutoClaimEnabled(t *testing.T) {
 	db, cleanup, err := TestDB()
-	if err != nil { t.Fatalf("TestDB: %v", err) }
+	if err != nil {
+		t.Fatalf("TestDB: %v", err)
+	}
 	defer cleanup()
 	agentRepo := NewAgentRepo(db)
 
 	a := &Agent{
-		ID:       "agent-toggle-test",
-		Name:     "ToggleTest",
+		ID:        "agent-toggle-test",
+		Name:      "ToggleTest",
 		TokenHash: HashToken("test-token-toggle"),
-		Status:   "online",
+		Status:    "online",
 		// AutoClaimEnabled 默认为 false（Go 默认零值）
 	}
-	if err := agentRepo.Register(a); err != nil { t.Fatalf("Register: %v", err) }
+	if err := agentRepo.Register(a); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	got, _ := agentRepo.GetByID("agent-toggle-test")
 	if got.AutoClaimEnabled {
@@ -555,4 +563,3 @@ func TestAutoClaimEnabled(t *testing.T) {
 		t.Errorf("AutoClaimEnabled should be false after second SetAutoClaimEnabled")
 	}
 }
-

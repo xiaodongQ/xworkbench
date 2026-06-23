@@ -33,6 +33,8 @@ func parseTimeFromString(s string) (time.Time, error) {
 
 func InitSchema(db *sql.DB) error {
 	schema := `
+	-- 废弃表迁移：saved_filters 已刪除（2026-06-23），保留 DROP 几个版本后清理。
+	DROP TABLE IF EXISTS saved_filters;
 	CREATE TABLE IF NOT EXISTS tasks (
 		id TEXT PRIMARY KEY,
 		title TEXT NOT NULL,
@@ -183,16 +185,6 @@ func InitSchema(db *sql.DB) error {
 		created_at DATETIME
 	);
 	CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, created_at DESC);
-	CREATE TABLE IF NOT EXISTS saved_filters (
-		id TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		description TEXT,
-		filter_json TEXT NOT NULL,
-		is_default INTEGER DEFAULT 0,
-		sort_order INTEGER DEFAULT 0,
-		created_at DATETIME,
-		updated_at DATETIME
-	);
 	CREATE TABLE IF NOT EXISTS task_comments (
 		id TEXT PRIMARY KEY,
 		task_id TEXT NOT NULL,
@@ -359,7 +351,9 @@ func migrateTasksColumns(db *sql.DB) error {
 		cols[name] = true
 	}
 	addCol := func(name, decl string) error {
-		if cols[name] { return nil }
+		if cols[name] {
+			return nil
+		}
 		_, err := db.Exec(`ALTER TABLE tasks ADD COLUMN ` + decl)
 		return err
 	}
@@ -405,7 +399,9 @@ func migrateScheduledTasksColumns(db *sql.DB) error {
 		cols[name] = true
 	}
 	addCol := func(name, decl string) error {
-		if cols[name] { return nil }
+		if cols[name] {
+			return nil
+		}
 		_, err := db.Exec(`ALTER TABLE scheduled_tasks ADD COLUMN ` + decl)
 		return err
 	}
@@ -687,13 +683,27 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	t.ClaimerAgentID = claimerAgentID.String
 	t.ResultOutput = resultOutput.String
 	t.Priority = priority
-	if claimedAt.Valid { t.ClaimedAt = &claimedAt.Time }
-	if archivedAt.Valid { t.ArchivedAt = &archivedAt.Time }
-	if completedAt.Valid { t.CompletedAt = &completedAt.Time }
-	if improvThresh.Valid { t.ImprovementThreshold = improvThresh.Float64 }
-	if lastHeartbeat.Valid { t.LastHeartbeat = &lastHeartbeat.Time }
-	if evalScore.Valid { t.EvaluationScore = &evalScore.Float64 }
-	if err == sql.ErrNoRows { return nil, fmt.Errorf("task %s not found", id) }
+	if claimedAt.Valid {
+		t.ClaimedAt = &claimedAt.Time
+	}
+	if archivedAt.Valid {
+		t.ArchivedAt = &archivedAt.Time
+	}
+	if completedAt.Valid {
+		t.CompletedAt = &completedAt.Time
+	}
+	if improvThresh.Valid {
+		t.ImprovementThreshold = improvThresh.Float64
+	}
+	if lastHeartbeat.Valid {
+		t.LastHeartbeat = &lastHeartbeat.Time
+	}
+	if evalScore.Valid {
+		t.EvaluationScore = &evalScore.Float64
+	}
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("task %s not found", id)
+	}
 	if ids, err := r.ListExperienceIDsForTask(id); err == nil && len(ids) > 0 {
 		t.ExperienceIDs = ids
 	}
@@ -734,15 +744,23 @@ func (r *TaskRepo) Delete(id string) error {
 
 // AttachExperiences 给 task 批量挂上 experiences（已存在则跳过）。
 func (r *TaskRepo) AttachExperiences(taskID string, expIDs []string) error {
-	if len(expIDs) == 0 { return nil }
+	if len(expIDs) == 0 {
+		return nil
+	}
 	tx, err := r.db.Begin()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer tx.Rollback()
 	stmt, err := tx.Prepare(`INSERT OR IGNORE INTO task_experiences (task_id, experience_id, created_at) VALUES (?, ?, ?)`)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	now := time.Now()
 	for _, id := range expIDs {
-		if id == "" { continue }
+		if id == "" {
+			continue
+		}
 		if _, err := stmt.Exec(taskID, id, now); err != nil {
 			stmt.Close()
 			logger.Logger.Errorw("tasks attach experience failed", "task_id", taskID, "experience_id", id, "error", err.Error())
@@ -772,7 +790,9 @@ func (r *TaskRepo) DetachExperience(taskID, expID string) error {
 // SetTaskExperiences 全量替换 task 的 experience 列表（传空切片 == 解绑全部）。
 func (r *TaskRepo) SetTaskExperiences(taskID string, expIDs []string) error {
 	tx, err := r.db.Begin()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`DELETE FROM task_experiences WHERE task_id=?`, taskID); err != nil {
 		logger.Logger.Errorw("tasks set experiences delete failed", "task_id", taskID, "error", err.Error())
@@ -780,10 +800,14 @@ func (r *TaskRepo) SetTaskExperiences(taskID string, expIDs []string) error {
 	}
 	if len(expIDs) > 0 {
 		stmt, err := tx.Prepare(`INSERT INTO task_experiences (task_id, experience_id, created_at) VALUES (?, ?, ?)`)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		now := time.Now()
 		for _, id := range expIDs {
-			if id == "" { continue }
+			if id == "" {
+				continue
+			}
 			if _, err := stmt.Exec(taskID, id, now); err != nil {
 				stmt.Close()
 				logger.Logger.Errorw("tasks set experiences insert failed", "task_id", taskID, "experience_id", id, "error", err.Error())
@@ -804,12 +828,16 @@ func (r *TaskRepo) SetTaskExperiences(taskID string, expIDs []string) error {
 // rowid 比 created_at 更稳定（同秒插入时 created_at 截断到秒，rowid 仍单调）。
 func (r *TaskRepo) ListExperienceIDsForTask(taskID string) ([]string, error) {
 	rows, err := r.db.Query(`SELECT experience_id FROM task_experiences WHERE task_id=? ORDER BY rowid ASC`, taskID)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	var ids []string
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil { return nil, err }
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
@@ -917,15 +945,31 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		t.ClaimerAgentID = claimerAgentID.String
 		t.ResultOutput = resultOutput.String
 		t.Priority = priority
-		if claimedAt.Valid { t.ClaimedAt = &claimedAt.Time }
-		if archivedAt.Valid { t.ArchivedAt = &archivedAt.Time }
-		if improvThresh.Valid { t.ImprovementThreshold = improvThresh.Float64 }
-		if lastHeartbeat.Valid { t.LastHeartbeat = &lastHeartbeat.Time }
-		if evalScore.Valid { t.EvaluationScore = &evalScore.Float64 }
-		if err != nil { rows.Close(); return nil, err }
+		if claimedAt.Valid {
+			t.ClaimedAt = &claimedAt.Time
+		}
+		if archivedAt.Valid {
+			t.ArchivedAt = &archivedAt.Time
+		}
+		if improvThresh.Valid {
+			t.ImprovementThreshold = improvThresh.Float64
+		}
+		if lastHeartbeat.Valid {
+			t.LastHeartbeat = &lastHeartbeat.Time
+		}
+		if evalScore.Valid {
+			t.EvaluationScore = &evalScore.Float64
+		}
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
 		tasks = append(tasks, &t)
 	}
-	if err := rows.Err(); err != nil { rows.Close(); return nil, err }
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
 	rows.Close()
 	// rows 已释放连接，再做 N+1 关联查询
 	for _, t := range tasks {
@@ -957,8 +1001,12 @@ func (r *TaskRepo) FindByTitle(title string) (*Task, error) {
 		&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
 		&taskType, &claimerAgentID, &resultOutput, &evalScore, &priority)
-	if err == sql.ErrNoRows { return nil, nil }
-	if err != nil { return nil, err }
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	t.Acceptance = acc.String
 	t.Result = res.String
 	t.Maintainer = maintainer.String
@@ -972,11 +1020,21 @@ func (r *TaskRepo) FindByTitle(title string) (*Task, error) {
 	t.ClaimerAgentID = claimerAgentID.String
 	t.ResultOutput = resultOutput.String
 	t.Priority = priority
-	if claimedAt.Valid { t.ClaimedAt = &claimedAt.Time }
-	if archivedAt.Valid { t.ArchivedAt = &archivedAt.Time }
-	if improvThresh.Valid { t.ImprovementThreshold = improvThresh.Float64 }
-	if lastHeartbeat.Valid { t.LastHeartbeat = &lastHeartbeat.Time }
-	if evalScore.Valid { t.EvaluationScore = &evalScore.Float64 }
+	if claimedAt.Valid {
+		t.ClaimedAt = &claimedAt.Time
+	}
+	if archivedAt.Valid {
+		t.ArchivedAt = &archivedAt.Time
+	}
+	if improvThresh.Valid {
+		t.ImprovementThreshold = improvThresh.Float64
+	}
+	if lastHeartbeat.Valid {
+		t.LastHeartbeat = &lastHeartbeat.Time
+	}
+	if evalScore.Valid {
+		t.EvaluationScore = &evalScore.Float64
+	}
 	if ids, err := r.ListExperienceIDsForTask(t.ID); err == nil && len(ids) > 0 {
 		t.ExperienceIDs = ids
 	}
@@ -1003,7 +1061,9 @@ func (r *ExperienceRepo) Get(id string) (*Experience, error) {
 	q := `SELECT id,module,keywords,scene,details,version,created_at,updated_at FROM experiences WHERE id=?`
 	var e Experience
 	err := r.db.QueryRow(q, id).Scan(&e.ID, &e.Module, &e.Keywords, &e.Scene, &e.Details, &e.Version, &e.CreatedAt, &e.UpdatedAt)
-	if err == sql.ErrNoRows { return nil, fmt.Errorf("experience %s not found", id) }
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("experience %s not found", id)
+	}
 	return &e, err
 }
 
@@ -1015,13 +1075,17 @@ func (r *ExperienceRepo) Search(module string) ([]*Experience, error) {
 		args = append(args, "%"+module+"%")
 	}
 	rows, err := r.db.Query(q, args...)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	var list []*Experience
 	for rows.Next() {
 		var e Experience
 		err := rows.Scan(&e.ID, &e.Module, &e.Keywords, &e.Scene, &e.Details, &e.Version, &e.CreatedAt, &e.UpdatedAt)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		list = append(list, &e)
 	}
 	return list, rows.Err()
@@ -1065,8 +1129,12 @@ func (r *ExperienceRepo) FindByModuleKeywords(module, keywords string) (*Experie
 	q += ` LIMIT 1`
 	var e Experience
 	err := r.db.QueryRow(q, args...).Scan(&e.ID, &e.Module, &e.Keywords, &e.Scene, &e.Details, &e.Version, &e.CreatedAt, &e.UpdatedAt)
-	if err == sql.ErrNoRows { return nil, nil }
-	if err != nil { return nil, err }
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	return &e, nil
 }
 
@@ -1074,9 +1142,14 @@ func (r *ExperienceRepo) FindByModuleKeywords(module, keywords string) (*Experie
 // 强制 MaxOpenConns(1)：:memory: db 是 per-connection 的，pool 多连接下不同连接看到的 db 不同（数据看不到）。
 func TestDB() (*sql.DB, func(), error) {
 	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	db.SetMaxOpenConns(1) // 强制单连接，避免 :memory: 多 db 实例
-	if err := InitSchema(db); err != nil { db.Close(); return nil, nil, err }
+	if err := InitSchema(db); err != nil {
+		db.Close()
+		return nil, nil, err
+	}
 	return db, func() { db.Close() }, nil
 }
 
@@ -1151,7 +1224,6 @@ func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	}
 	return &e, nil
 }
-
 
 // ListByTask 返回某任务的最近 N 次执行。
 func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, error) {
@@ -1401,8 +1473,12 @@ func (r *WebLinkRepo) GetByName(name string) (*WebLink, error) {
 	var icon sql.NullString
 	err := r.db.QueryRow(`SELECT id,name,url,icon_url,sort_order,created_at FROM web_links WHERE name=? LIMIT 1`, name).
 		Scan(&w.ID, &w.Name, &w.URL, &icon, &w.SortOrder, &w.CreatedAt)
-	if err == sql.ErrNoRows { return nil, nil }
-	if err != nil { return nil, err }
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	w.IconURL = icon.String
 	return &w, nil
 }
@@ -1414,7 +1490,9 @@ type DirShortcutRepo struct{ db *sql.DB }
 func NewDirShortcutRepo(db *sql.DB) *DirShortcutRepo { return &DirShortcutRepo{db: db} }
 
 func (r *DirShortcutRepo) Create(d *DirShortcut) error {
-	if d.Type == "" { d.Type = DirShortcutTypeLocal }
+	if d.Type == "" {
+		d.Type = DirShortcutTypeLocal
+	}
 	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,terminal_cmd,created_at)
 		    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, d.ID, d.Name, d.Path, d.SortOrder, d.Type, d.RemoteHost, d.RemoteUser, d.RemotePath,
@@ -1511,14 +1589,30 @@ func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
 		if err := rows.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &terminalCmd, &d.CreatedAt, &lastAcc); err != nil {
 			return nil, err
 		}
-		if d.Type == "" { d.Type = DirShortcutTypeLocal }
-		if remoteHost.Valid { d.RemoteHost = remoteHost.String }
-		if remoteUser.Valid { d.RemoteUser = remoteUser.String }
-		if remotePath.Valid { d.RemotePath = remotePath.String }
-		if remotePassword.Valid { d.RemotePassword = remotePassword.String }
-		if authMethod.Valid { d.AuthMethod = authMethod.String }
-		if keyPath.Valid { d.KeyPath = keyPath.String }
-		if terminalCmd.Valid { d.TerminalCmd = terminalCmd.String }
+		if d.Type == "" {
+			d.Type = DirShortcutTypeLocal
+		}
+		if remoteHost.Valid {
+			d.RemoteHost = remoteHost.String
+		}
+		if remoteUser.Valid {
+			d.RemoteUser = remoteUser.String
+		}
+		if remotePath.Valid {
+			d.RemotePath = remotePath.String
+		}
+		if remotePassword.Valid {
+			d.RemotePassword = remotePassword.String
+		}
+		if authMethod.Valid {
+			d.AuthMethod = authMethod.String
+		}
+		if keyPath.Valid {
+			d.KeyPath = keyPath.String
+		}
+		if terminalCmd.Valid {
+			d.TerminalCmd = terminalCmd.String
+		}
 		if lastAcc.Valid {
 			d.LastAccessedAt = &lastAcc.Time
 		}
@@ -1534,18 +1628,38 @@ func (r *DirShortcutRepo) GetByName(name string) (*DirShortcut, error) {
 	var lastAcc sql.NullTime
 	var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, terminalCmd sql.NullString
 	if err := row.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &terminalCmd, &d.CreatedAt, &lastAcc); err != nil {
-		if err == sql.ErrNoRows { return nil, nil }
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
-	if d.Type == "" { d.Type = DirShortcutTypeLocal }
-	if remoteHost.Valid { d.RemoteHost = remoteHost.String }
-	if remoteUser.Valid { d.RemoteUser = remoteUser.String }
-	if remotePath.Valid { d.RemotePath = remotePath.String }
-	if remotePassword.Valid { d.RemotePassword = remotePassword.String }
-	if authMethod.Valid { d.AuthMethod = authMethod.String }
-	if keyPath.Valid { d.KeyPath = keyPath.String }
-	if terminalCmd.Valid { d.TerminalCmd = terminalCmd.String }
-	if lastAcc.Valid { d.LastAccessedAt = &lastAcc.Time }
+	if d.Type == "" {
+		d.Type = DirShortcutTypeLocal
+	}
+	if remoteHost.Valid {
+		d.RemoteHost = remoteHost.String
+	}
+	if remoteUser.Valid {
+		d.RemoteUser = remoteUser.String
+	}
+	if remotePath.Valid {
+		d.RemotePath = remotePath.String
+	}
+	if remotePassword.Valid {
+		d.RemotePassword = remotePassword.String
+	}
+	if authMethod.Valid {
+		d.AuthMethod = authMethod.String
+	}
+	if keyPath.Valid {
+		d.KeyPath = keyPath.String
+	}
+	if terminalCmd.Valid {
+		d.TerminalCmd = terminalCmd.String
+	}
+	if lastAcc.Valid {
+		d.LastAccessedAt = &lastAcc.Time
+	}
 	return &d, nil
 }
 
@@ -1556,18 +1670,38 @@ func (r *DirShortcutRepo) GetByID(id string) (*DirShortcut, error) {
 	var lastAcc sql.NullTime
 	var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, terminalCmd sql.NullString
 	if err := row.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &terminalCmd, &d.CreatedAt, &lastAcc); err != nil {
-		if err == sql.ErrNoRows { return nil, nil }
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
-	if d.Type == "" { d.Type = DirShortcutTypeLocal }
-	if remoteHost.Valid { d.RemoteHost = remoteHost.String }
-	if remoteUser.Valid { d.RemoteUser = remoteUser.String }
-	if remotePath.Valid { d.RemotePath = remotePath.String }
-	if remotePassword.Valid { d.RemotePassword = remotePassword.String }
-	if authMethod.Valid { d.AuthMethod = authMethod.String }
-	if keyPath.Valid { d.KeyPath = keyPath.String }
-	if terminalCmd.Valid { d.TerminalCmd = terminalCmd.String }
-	if lastAcc.Valid { d.LastAccessedAt = &lastAcc.Time }
+	if d.Type == "" {
+		d.Type = DirShortcutTypeLocal
+	}
+	if remoteHost.Valid {
+		d.RemoteHost = remoteHost.String
+	}
+	if remoteUser.Valid {
+		d.RemoteUser = remoteUser.String
+	}
+	if remotePath.Valid {
+		d.RemotePath = remotePath.String
+	}
+	if remotePassword.Valid {
+		d.RemotePassword = remotePassword.String
+	}
+	if authMethod.Valid {
+		d.AuthMethod = authMethod.String
+	}
+	if keyPath.Valid {
+		d.KeyPath = keyPath.String
+	}
+	if terminalCmd.Valid {
+		d.TerminalCmd = terminalCmd.String
+	}
+	if lastAcc.Valid {
+		d.LastAccessedAt = &lastAcc.Time
+	}
 	return &d, nil
 }
 
@@ -1655,7 +1789,9 @@ func (r *ScheduledTaskRepo) FindByName(name string) (*ScheduledTask, error) {
 	var enabled int
 	if err := row.Scan(&t.ID, &t.Name, &t.CronExpr, &t.CommandType,
 		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &t.CreatedAt); err != nil {
-		if err == sql.ErrNoRows { return nil, nil }
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	t.Model = model.String
@@ -1664,7 +1800,9 @@ func (r *ScheduledTaskRepo) FindByName(name string) (*ScheduledTask, error) {
 	t.LastStatus = lastStatus.String
 	t.LastExecutionID = lastExecID.String
 	t.Enabled = enabled != 0
-	if lastRunAt.Valid { t.LastRunAt = &lastRunAt.Time }
+	if lastRunAt.Valid {
+		t.LastRunAt = &lastRunAt.Time
+	}
 	return &t, nil
 }
 
@@ -1797,16 +1935,16 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 // ---- Agent（远程 Agent 注册/心跳）----
 
 type Agent struct {
-	ID               string     `json:"id"`
-	Name             string     `json:"name"`
-	TokenHash         string     `json:"-"` // 不暴露给前端
-	Capabilities      string     `json:"capabilities,omitempty"`
-	Version           string     `json:"version,omitempty"`
-	LastHeartbeat     *time.Time `json:"last_heartbeat,omitempty"`
-	Status            string     `json:"status"` // online | offline
-	AutoClaimEnabled  bool       `json:"auto_claim_enabled"`
-	BoundDirShortcutID string   `json:"bound_dir_shortcut_id,omitempty"` // 关联 dir_shortcuts.id；非空时为该机器启 SSH 执行
-	CreatedAt         time.Time  `json:"created_at"`
+	ID                 string     `json:"id"`
+	Name               string     `json:"name"`
+	TokenHash          string     `json:"-"` // 不暴露给前端
+	Capabilities       string     `json:"capabilities,omitempty"`
+	Version            string     `json:"version,omitempty"`
+	LastHeartbeat      *time.Time `json:"last_heartbeat,omitempty"`
+	Status             string     `json:"status"` // online | offline
+	AutoClaimEnabled   bool       `json:"auto_claim_enabled"`
+	BoundDirShortcutID string     `json:"bound_dir_shortcut_id,omitempty"` // 关联 dir_shortcuts.id；非空时为该机器启 SSH 执行
+	CreatedAt          time.Time  `json:"created_at"`
 }
 
 type AgentRepo struct{ db *sql.DB }
@@ -1833,9 +1971,15 @@ func (r *AgentRepo) GetByID(id string) (*Agent, error) {
 	var hb sql.NullTime
 	var boundID sql.NullString
 	err := r.db.QueryRow(q, id).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &boundID, &a.CreatedAt)
-	if hb.Valid { a.LastHeartbeat = &hb.Time }
-	if boundID.Valid { a.BoundDirShortcutID = boundID.String }
-	if err == sql.ErrNoRows { return nil, fmt.Errorf("agent %s not found", id) }
+	if hb.Valid {
+		a.LastHeartbeat = &hb.Time
+	}
+	if boundID.Valid {
+		a.BoundDirShortcutID = boundID.String
+	}
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("agent %s not found", id)
+	}
 	return &a, err
 }
 
@@ -1846,9 +1990,15 @@ func (r *AgentRepo) GetByTokenHash(hash string) (*Agent, error) {
 	var hb sql.NullTime
 	var boundID sql.NullString
 	err := r.db.QueryRow(q, hash).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &boundID, &a.CreatedAt)
-	if hb.Valid { a.LastHeartbeat = &hb.Time }
-	if boundID.Valid { a.BoundDirShortcutID = boundID.String }
-	if err == sql.ErrNoRows { return nil, fmt.Errorf("agent not found") }
+	if hb.Valid {
+		a.LastHeartbeat = &hb.Time
+	}
+	if boundID.Valid {
+		a.BoundDirShortcutID = boundID.String
+	}
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("agent not found")
+	}
 	return &a, err
 }
 
@@ -2113,10 +2263,14 @@ func (r *TaskEventRepo) Record(e *TaskEvent) error {
 
 // ListByTask 返回某 task 的所有事件（按时间倒序）。
 func (r *TaskEventRepo) ListByTask(taskID string, limit int) ([]*TaskEvent, error) {
-	if limit <= 0 { limit = 100 }
+	if limit <= 0 {
+		limit = 100
+	}
 	rows, err := r.db.Query(`SELECT id,task_id,event_type,actor,payload,created_at
 		FROM task_events WHERE task_id=? ORDER BY created_at DESC, id DESC LIMIT ?`, taskID, limit)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	var out []*TaskEvent
 	for rows.Next() {
@@ -2130,86 +2284,6 @@ func (r *TaskEventRepo) ListByTask(taskID string, limit int) ([]*TaskEvent, erro
 		out = append(out, &e)
 	}
 	return out, rows.Err()
-}
-
-
-// ---- SavedFilter 保存过滤器 ----
-
-type SavedFilter struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	FilterJSON  string    `json:"filter_json"` // JSON
-	IsDefault   int       `json:"is_default"`
-	SortOrder   int       `json:"sort_order"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-type SavedFilterRepo struct{ db *sql.DB }
-
-func NewSavedFilterRepo(db *sql.DB) *SavedFilterRepo { return &SavedFilterRepo{db: db} }
-
-func (r *SavedFilterRepo) Create(f *SavedFilter) error {
-	if f.ID == "" { f.ID = "sf-" + time.Now().Format("20060102150405") + "-" + randStr(6) }
-	now := time.Now()
-	f.CreatedAt = now
-	f.UpdatedAt = now
-	_, err := r.db.Exec(`INSERT INTO saved_filters (id,name,description,filter_json,is_default,sort_order,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,?,?)`,
-		f.ID, f.Name, f.Description, f.FilterJSON, f.IsDefault, f.SortOrder, f.CreatedAt, f.UpdatedAt)
-	if err != nil {
-		logger.Logger.Errorw("[saved_filters] create failed", "id", f.ID, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[saved_filters] created", "id", f.ID)
-	return nil
-}
-
-func (r *SavedFilterRepo) List() ([]*SavedFilter, error) {
-	rows, err := r.db.Query(`SELECT id,name,description,filter_json,is_default,sort_order,created_at,updated_at
-		FROM saved_filters ORDER BY is_default DESC, sort_order ASC, created_at DESC`)
-	if err != nil { return nil, err }
-	defer rows.Close()
-	var out []*SavedFilter
-	for rows.Next() {
-		var f SavedFilter
-		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.FilterJSON, &f.IsDefault, &f.SortOrder, &f.CreatedAt, &f.UpdatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, &f)
-	}
-	return out, rows.Err()
-}
-
-func (r *SavedFilterRepo) Get(id string) (*SavedFilter, error) {
-	q := `SELECT id,name,description,filter_json,is_default,sort_order,created_at,updated_at FROM saved_filters WHERE id=?`
-	var f SavedFilter
-	err := r.db.QueryRow(q, id).Scan(&f.ID, &f.Name, &f.Description, &f.FilterJSON, &f.IsDefault, &f.SortOrder, &f.CreatedAt, &f.UpdatedAt)
-	if err == sql.ErrNoRows { return nil, fmt.Errorf("filter %s not found", id) }
-	return &f, err
-}
-
-func (r *SavedFilterRepo) Update(f *SavedFilter) error {
-	f.UpdatedAt = time.Now()
-	_, err := r.db.Exec(`UPDATE saved_filters SET name=?,description=?,filter_json=?,is_default=?,sort_order=?,updated_at=?
-		WHERE id=?`, f.Name, f.Description, f.FilterJSON, f.IsDefault, f.SortOrder, f.UpdatedAt, f.ID)
-	if err != nil {
-		logger.Logger.Errorw("[saved_filters] update failed", "id", f.ID, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[saved_filters] updated", "id", f.ID)
-	return nil
-}
-
-func (r *SavedFilterRepo) Delete(id string) error {
-	_, err := r.db.Exec(`DELETE FROM saved_filters WHERE id=?`, id)
-	if err != nil {
-		logger.Logger.Errorw("[saved_filters] delete failed", "id", id, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[saved_filters] deleted", "id", id)
-	return nil
 }
 
 // randStr 生成 N 位随机字符串（用于生成 ID 后缀）。
@@ -2242,7 +2316,9 @@ type TaskCommentRepo struct{ db *sql.DB }
 func NewTaskCommentRepo(db *sql.DB) *TaskCommentRepo { return &TaskCommentRepo{db: db} }
 
 func (r *TaskCommentRepo) Create(c *TaskComment) error {
-	if c.ID == "" { c.ID = "cmt-" + time.Now().Format("20060102150405") + "-" + randStr(6) }
+	if c.ID == "" {
+		c.ID = "cmt-" + time.Now().Format("20060102150405") + "-" + randStr(6)
+	}
 	now := time.Now()
 	c.CreatedAt = now
 	c.UpdatedAt = now
@@ -2262,7 +2338,9 @@ func (r *TaskCommentRepo) Get(id string) (*TaskComment, error) {
 	var c TaskComment
 	var mentions, parentID sql.NullString
 	err := r.db.QueryRow(q, id).Scan(&c.ID, &c.TaskID, &c.Author, &c.Content, &mentions, &parentID, &c.CreatedAt, &c.UpdatedAt)
-	if err == sql.ErrNoRows { return nil, fmt.Errorf("comment %s not found", id) }
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("comment %s not found", id)
+	}
 	c.Mentions = mentions.String
 	c.ParentID = parentID.String
 	return &c, err
@@ -2271,7 +2349,9 @@ func (r *TaskCommentRepo) Get(id string) (*TaskComment, error) {
 func (r *TaskCommentRepo) ListByTask(taskID string) ([]*TaskComment, error) {
 	rows, err := r.db.Query(`SELECT id,task_id,author,content,mentions,parent_id,created_at,updated_at
 		FROM task_comments WHERE task_id=? ORDER BY created_at ASC, id ASC`, taskID)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	var out []*TaskComment
 	for rows.Next() {
@@ -2312,14 +2392,14 @@ func (r *TaskCommentRepo) Delete(id string) error {
 // ---- ExecutionComment 执行评论 ----
 
 type ExecutionComment struct {
-	ID           string    `json:"id"`
-	ExecutionID  string    `json:"execution_id"`
-	Author       string    `json:"author"`
-	Content      string    `json:"content"`
-	Mentions     string    `json:"mentions,omitempty"`
-	ParentID     string    `json:"parent_id,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	ExecutionID string    `json:"execution_id"`
+	Author      string    `json:"author"`
+	Content     string    `json:"content"`
+	Mentions    string    `json:"mentions,omitempty"`
+	ParentID    string    `json:"parent_id,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type ExecutionCommentRepo struct{ db *sql.DB }
@@ -2327,7 +2407,9 @@ type ExecutionCommentRepo struct{ db *sql.DB }
 func NewExecutionCommentRepo(db *sql.DB) *ExecutionCommentRepo { return &ExecutionCommentRepo{db: db} }
 
 func (r *ExecutionCommentRepo) Create(c *ExecutionComment) error {
-	if c.ID == "" { c.ID = "ecmt-" + time.Now().Format("20060102150405") + "-" + randStr(6) }
+	if c.ID == "" {
+		c.ID = "ecmt-" + time.Now().Format("20060102150405") + "-" + randStr(6)
+	}
 	now := time.Now()
 	c.CreatedAt = now
 	c.UpdatedAt = now
@@ -2345,7 +2427,9 @@ func (r *ExecutionCommentRepo) Create(c *ExecutionComment) error {
 func (r *ExecutionCommentRepo) ListByExecution(execID string) ([]*ExecutionComment, error) {
 	rows, err := r.db.Query(`SELECT id,execution_id,author,content,mentions,parent_id,created_at,updated_at
 		FROM execution_comments WHERE execution_id=? ORDER BY created_at ASC, id ASC`, execID)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	var out []*ExecutionComment
 	for rows.Next() {
@@ -2380,6 +2464,8 @@ func (r *TaskRepo) NextClaimable(agentID string) (string, error) {
 		LIMIT 1`
 	var id string
 	err := r.db.QueryRow(q).Scan(&id)
-	if err == sql.ErrNoRows { return "", nil }
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
 	return id, err
 }

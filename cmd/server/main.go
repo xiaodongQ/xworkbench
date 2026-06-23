@@ -17,24 +17,24 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
 	"github.com/xiaodongQ/xworkbench/internal/evaluator"
 	"github.com/xiaodongQ/xworkbench/internal/executor"
 	"github.com/xiaodongQ/xworkbench/internal/executor/runner"
+	"github.com/xiaodongQ/xworkbench/internal/httplog"
 	"github.com/xiaodongQ/xworkbench/internal/hub"
+	loglib "github.com/xiaodongQ/xworkbench/internal/logger"
 	"github.com/xiaodongQ/xworkbench/internal/paths"
 	"github.com/xiaodongQ/xworkbench/internal/ratelimit"
+	"github.com/xiaodongQ/xworkbench/internal/relay"
 	"github.com/xiaodongQ/xworkbench/internal/scheduler"
 	"github.com/xiaodongQ/xworkbench/internal/shortcuts"
 	taskpkg "github.com/xiaodongQ/xworkbench/internal/task"
 	"github.com/xiaodongQ/xworkbench/internal/todo"
-	"github.com/xiaodongQ/xworkbench/internal/httplog"
-	"github.com/xiaodongQ/xworkbench/internal/relay"
 	"github.com/xiaodongQ/xworkbench/internal/wsmsg"
-	loglib "github.com/xiaodongQ/xworkbench/internal/logger"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var logger *zap.SugaredLogger
@@ -47,23 +47,22 @@ var BuildInfo = "unknown"
 var FS embed.FS
 
 type APIServer struct {
-	db     *backend.TaskRepo
-	expDB  *backend.ExperienceRepo
-	execDB *backend.ExecutionRepo
-	linkDB *backend.WebLinkRepo
-	dirDB  *backend.DirShortcutRepo
-	schedDB *backend.ScheduledTaskRepo
-	evalDB *backend.EvaluationRepo
-	agentDB *backend.AgentRepo
-	eventDB *backend.TaskEventRepo
-	sfDB    *backend.SavedFilterRepo
-	cmtDB   *backend.TaskCommentRepo
-	execCmtDB *backend.ExecutionCommentRepo
-	sch    *scheduler.Scheduler
-	hub    *hub.Hub
+	db           *backend.TaskRepo
+	expDB        *backend.ExperienceRepo
+	execDB       *backend.ExecutionRepo
+	linkDB       *backend.WebLinkRepo
+	dirDB        *backend.DirShortcutRepo
+	schedDB      *backend.ScheduledTaskRepo
+	evalDB       *backend.EvaluationRepo
+	agentDB      *backend.AgentRepo
+	eventDB      *backend.TaskEventRepo
+	cmtDB        *backend.TaskCommentRepo
+	execCmtDB    *backend.ExecutionCommentRepo
+	sch          *scheduler.Scheduler
+	hub          *hub.Hub
 	relayHandler *relay.RelayHandler
-	mux       *http.ServeMux
-	wrapped   http.Handler // mux + httplog.Middleware
+	mux          *http.ServeMux
+	wrapped      http.Handler // mux + httplog.Middleware
 
 	// 进程内运行中的执行（task_id → cancel func）
 	mu      sync.Mutex
@@ -75,7 +74,7 @@ func NewAPIServer(
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
 	schedDB *backend.ScheduledTaskRepo,
 	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
-	eventDB *backend.TaskEventRepo, sfDB *backend.SavedFilterRepo,
+	eventDB *backend.TaskEventRepo,
 	cmtDB *backend.TaskCommentRepo,
 	execCmtDB *backend.ExecutionCommentRepo,
 	sch *scheduler.Scheduler, h *hub.Hub,
@@ -85,10 +84,10 @@ func NewAPIServer(
 		db: db, expDB: expDB, execDB: execDB,
 		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, evalDB: evalDB,
 		agentDB: agentDB, eventDB: eventDB,
-		sfDB: sfDB, cmtDB: cmtDB, execCmtDB: execCmtDB,
+		cmtDB: cmtDB, execCmtDB: execCmtDB,
 		sch: sch, hub: h,
 		relayHandler: relay.NewRelayHandler(relayRepo),
-		mux: http.NewServeMux(), running: map[string]context.CancelFunc{},
+		mux:          http.NewServeMux(), running: map[string]context.CancelFunc{},
 	}
 	s.routes()
 	s.wrapped = httplog.Middleware(s.mux, loglib.Logger)
@@ -144,8 +143,8 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/executions/{id}/evaluations", s.handleExecutionEvaluations)
 	mux.HandleFunc("GET /api/experiences", s.handleExperiences)
 	mux.HandleFunc("POST /api/experiences", s.handleExpCreate)
-		mux.HandleFunc("PUT /api/experiences/{id}", s.handleExpUpdate)
-		mux.HandleFunc("DELETE /api/experiences/{id}", s.handleExpDelete)
+	mux.HandleFunc("PUT /api/experiences/{id}", s.handleExpUpdate)
+	mux.HandleFunc("DELETE /api/experiences/{id}", s.handleExpDelete)
 	mux.HandleFunc("GET /api/experiences/{id}", s.handleExpGet)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/pty", s.handlePty)
@@ -239,12 +238,6 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/agents/{id}/bind-dir-shortcut", s.handleAgentSetBoundDirShortcut)
 	mux.HandleFunc("DELETE /api/agents/{id}", s.handleAgentDelete)
 
-	// 保存过滤器
-	mux.HandleFunc("GET /api/saved-filters", s.handleSFList)
-	mux.HandleFunc("POST /api/saved-filters", s.handleSFCreate)
-	mux.HandleFunc("PUT /api/saved-filters/{id}", s.handleSFUpdate)
-	mux.HandleFunc("DELETE /api/saved-filters/{id}", s.handleSFDelete)
-
 	// 数据管理：导入 / 导出 / 备份
 	mux.HandleFunc("GET /api/config/export", s.handleConfigExport)
 	mux.HandleFunc("POST /api/config/import/preview", s.handleConfigImportPreview)
@@ -286,13 +279,13 @@ func (s *APIServer) handleTasks(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title        string   `json:"title"`
-		Description  string   `json:"description"`
-		ExperienceID string   `json:"experience_id"` // 旧字段（单值），保留向后兼容
+		Title         string   `json:"title"`
+		Description   string   `json:"description"`
+		ExperienceID  string   `json:"experience_id"`  // 旧字段（单值），保留向后兼容
 		ExperienceIDs []string `json:"experience_ids"` // 新字段：多经验关联
-		Acceptance   string   `json:"acceptance"`
-		TaskType     string   `json:"task_type"` // 'manual'|'scheduled'|'remote'，默认 'manual'
-		Priority     int      `json:"priority"`  // 数字越大越优先，默认 5
+		Acceptance    string   `json:"acceptance"`
+		TaskType      string   `json:"task_type"` // 'manual'|'scheduled'|'remote'，默认 'manual'
+		Priority      int      `json:"priority"`  // 数字越大越优先，默认 5
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -416,8 +409,8 @@ func (s *APIServer) handleTaskGet(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) handleTaskStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req struct {
-		Status string            `json:"status"`
-		Maintainer string            `json:"maintainer"`
+		Status     string              `json:"status"`
+		Maintainer string              `json:"maintainer"`
 		Result     *backend.TaskResult `json:"result,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -486,10 +479,10 @@ func (s *APIServer) handleExpUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	logger.Infow("exp update", "id", id)
 	var req struct {
-		Module    string `json:"module"`
-		Keywords  string `json:"keywords"`
-		Scene     string `json:"scene"`
-		Details   string `json:"details"`
+		Module   string `json:"module"`
+		Keywords string `json:"keywords"`
+		Scene    string `json:"scene"`
+		Details  string `json:"details"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -544,11 +537,16 @@ func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 	st := Stats{TotalTasks: len(all)}
 	for _, t := range all {
 		switch t.Status {
-		case backend.TaskStatusPending: st.PendingTasks++
-		case backend.TaskStatusInProgress: st.InProgressTasks++
-		case backend.TaskStatusWaitingInput: st.WaitingInputTasks++
-		case backend.TaskStatusArchived: st.ArchivedTasks++
-		case backend.TaskStatusException: st.ExceptionTasks++
+		case backend.TaskStatusPending:
+			st.PendingTasks++
+		case backend.TaskStatusInProgress:
+			st.InProgressTasks++
+		case backend.TaskStatusWaitingInput:
+			st.WaitingInputTasks++
+		case backend.TaskStatusArchived:
+			st.ArchivedTasks++
+		case backend.TaskStatusException:
+			st.ExceptionTasks++
 		}
 	}
 	exps, _ := s.expDB.Search("")
@@ -569,7 +567,9 @@ func (s *APIServer) loadExperiencesForTask(t *backend.Task) []*backend.Experienc
 	}
 	out := make([]*backend.Experience, 0, len(t.ExperienceIDs))
 	for _, id := range t.ExperienceIDs {
-		if id == "" { continue }
+		if id == "" {
+			continue
+		}
 		exp, err := s.expDB.Get(id)
 		if err != nil {
 			logger.Warnw("loadExperiencesForTask: missing experience",
@@ -598,10 +598,10 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		CommandType    string `json:"command_type"`
-		Model          string `json:"model"`
-		Prompt         string `json:"prompt"`
-		AgentID        string `json:"agent_id"`         // 指定远端 agent 走 SSH 执行（空 = 本机）
+		CommandType     string `json:"command_type"`
+		Model           string `json:"model"`
+		Prompt          string `json:"prompt"`
+		AgentID         string `json:"agent_id"`          // 指定远端 agent 走 SSH 执行（空 = 本机）
 		ResumeSessionID string `json:"resume_session_id"` // agent 模式下续传 claude 会话
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req) // body 可选
@@ -912,12 +912,12 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 	}
 	// 创建新 execution（continue 触发的）
 	exec := &backend.Execution{
-		ID:     uuid.New().String(),
-		TaskID: orig.TaskID,
-		Source: "continue",
-		Command: runner.CmdStringWithPrompt(cmd, req.Prompt),
-		Prompt: req.Prompt,
-		Model:  req.Model,
+		ID:        uuid.New().String(),
+		TaskID:    orig.TaskID,
+		Source:    "continue",
+		Command:   runner.CmdStringWithPrompt(cmd, req.Prompt),
+		Prompt:    req.Prompt,
+		Model:     req.Model,
 		StartedAt: time.Now(),
 	}
 	if err := s.execDB.Create(exec); err != nil {
@@ -1284,19 +1284,19 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		req.SortOrder = s.dirDB.NextSortOrder()
 	}
 	d := &backend.DirShortcut{
-		ID:              uuid.New().String(),
-		Name:            req.Name,
-		Path:            req.Path,
-		SortOrder:       req.SortOrder,
-		Type:            req.Type,
-		RemoteHost:      req.RemoteHost,
-		RemoteUser:      req.RemoteUser,
-		RemotePath:      req.RemotePath,
-		RemotePassword:  req.RemotePassword,
-		AuthMethod:      req.AuthMethod,
-		KeyPath:         req.KeyPath,
-		TerminalCmd:     req.TerminalCmd,
-		CreatedAt:       time.Now(),
+		ID:             uuid.New().String(),
+		Name:           req.Name,
+		Path:           req.Path,
+		SortOrder:      req.SortOrder,
+		Type:           req.Type,
+		RemoteHost:     req.RemoteHost,
+		RemoteUser:     req.RemoteUser,
+		RemotePath:     req.RemotePath,
+		RemotePassword: req.RemotePassword,
+		AuthMethod:     req.AuthMethod,
+		KeyPath:        req.KeyPath,
+		TerminalCmd:    req.TerminalCmd,
+		CreatedAt:      time.Now(),
 	}
 	if err := s.dirDB.Create(d); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -1325,18 +1325,18 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	d := &backend.DirShortcut{
-		ID:              id,
-		Name:            req.Name,
-		Path:            req.Path,
-		SortOrder:       req.SortOrder,
-		Type:            req.Type,
-		RemoteHost:      req.RemoteHost,
-		RemoteUser:      req.RemoteUser,
-		RemotePath:      req.RemotePath,
-		RemotePassword:  req.RemotePassword,
-		AuthMethod:      req.AuthMethod,
-		KeyPath:         req.KeyPath,
-		TerminalCmd:     req.TerminalCmd,
+		ID:             id,
+		Name:           req.Name,
+		Path:           req.Path,
+		SortOrder:      req.SortOrder,
+		Type:           req.Type,
+		RemoteHost:     req.RemoteHost,
+		RemoteUser:     req.RemoteUser,
+		RemotePath:     req.RemotePath,
+		RemotePassword: req.RemotePassword,
+		AuthMethod:     req.AuthMethod,
+		KeyPath:        req.KeyPath,
+		TerminalCmd:    req.TerminalCmd,
 	}
 	logger.Infow("dir-shortcut update", "id", id, "name", req.Name)
 	if err := s.dirDB.Update(d); err != nil {
@@ -1442,18 +1442,18 @@ func (s *APIServer) handleDirShortcutOpenTerminal(w http.ResponseWriter, r *http
 		"binPath", typeDef.Path,
 		"bin", typeDef.Bin,
 		"at", "main.go:964")
-	
-		binPath := typeDef.Path
-		var openErr error
-		if entry.Type == backend.DirShortcutTypeRemote {
-			openErr = shortcuts.OpenRemoteDirShortcut(entry, termType, binPath)
-		} else {
-			if _, err := os.Stat(path); err != nil {
-				writeErr(w, http.StatusBadRequest, "目录不存在或不可访问："+path)
-				return
-			}
-			openErr = shortcuts.OpenTerminal(termType, path, binPath)
+
+	binPath := typeDef.Path
+	var openErr error
+	if entry.Type == backend.DirShortcutTypeRemote {
+		openErr = shortcuts.OpenRemoteDirShortcut(entry, termType, binPath)
+	} else {
+		if _, err := os.Stat(path); err != nil {
+			writeErr(w, http.StatusBadRequest, "目录不存在或不可访问："+path)
+			return
 		}
+		openErr = shortcuts.OpenTerminal(termType, path, binPath)
+	}
 	if openErr != nil {
 		writeErr(w, http.StatusBadRequest, openErr.Error())
 		return
@@ -1494,6 +1494,7 @@ func (s *APIServer) handleTerminalDetect(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, map[string]string{"path": ""})
 	}
 }
+
 // handleModelList 返回模型列表（从 config.json 加载）
 func (s *APIServer) handleModelList(w http.ResponseWriter, r *http.Request) {
 	cfg := config.AppConfig
@@ -1513,19 +1514,19 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]interface{}{
 		// 用户偏好（顶层）
-		"default_terminal":     cfg.DefaultTerminal,
-		"preferred_cli":        cfg.PreferredCLI,
-		"ai_loop_enabled":      cfg.AILoopEnabled,
-		"aichat_default_cli":   cfg.AichatDefaultCLI,
-		"todo_md_path":         cfg.TodoMDPath,
-		"scheduler_enabled":    cfg.SchedulerEnabled,
+		"default_terminal":   cfg.DefaultTerminal,
+		"preferred_cli":      cfg.PreferredCLI,
+		"ai_loop_enabled":    cfg.AILoopEnabled,
+		"aichat_default_cli": cfg.AichatDefaultCLI,
+		"todo_md_path":       cfg.TodoMDPath,
+		"scheduler_enabled":  cfg.SchedulerEnabled,
 		// 部署级配置
-		"relay":                cfg.Relay,
+		"relay": cfg.Relay,
 		"terminal": map[string]interface{}{
 			"detect_paths": cfg.Terminal.DetectPaths,
 			"types":        cfg.Terminal.Types,
 		},
-		"models":               cfg.Models,
+		"models": cfg.Models,
 	})
 }
 
@@ -1535,16 +1536,16 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	logger.Infow("set config")
 	var req struct {
 		// 用户偏好（字符串字段：空=未设；bool 字段：nil=未设）
-		DefaultTerminal  *string           `json:"default_terminal,omitempty"`
-		PreferredCLI     *string           `json:"preferred_cli,omitempty"`
-		AILoopEnabled    *bool             `json:"ai_loop_enabled,omitempty"`
-		AichatDefaultCLI *string           `json:"aichat_default_cli,omitempty"`
-		TodoMDPath       *string           `json:"todo_md_path,omitempty"`
-		SchedulerEnabled *bool             `json:"scheduler_enabled,omitempty"`
+		DefaultTerminal  *string `json:"default_terminal,omitempty"`
+		PreferredCLI     *string `json:"preferred_cli,omitempty"`
+		AILoopEnabled    *bool   `json:"ai_loop_enabled,omitempty"`
+		AichatDefaultCLI *string `json:"aichat_default_cli,omitempty"`
+		TodoMDPath       *string `json:"todo_md_path,omitempty"`
+		SchedulerEnabled *bool   `json:"scheduler_enabled,omitempty"`
 		// 部署级
-		TerminalType    string             `json:"terminal_type"`
-		TerminalPath    string             `json:"terminal_path"`
-		ModelDefaults   map[string]string  `json:"model_defaults"` // cli_type -> default model
+		TerminalType  string            `json:"terminal_type"`
+		TerminalPath  string            `json:"terminal_path"`
+		ModelDefaults map[string]string `json:"model_defaults"` // cli_type -> default model
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -1630,7 +1631,6 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]string{"status": "ok"})
 }
-
 
 // --- Scheduled Tasks ---
 
@@ -2162,16 +2162,16 @@ func main() {
 	}
 	config.AppConfig = cfg
 
-		// 支持 -config 指定配置文件路径
-		cfgPath := flag.String("config", "", "path to config.json")
-		flag.Parse()
-		if *cfgPath != "" {
-			if err := config.LoadFromPath(*cfgPath); err != nil {
-				logger.Errorf("[config] load from %s failed: %v", *cfgPath, err)
-			} else {
-				logger.Infow("config loaded", "path", *cfgPath)
-			}
+	// 支持 -config 指定配置文件路径
+	cfgPath := flag.String("config", "", "path to config.json")
+	flag.Parse()
+	if *cfgPath != "" {
+		if err := config.LoadFromPath(*cfgPath); err != nil {
+			logger.Errorf("[config] load from %s failed: %v", *cfgPath, err)
+		} else {
+			logger.Infow("config loaded", "path", *cfgPath)
 		}
+	}
 
 	// 日志写入文件（包含源文件行号，时间戳用友好格式）
 	logDir := filepath.Join(filepath.Dir(dbPath), "logs")
@@ -2214,12 +2214,11 @@ func main() {
 
 	agentRepo := backend.NewAgentRepo(db)
 	eventRepo := backend.NewTaskEventRepo(db)
-	sfRepo := backend.NewSavedFilterRepo(db)
 	cmtRepo := backend.NewTaskCommentRepo(db)
 	execCmtRepo := backend.NewExecutionCommentRepo(db)
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
 		linkRepo, dirRepo, schedRepo, evalRepo, agentRepo,
-		eventRepo, sfRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)
+		eventRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)
 
 	// 后台 goroutine：心跳超时检测
 	// Agent >30s 未心跳 → 标记为 offline，并把该 agent 手上未完成的任务还回 pending 池
@@ -2261,8 +2260,8 @@ func (s *APIServer) handleTaskEvalHistory(w http.ResponseWriter, r *http.Request
 		return
 	}
 	type Step struct {
-		ExecutionID     string     `json:"execution_id"`
-		Score          *float64  `json:"score,omitempty"`
+		ExecutionID    string     `json:"execution_id"`
+		Score          *float64   `json:"score,omitempty"`
 		Comments       string     `json:"comments,omitempty"`
 		EvaluatorModel string     `json:"evaluator_model,omitempty"`
 		CreatedAt      *time.Time `json:"created_at,omitempty"`
@@ -2361,10 +2360,10 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 	}
 	type Step struct {
 		Iteration int      `json:"iteration"`
-		Model    string   `json:"model"`
-		ExitCode int      `json:"exit_code"`
-		Score    *float64 `json:"score,omitempty"`
-		Error    string   `json:"error,omitempty"`
+		Model     string   `json:"model"`
+		ExitCode  int      `json:"exit_code"`
+		Score     *float64 `json:"score,omitempty"`
+		Error     string   `json:"error,omitempty"`
 	}
 	result := map[string]interface{}{"task_id": id, "loop_done": false, "history": []Step{}}
 
@@ -2436,7 +2435,12 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 输出：%s
 
 输出 JSON：{"module":"<领域>","scene":"<场景>","keywords":"<关键词>","tool_usage":"<使用的工具>","lesson":"<教训，50-200字>","code_snippet":"<可复用代码，可为空>"}
-如果执行失败，重点描述失败原因。`, task.Title, exec.Command, exec.ExitCode, func(s string, n int) string { if len(s) <= n { return s }; return s[:n]+"...(truncated)" }(exec.Output, 2000))
+如果执行失败，重点描述失败原因。`, task.Title, exec.Command, exec.ExitCode, func(s string, n int) string {
+			if len(s) <= n {
+				return s
+			}
+			return s[:n] + "...(truncated)"
+		}(exec.Output, 2000))
 		cmd, stdin, cleanup, _ := runner.BuildCommand("claude", "haiku", "", reflectPrompt)
 		if cleanup == nil {
 			return
@@ -2458,11 +2462,11 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 
 func parseLearnOutput(output string, task *backend.Task, exec *backend.Execution) *backend.Experience {
 	var f struct {
-		Module     string `json:"module"`
-		Scene      string `json:"scene"`
-		Keywords   string `json:"keywords"`
-		ToolUsage  string `json:"tool_usage"`
-		Lesson     string `json:"lesson"`
+		Module      string `json:"module"`
+		Scene       string `json:"scene"`
+		Keywords    string `json:"keywords"`
+		ToolUsage   string `json:"tool_usage"`
+		Lesson      string `json:"lesson"`
 		CodeSnippet string `json:"code_snippet"`
 	}
 	if strings.HasPrefix(strings.TrimSpace(output), "{") {
@@ -2530,10 +2534,10 @@ func (s *APIServer) handleAgentRegister(w http.ResponseWriter, r *http.Request) 
 	}
 	logger.Infow("agent registered", "agent_id", agentID, "name", req.Name)
 	writeJSON(w, map[string]any{
-		"agent_id":  agentID,
-		"token":    token, // 仅此时返回，之后不再暴露
-		"name":     req.Name,
-		"status":   "online",
+		"agent_id":      agentID,
+		"token":         token, // 仅此时返回，之后不再暴露
+		"name":          req.Name,
+		"status":        "online",
 		"registered_at": a.CreatedAt,
 	})
 }
@@ -2564,7 +2568,7 @@ func (s *APIServer) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, map[string]any{
-		"ok":         true,
+		"ok":          true,
 		"server_time": time.Now(),
 		"agent":       updated,
 	})
@@ -2623,11 +2627,11 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		AgentID       string   `json:"agent_id"`
-		Status        string   `json:"status"`
-		ResultOutput  string   `json:"result_output"`
+		AgentID         string   `json:"agent_id"`
+		Status          string   `json:"status"`
+		ResultOutput    string   `json:"result_output"`
 		EvaluationScore *float64 `json:"evaluation_score"`
-		LastError     string   `json:"last_error"`
+		LastError       string   `json:"last_error"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -2649,11 +2653,13 @@ func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
 	logger.Infow("task report received", "task_id", taskID, "agent_id", req.AgentID, "status", req.Status)
 	// 审计
 	scoreStr := "null"
-	if req.EvaluationScore != nil { scoreStr = fmt.Sprintf("%v", *req.EvaluationScore) }
+	if req.EvaluationScore != nil {
+		scoreStr = fmt.Sprintf("%v", *req.EvaluationScore)
+	}
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: taskID, EventType: "reported",
-		Actor: "agent:" + req.AgentID,
-		Payload: fmt.Sprintf(`{"status":"%s","score":%s}`, req.Status, scoreStr),
+		Actor:     "agent:" + req.AgentID,
+		Payload:   fmt.Sprintf(`{"status":"%s","score":%s}`, req.Status, scoreStr),
 		CreatedAt: time.Now(),
 	})
 	// WebSocket 广播任务状态变更
@@ -2697,8 +2703,8 @@ func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.
 					logger.Warnw("agent heartbeat timeout", "agent_id", agentID, "released_tasks", released)
 					eventRepo.Record(&backend.TaskEvent{
 						TaskID: "", EventType: "heartbeat_lost",
-						Actor: "system:" + agentID,
-						Payload: fmt.Sprintf(`{"released_tasks":%d}`, released),
+						Actor:     "system:" + agentID,
+						Payload:   fmt.Sprintf(`{"released_tasks":%d}`, released),
 						CreatedAt: time.Now(),
 					})
 					h.Broadcast(wsmsg.ChannelAgent, map[string]any{
@@ -2716,8 +2722,8 @@ func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.
 				logger.Warnw("released stale tasks", "count", released, "timeout_sec", int(taskTimeout.Seconds()))
 				eventRepo.Record(&backend.TaskEvent{
 					TaskID: "", EventType: "task_timeout",
-					Actor: "system",
-					Payload: fmt.Sprintf(`{"count":%d,"timeout_sec":%d}`, released, int(taskTimeout.Seconds())),
+					Actor:     "system",
+					Payload:   fmt.Sprintf(`{"count":%d,"timeout_sec":%d}`, released, int(taskTimeout.Seconds())),
 					CreatedAt: time.Now(),
 				})
 				h.Broadcast(wsmsg.ChannelAgent, map[string]any{
@@ -2742,90 +2748,6 @@ func (s *APIServer) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, events)
-}
-
-// ---- Saved Filter Handlers ----
-
-func (s *APIServer) handleSFList(w http.ResponseWriter, r *http.Request) {
-	filters, err := s.sfDB.List()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, filters)
-}
-
-func (s *APIServer) handleSFCreate(w http.ResponseWriter, r *http.Request) {
-	logger.Infow("saved filter create")
-	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		FilterJSON  string `json:"filter_json"`
-		IsDefault   int    `json:"is_default"`
-		SortOrder   int    `json:"sort_order"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	if req.FilterJSON == "" {
-		writeErr(w, http.StatusBadRequest, "filter_json is required")
-		return
-	}
-	f := &backend.SavedFilter{
-		Name: req.Name, Description: req.Description, FilterJSON: req.FilterJSON,
-		IsDefault: req.IsDefault, SortOrder: req.SortOrder,
-	}
-	if err := s.sfDB.Create(f); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, f)
-}
-
-func (s *APIServer) handleSFUpdate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	logger.Infow("saved filter update", "id", id)
-	f, err := s.sfDB.Get(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		FilterJSON  string `json:"filter_json"`
-		IsDefault   int    `json:"is_default"`
-		SortOrder   int    `json:"sort_order"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	f.Name = req.Name
-	f.Description = req.Description
-	if req.FilterJSON != "" { f.FilterJSON = req.FilterJSON }
-	f.IsDefault = req.IsDefault
-	f.SortOrder = req.SortOrder
-	if err := s.sfDB.Update(f); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, f)
-}
-
-func (s *APIServer) handleSFDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	logger.Infow("saved filter delete", "id", id)
-	if err := s.sfDB.Delete(id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
 }
 
 func (s *APIServer) handleCommentList(w http.ResponseWriter, r *http.Request) {
@@ -2854,7 +2776,9 @@ func (s *APIServer) handleCommentCreate(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "content is required")
 		return
 	}
-	if req.Author == "" { req.Author = "user" }
+	if req.Author == "" {
+		req.Author = "user"
+	}
 	c := &backend.TaskComment{
 		TaskID: taskID, Author: req.Author, Content: req.Content,
 		Mentions: req.Mentions, ParentID: req.ParentID,
@@ -2886,7 +2810,9 @@ func (s *APIServer) handleCommentUpdate(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Content != "" { c.Content = req.Content }
+	if req.Content != "" {
+		c.Content = req.Content
+	}
 	c.Mentions = req.Mentions
 	if err := s.cmtDB.Update(c); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -2980,7 +2906,7 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusForbidden, "auto claim is disabled for this agent")
 		return
 	}
-		// 找下一个可领任务
+	// 找下一个可领任务
 	taskID, err := s.db.NextClaimable(req.AgentID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -3052,8 +2978,8 @@ func (s *APIServer) handleAgentReleaseTasks(w http.ResponseWriter, r *http.Reque
 	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: "", EventType: "force_released",
-		Actor: "user",
-		Payload: fmt.Sprintf(`{"agent_id":"%s","released_tasks":%d}`, agentID, released),
+		Actor:     "user",
+		Payload:   fmt.Sprintf(`{"agent_id":"%s","released_tasks":%d}`, agentID, released),
 		CreatedAt: time.Now(),
 	})
 	// ws 广播
@@ -3083,14 +3009,14 @@ func (s *APIServer) handleAgentResetToken(w http.ResponseWriter, r *http.Request
 	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: "", EventType: "token_reset",
-		Actor: "user",
-		Payload: fmt.Sprintf(`{"agent_id":"%s","agent_name":"%s"}`, agentID, a.Name),
+		Actor:     "user",
+		Payload:   fmt.Sprintf(`{"agent_id":"%s","agent_name":"%s"}`, agentID, a.Name),
 		CreatedAt: time.Now(),
 	})
 	logger.Warnw("agent token reset", "agent_id", agentID, "agent_name", a.Name)
 	writeJSON(w, map[string]any{
-		"ok":         true,
-		"agent_id":   agentID,
+		"ok":        true,
+		"agent_id":  agentID,
 		"new_token": newToken,
 		"warning":   "旧 token 已立即失效，请把新 token 同步到 agent 端",
 	})
@@ -3164,8 +3090,8 @@ func (s *APIServer) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: "", EventType: "agent_deleted",
-		Actor: "user",
-		Payload: fmt.Sprintf(`{"agent_id":"%s","agent_name":"%s","released_tasks":%d}`, agentID, a.Name, released),
+		Actor:     "user",
+		Payload:   fmt.Sprintf(`{"agent_id":"%s","agent_name":"%s","released_tasks":%d}`, agentID, a.Name, released),
 		CreatedAt: time.Now(),
 	})
 	logger.Warnw("agent deleted", "agent_id", agentID, "agent_name", a.Name, "released_tasks", released)
