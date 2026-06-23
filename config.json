@@ -1,10 +1,10 @@
 {
   "default_terminal": "wezterm",
   "preferred_cli": "claude",
-  "ai_loop_enabled": false,
+  "ai_loop_enabled": true,
   "aichat_default_cli": "claude",
   "todo_md_path": "/tmp/todo-final.md",
-  "scheduler_enabled": false,
+  "scheduler_enabled": true,
   "relay": {
     "api_key": "xworkbench"
   },
