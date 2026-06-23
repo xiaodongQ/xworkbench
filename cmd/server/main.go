@@ -53,7 +53,6 @@ type APIServer struct {
 	linkDB *backend.WebLinkRepo
 	dirDB  *backend.DirShortcutRepo
 	schedDB *backend.ScheduledTaskRepo
-	setDB  *backend.AppSettingsRepo
 	evalDB *backend.EvaluationRepo
 	agentDB *backend.AgentRepo
 	eventDB *backend.TaskEventRepo
@@ -74,7 +73,7 @@ type APIServer struct {
 func NewAPIServer(
 	db *backend.TaskRepo, expDB *backend.ExperienceRepo, execDB *backend.ExecutionRepo,
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
-	schedDB *backend.ScheduledTaskRepo, setDB *backend.AppSettingsRepo,
+	schedDB *backend.ScheduledTaskRepo,
 	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
 	eventDB *backend.TaskEventRepo, sfDB *backend.SavedFilterRepo,
 	cmtDB *backend.TaskCommentRepo,
@@ -84,7 +83,7 @@ func NewAPIServer(
 ) *APIServer {
 	s := &APIServer{
 		db: db, expDB: expDB, execDB: execDB,
-		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, setDB: setDB, evalDB: evalDB,
+		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, evalDB: evalDB,
 		agentDB: agentDB, eventDB: eventDB,
 		sfDB: sfDB, cmtDB: cmtDB, execCmtDB: execCmtDB,
 		sch: sch, hub: h,
@@ -171,10 +170,10 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/terminals", s.handleTerminalList)
 	mux.HandleFunc("GET /api/terminals/detect", s.handleTerminalDetect)
 	mux.HandleFunc("GET /api/models", s.handleModelList)
+	// 单一配置入口：所有偏好（default_terminal / preferred_cli / ai_loop_enabled /
+	// aichat_default_cli / todo_md_path / scheduler_enabled）和部署配置（terminal / models）都走这里
 	mux.HandleFunc("GET /api/config", s.handleGetConfig)
 	mux.HandleFunc("PUT /api/config", s.handleSetConfig)
-	mux.HandleFunc("GET /api/settings/default_terminal", s.handleGetDefaultTerminal)
-	mux.HandleFunc("PUT /api/settings/default_terminal", s.handleSetDefaultTerminal)
 
 	mux.HandleFunc("GET /api/scheduled", s.handleScheduledList)
 	mux.HandleFunc("POST /api/scheduled", s.handleScheduledCreate)
@@ -191,8 +190,6 @@ func (s *APIServer) routes() {
 
 	// AI 自治能力开关状态查询（前端 task-modal 根据这个决定是否显示运行区块）
 	mux.HandleFunc("GET /api/ai-loop/status", s.handleAILoopStatus)
-	mux.HandleFunc("GET /api/config/preferred-cli", s.handleGetPreferredCLI)
-	mux.HandleFunc("POST /api/config/preferred-cli", s.handleSetPreferredCLI)
 
 	mux.HandleFunc("GET /api/todo", s.handleTodo)
 	mux.HandleFunc("POST /api/todo", s.handleTodoAdd)
@@ -200,9 +197,6 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("DELETE /api/todo/{line_no}", s.handleTodoDelete)
 	mux.HandleFunc("GET /api/todo/path", s.handleTodoPath)
 	mux.HandleFunc("PUT /api/todo/path", s.handleTodoPathSet)
-
-	mux.HandleFunc("GET /api/settings", s.handleSettingsList)
-	mux.HandleFunc("PUT /api/settings/{key}", s.handleSettingsSet)
 
 	// relay 代理功能（带 API key 认证）
 	relayAuth := checkRelayAuth()
@@ -693,7 +687,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		ID:        uuid.New().String(),
 		TaskID:    id,
 		Source:    "manual",
-		Command:   runner.CmdString(cmd),
+		Command:   runner.CmdStringWithPrompt(cmd, req.Prompt),
 		Prompt:    req.Prompt, // 保存完整 prompt
 		Model:     req.Model,
 		StartedAt: time.Now(),
@@ -989,11 +983,19 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 		TimeoutSec int    `json:"timeout_sec"` // 评估超时时间，默认120秒
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	// 默认值跟随 config.json 的 preferred_cli（单一来源），改 preferred_cli 后评估 CLI 自动跟随
 	if req.CliType == "" {
-		req.CliType = "claude"
+		req.CliType = config.AppConfig.PreferredCLI
+		if req.CliType == "" {
+			req.CliType = "claude"
+		}
 	}
 	if req.Model == "" {
-		req.Model = "sonnet"
+		if group, ok := config.AppConfig.Models[req.CliType]; ok && group.Default != "" {
+			req.Model = group.Default
+		} else {
+			req.Model = "sonnet"
+		}
 	}
 	if req.TimeoutSec <= 0 {
 		req.TimeoutSec = 120
@@ -1039,11 +1041,19 @@ func (s *APIServer) handleExecutionEvaluateChain(w http.ResponseWriter, r *http.
 		TimeoutSec int    `json:"timeout_sec"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	// 默认值跟随 config.json 的 preferred_cli（单一来源）
 	if req.CliType == "" {
-		req.CliType = "claude"
+		req.CliType = config.AppConfig.PreferredCLI
+		if req.CliType == "" {
+			req.CliType = "claude"
+		}
 	}
 	if req.Model == "" {
-		req.Model = "sonnet"
+		if group, ok := config.AppConfig.Models[req.CliType]; ok && group.Default != "" {
+			req.Model = group.Default
+		} else {
+			req.Model = "sonnet"
+		}
 	}
 	if req.TimeoutSec <= 0 {
 		req.TimeoutSec = 120
@@ -1464,23 +1474,10 @@ func (s *APIServer) handleTerminalList(w http.ResponseWriter, r *http.Request) {
 		{"type": "xterm", "name": "xterm", "platform": "Linux"},
 		{"type": "cmd", "name": "CMD", "platform": "Windows"},
 	}
-	defaultType, _ := s.setDB.Get("default_terminal")
-	if defaultType == "" {
-		defaultType = string(shortcuts.DefaultTerminal())
-	}
 	writeJSON(w, map[string]interface{}{
 		"supported": supported,
-		"default":   defaultType,
+		"default":   shortcuts.DefaultTerminal(),
 	})
-}
-
-// handleGetDefaultTerminal 读取默认终端类型
-func (s *APIServer) handleGetDefaultTerminal(w http.ResponseWriter, r *http.Request) {
-	val, _ := s.setDB.Get("default_terminal")
-	if val == "" {
-		val = string(shortcuts.DefaultTerminal())
-	}
-	writeJSON(w, map[string]string{"value": val})
 }
 
 // handleTerminalDetect 检测终端类型的可执行文件路径
@@ -1496,27 +1493,6 @@ func (s *APIServer) handleTerminalDetect(w http.ResponseWriter, r *http.Request)
 	} else {
 		writeJSON(w, map[string]string{"path": ""})
 	}
-}
-
-// handleSetDefaultTerminal 设置默认终端类型
-func (s *APIServer) handleSetDefaultTerminal(w http.ResponseWriter, r *http.Request) {
-	logger.Infow("set default terminal")
-	var req struct {
-		Value string `json:"value"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if !shortcuts.IsSupportedTerminal(req.Value) {
-		writeErr(w, http.StatusBadRequest, "unsupported terminal type: "+req.Value)
-		return
-	}
-	if err := s.setDB.Set("default_terminal", req.Value); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]string{"value": req.Value})
 }
 // handleModelList 返回模型列表（从 config.json 加载）
 func (s *APIServer) handleModelList(w http.ResponseWriter, r *http.Request) {
@@ -1535,43 +1511,108 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
-	resp := map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
+		// 用户偏好（顶层）
+		"default_terminal":     cfg.DefaultTerminal,
+		"preferred_cli":        cfg.PreferredCLI,
+		"ai_loop_enabled":      cfg.AILoopEnabled,
+		"aichat_default_cli":   cfg.AichatDefaultCLI,
+		"todo_md_path":         cfg.TodoMDPath,
+		"scheduler_enabled":    cfg.SchedulerEnabled,
+		// 部署级配置
+		"relay":                cfg.Relay,
 		"terminal": map[string]interface{}{
-			"default_type":  cfg.Terminal.DefaultType,
-			"detect_paths":  cfg.Terminal.DetectPaths,
-			"types":         cfg.Terminal.Types,
+			"detect_paths": cfg.Terminal.DetectPaths,
+			"types":        cfg.Terminal.Types,
 		},
-		"models": cfg.Models,
-	}
-	writeJSON(w, resp)
+		"models":               cfg.Models,
+	})
 }
 
-// handleSetConfig 保存用户配置（回写 config.json）
+// handleSetConfig 统一入口：更新 config.json 中的偏好和部署配置，回写文件
+// 任意字段非空（非零）即覆盖；bool/int 字段 0/false 也合法（用 ptr 区分"未设"）
 func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	logger.Infow("set config")
 	var req struct {
-		TerminalType string `json:"terminal_type"`
-		TerminalPath string `json:"terminal_path"`
-		ModelDefaults map[string]string `json:"model_defaults"` // cli_type -> default model
+		// 用户偏好（字符串字段：空=未设；bool 字段：nil=未设）
+		DefaultTerminal  *string           `json:"default_terminal,omitempty"`
+		PreferredCLI     *string           `json:"preferred_cli,omitempty"`
+		AILoopEnabled    *bool             `json:"ai_loop_enabled,omitempty"`
+		AichatDefaultCLI *string           `json:"aichat_default_cli,omitempty"`
+		TodoMDPath       *string           `json:"todo_md_path,omitempty"`
+		SchedulerEnabled *bool             `json:"scheduler_enabled,omitempty"`
+		// 部署级
+		TerminalType    string             `json:"terminal_type"`
+		TerminalPath    string             `json:"terminal_path"`
+		ModelDefaults   map[string]string  `json:"model_defaults"` // cli_type -> default model
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	cfg := config.AppConfig
+	if cfg == nil {
+		writeErr(w, http.StatusInternalServerError, "config not initialized")
+		return
+	}
 	changed := false
-	if req.TerminalType != "" && cfg != nil {
-		cfg.Terminal.DefaultType = req.TerminalType
+
+	// 用户偏好（字符串）
+	if req.DefaultTerminal != nil {
+		v := *req.DefaultTerminal
+		if v != "" && !shortcuts.IsSupportedTerminal(v) {
+			writeErr(w, http.StatusBadRequest, "unsupported terminal type: "+v)
+			return
+		}
+		cfg.DefaultTerminal = v
 		changed = true
 	}
-	if req.TerminalPath != "" && cfg != nil && req.TerminalType != "" {
+	if req.PreferredCLI != nil {
+		v := *req.PreferredCLI
+		if v != "" && !config.IsValidCLI(v) {
+			writeErr(w, http.StatusBadRequest, "unsupported cli: "+v+" (supported: claude, cbc)")
+			return
+		}
+		cfg.PreferredCLI = config.NormalizeCLI(v)
+		changed = true
+	}
+	if req.AichatDefaultCLI != nil {
+		cfg.AichatDefaultCLI = *req.AichatDefaultCLI
+		changed = true
+	}
+	if req.TodoMDPath != nil {
+		cfg.TodoMDPath = *req.TodoMDPath
+		changed = true
+	}
+	// 用户偏好（bool）
+	if req.AILoopEnabled != nil {
+		cfg.AILoopEnabled = *req.AILoopEnabled
+		changed = true
+	}
+	if req.SchedulerEnabled != nil {
+		cfg.SchedulerEnabled = *req.SchedulerEnabled
+		changed = true
+	}
+
+	// 部署级
+	if req.TerminalType != "" {
+		// 注：default_type 已上移到顶层 DefaultTerminal；此处 TerminalType 仅用于与 TerminalPath 配对更新类型路径
+		if _, ok := cfg.Terminal.Types[req.TerminalType]; ok {
+			// 类型已存在，下面的 TerminalPath 会更新其 path 字段
+		} else {
+			writeErr(w, http.StatusBadRequest, "unknown terminal type: "+req.TerminalType)
+			return
+		}
+		changed = true
+	}
+	if req.TerminalPath != "" && req.TerminalType != "" {
 		if typeDef, ok := cfg.Terminal.Types[req.TerminalType]; ok {
 			typeDef.Path = req.TerminalPath
 			cfg.Terminal.Types[req.TerminalType] = typeDef
 			changed = true
 		}
 	}
-	if req.ModelDefaults != nil && cfg != nil {
+	if req.ModelDefaults != nil {
 		for cliType, model := range req.ModelDefaults {
 			if group, ok := cfg.Models[cliType]; ok {
 				group.Default = model
@@ -1580,8 +1621,12 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
 	if changed {
-		config.Save()
+		if err := config.Save(); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	writeJSON(w, map[string]string{"status": "ok"})
 }
@@ -1756,60 +1801,22 @@ func (s *APIServer) handleSchedulerReload(w http.ResponseWriter, r *http.Request
 	writeJSON(w, map[string]string{"status": "reloaded"})
 }
 
-// handleAILoopStatus 返回 AI 自治能力开关状态。优先级：AppSettings > config.json。
+// handleAILoopStatus 返回 AI 自治能力开关状态（单一来源：config.json）。
 // 前端 task-modal 打开时调这个，决定是否渲染"AI 自治"区块。
 func (s *APIServer) handleAILoopStatus(w http.ResponseWriter, r *http.Request) {
-	// 查询主源（AppSettings）和后备源（config.json），同时返回让前端能提示用户从哪开的
-	var source string
-	var enabled bool
-	if s.setDB != nil {
-		if v, err := s.setDB.Get("ai_loop_enabled"); err == nil && v != "" {
-			enabled = v == "1" || v == "true"
-			source = "app_settings"
-		}
-	}
-	if source == "" {
-		if config.AppConfig != nil && config.AppConfig.AILoop.Enabled {
-			enabled = true
-			source = "config.json"
-		}
-	}
-	if source == "" {
-		source = "default"
-	}
-	writeJSON(w, map[string]any{"enabled": enabled, "source": source})
+	writeJSON(w, map[string]any{"enabled": s.aiLoopEnabled()})
 }
 
-// getPreferredCLI 拉全后端统一动话“优先 CLI”的值。
-// 优先级：AppSettings (运行时) > config.json > 默认 "claude"。
-// 返回 (value, source)。source 是“app_settings” / “config.json” / “default”。
-func (s *APIServer) getPreferredCLI() (string, string) {
-	const key = "preferred_cli"
-	// 1. AppSettings 优先
-	if s.setDB != nil {
-		if v, err := s.setDB.Get(key); err == nil && v != "" {
-			if config.IsValidCLI(v) {
-				return config.NormalizeCLI(v), "app_settings"
-			}
-		}
-	}
-	// 2. config.json
-	if config.AppConfig != nil && config.AppConfig.PreferredCLI != "" {
-		if config.IsValidCLI(config.AppConfig.PreferredCLI) {
-			return config.NormalizeCLI(config.AppConfig.PreferredCLI), "config.json"
-		}
-	}
-	// 3. 默认
-	return "claude", "default"
-}
-
-// handleGetPreferredCLI 读优先 CLI。前端“默认 CLI” tab 调。
+// handleGetPreferredCLI 读优先 CLI。前端"默认 CLI" tab 调。
 func (s *APIServer) handleGetPreferredCLI(w http.ResponseWriter, r *http.Request) {
-	v, src := s.getPreferredCLI()
-	writeJSON(w, map[string]any{"value": v, "source": src})
+	v := config.NormalizeCLI(config.AppConfig.PreferredCLI)
+	if v == "" {
+		v = "claude"
+	}
+	writeJSON(w, map[string]any{"value": v})
 }
 
-// handleSetPreferredCLI 设置优先 CLI。存到 AppSettings（运行时热生效）。
+// handleSetPreferredCLI 设置优先 CLI。写入 config.json（运行时热生效，重启后保留）。
 // body: {"value": "claude" | "cbc"}；取值在 config.IsValidCLI 检查。
 func (s *APIServer) handleSetPreferredCLI(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1824,22 +1831,31 @@ func (s *APIServer) handleSetPreferredCLI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	v := config.NormalizeCLI(req.Value)
-	if s.setDB == nil {
-		writeErr(w, http.StatusInternalServerError, "app settings db not initialized")
+	if config.AppConfig == nil {
+		writeErr(w, http.StatusInternalServerError, "config not initialized")
 		return
 	}
-	if err := s.setDB.Set("preferred_cli", v); err != nil {
+	config.AppConfig.PreferredCLI = v
+	if err := config.Save(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	logger.Infow("set preferred_cli", "value", v)
-	writeJSON(w, map[string]any{"value": v, "source": "app_settings"})
+	writeJSON(w, map[string]any{"value": v})
 }
 
 // --- Todo.md ---
 
+// todoPath 集中读 todo_md_path，统一走 config.AppConfig（单一来源）
+func todoPath() string {
+	if config.AppConfig != nil {
+		return config.AppConfig.TodoMDPath
+	}
+	return ""
+}
+
 func (s *APIServer) handleTodo(w http.ResponseWriter, r *http.Request) {
-	path, _ := s.setDB.Get("todo_md_path")
+	path := todoPath()
 	if path == "" {
 		writeJSON(w, map[string]any{"path": "", "items": []todo.Item{}})
 		return
@@ -1856,7 +1872,7 @@ func (s *APIServer) handleTodo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleTodoToggle(w http.ResponseWriter, r *http.Request) {
-	path, _ := s.setDB.Get("todo_md_path")
+	path := todoPath()
 	if path == "" {
 		writeErr(w, http.StatusBadRequest, "todo_md_path not set")
 		return
@@ -1895,7 +1911,7 @@ func (s *APIServer) handleTodoToggle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleTodoAdd(w http.ResponseWriter, r *http.Request) {
-	path, _ := s.setDB.Get("todo_md_path")
+	path := todoPath()
 	if path == "" {
 		writeErr(w, http.StatusBadRequest, "todo_md_path not set")
 		return
@@ -1919,7 +1935,7 @@ func (s *APIServer) handleTodoAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleTodoDelete(w http.ResponseWriter, r *http.Request) {
-	path, _ := s.setDB.Get("todo_md_path")
+	path := todoPath()
 	if path == "" {
 		writeErr(w, http.StatusBadRequest, "todo_md_path not set")
 		return
@@ -1938,8 +1954,7 @@ func (s *APIServer) handleTodoDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleTodoPath(w http.ResponseWriter, r *http.Request) {
-	path, _ := s.setDB.Get("todo_md_path")
-	writeJSON(w, map[string]string{"path": path})
+	writeJSON(w, map[string]string{"path": todoPath()})
 }
 
 func (s *APIServer) handleTodoPathSet(w http.ResponseWriter, r *http.Request) {
@@ -1951,39 +1966,16 @@ func (s *APIServer) handleTodoPathSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.setDB.Set("todo_md_path", req.Path); err != nil {
+	if config.AppConfig == nil {
+		writeErr(w, http.StatusInternalServerError, "config not initialized")
+		return
+	}
+	config.AppConfig.TodoMDPath = req.Path
+	if err := config.Save(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, map[string]string{"path": req.Path})
-}
-
-// --- Settings ---
-
-func (s *APIServer) handleSettingsList(w http.ResponseWriter, r *http.Request) {
-	all, err := s.setDB.All()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, all)
-}
-
-func (s *APIServer) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
-	key := r.PathValue("key")
-	logger.Infow("settings set", "key", key)
-	var req struct {
-		Value string `json:"value"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := s.setDB.Set(key, req.Value); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]string{"key": key, "value": req.Value})
 }
 
 // Helpers
@@ -2037,22 +2029,13 @@ func parseInt(s string, def int) int {
 }
 
 // aiLoopEnabled 判断 AI 自治能力是否启用。
-// 优先级：AppSettings (ai_loop_enabled) > config.json (ai_loop.enabled) > 默认 false
-// 返回值是 s.setDB 查表的最新值（运行时热调），调用方负责传 s。
-// 这个函数在 3 个 handler 入口都查，变化后下一次请求生效。
+// 单一来源：config.json（ai_loop_enabled 顶层字段）。
+// 3 个 handler 入口（handleTaskReevaluate / RunLoop / Learn）每次请求都查，Save() 后下一次请求生效。
 func (s *APIServer) aiLoopEnabled() bool {
-	if s == nil || s.setDB == nil {
+	if config.AppConfig == nil {
 		return false
 	}
-	// AppSettings 优先
-	if v, err := s.setDB.Get("ai_loop_enabled"); err == nil && v != "" {
-		return v == "1" || v == "true"
-	}
-	// 退化到 config.json
-	if config.AppConfig != nil {
-		return config.AppConfig.AILoop.Enabled
-	}
-	return false
+	return config.AppConfig.AILoopEnabled
 }
 
 func errStr(err error) string {
@@ -2216,10 +2199,9 @@ func main() {
 	linkRepo := backend.NewWebLinkRepo(db)
 	dirRepo := backend.NewDirShortcutRepo(db)
 	schedRepo := backend.NewScheduledTaskRepo(db)
-	settingsRepo := backend.NewAppSettingsRepo(db)
 	evalRepo := backend.NewEvaluationRepo(db)
 	h := hub.New()
-	sch := scheduler.New(schedRepo, execRepo, h).WithSettings(settingsRepo)
+	sch := scheduler.New(schedRepo, execRepo, h)
 	if err := sch.AutoStart(); err != nil {
 		logger.Errorf("[scheduler] auto start failed: %v", err)
 	}
@@ -2236,7 +2218,7 @@ func main() {
 	cmtRepo := backend.NewTaskCommentRepo(db)
 	execCmtRepo := backend.NewExecutionCommentRepo(db)
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
-		linkRepo, dirRepo, schedRepo, settingsRepo, evalRepo, agentRepo,
+		linkRepo, dirRepo, schedRepo, evalRepo, agentRepo,
 		eventRepo, sfRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)
 
 	// 后台 goroutine：心跳超时检测
@@ -2313,11 +2295,19 @@ func (s *APIServer) handleTaskReevaluate(w http.ResponseWriter, r *http.Request)
 	}
 	var req struct{ CliType, Model string }
 	json.NewDecoder(r.Body).Decode(&req)
+	// 默认值跟随 config.json 的 preferred_cli（单一来源）
 	if req.CliType == "" {
-		req.CliType = "claude"
+		req.CliType = config.AppConfig.PreferredCLI
+		if req.CliType == "" {
+			req.CliType = "claude"
+		}
 	}
 	if req.Model == "" {
-		req.Model = "haiku"
+		if group, ok := config.AppConfig.Models[req.CliType]; ok && group.Default != "" {
+			req.Model = group.Default
+		} else {
+			req.Model = "haiku"
+		}
 	}
 	execs, err := s.execDB.ListByTask(id, 1)
 	if err != nil || len(execs) == 0 {
@@ -2360,7 +2350,10 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 		req.MaxIterations = 3
 	}
 	if req.CliType == "" {
-		req.CliType = "claude"
+		req.CliType = config.AppConfig.PreferredCLI
+		if req.CliType == "" {
+			req.CliType = "claude"
+		}
 	}
 	models := []string{req.Model}
 	if req.Model == "haiku" || req.Model == "" {
@@ -2382,7 +2375,7 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 			result["history"] = append(result["history"].([]Step), Step{Iteration: i + 1, Model: model, Error: err.Error()})
 			break
 		}
-		exec := &backend.Execution{ID: uuid.New().String(), TaskID: id, Source: "loop", Command: runner.CmdString(cmd), Model: model, StartedAt: time.Now()}
+		exec := &backend.Execution{ID: uuid.New().String(), TaskID: id, Source: "loop", Command: runner.CmdStringWithPrompt(cmd, req.Prompt), Model: model, StartedAt: time.Now()}
 		s.execDB.Create(exec)
 		go func() { defer cleanup() }()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)

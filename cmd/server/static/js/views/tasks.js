@@ -270,7 +270,6 @@ function showRunTaskModal(task) {
   // 存当前 taskId 供 submit 用
   document.getElementById('run-task-modal').dataset.taskId = task.id;
   // type 切换时联动 model 是否可选
-  const typeSel = document.getElementById('run-task-type');
   typeSel.onchange = toggleRunTaskModelGroup;
   // model 切换时保存为默认
   const modelSel = document.getElementById('run-task-model');

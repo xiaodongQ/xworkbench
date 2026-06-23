@@ -1,5 +1,5 @@
 // ===== 系统配置 Tab =====
-// 3 个导入/导出子 tab：⚡ 快捷 / 📚 经验 / 📋 任务
+// 1 个导入/导出子 tab：⚡ 快捷
 // 1 个设置子 tab：🤖 默认 CLI
 //
 // 每个导入/导出子 tab 分"导出"和"导入"两个面板。
@@ -8,44 +8,28 @@
 // 依赖 api.js (fetchJSON/esc/fmt)
 
 // ---- 状态 ----
-let currentCfgTab = 'shortcuts'; // shortcuts | experiences | tasks | default_cli
+let currentCfgTab = 'shortcuts'; // shortcuts | default_cli
 let _cfgPreviewCache = null;     // 最近一次 preview 结果，供"确认导入"使用
 
 const CFG_TAB_LABEL = {
   shortcuts: '快捷',
-  experiences: '经验',
-  tasks: '任务',
   default_cli: '默认 CLI',
-};
-
-// 4 个旧子 tab 兼容 localStorage 旧值：迁到新 tab
-const CFG_TAB_MIGRATION = {
-  tasks_manual: 'tasks',
-  tasks_scheduled: 'tasks',
 };
 
 // 子 tab  →  后端 type（export/import 用）
 const CFG_TYPE_FOR_TAB = {
   shortcuts: 'dir_shortcuts',
-  experiences: 'experiences',
-  tasks: 'tasks',  // 后端 tasks 涵盖 manual + scheduled
 };
 
 // 必填字段在预览时高亮
 const CFG_REQUIRED = {
   dir_shortcuts: ['name', 'path'],
   web_links: ['name', 'url'],
-  experiences: ['module'],
-  tasks: ['title', 'task_type'],
 };
 
 async function loadConfig() {
   // 首次进入读 localStorage 恢复子 tab（仅用于屏幕截图 / 从快捷入口跳转）
-  let saved = localStorage.getItem('cfg-active-tab');
-  if (saved && CFG_TAB_MIGRATION[saved]) {
-    saved = CFG_TAB_MIGRATION[saved];
-    localStorage.setItem('cfg-active-tab', saved);
-  }
+  const saved = localStorage.getItem('cfg-active-tab');
   if (saved && CFG_TAB_LABEL[saved]) {
     switchCfgTab(saved);
     return;
@@ -54,19 +38,8 @@ async function loadConfig() {
   await refreshExportSummary();
 }
 
-// 兼容 URL ?cfg=xxx 深度链接（与 ?cfg=xxx 旧行为一致）
-function loadCfgFromUrl() {
-  try {
-    const p = new URLSearchParams(location.search).get('cfg');
-    if (p && CFG_TAB_MIGRATION[p]) {
-      localStorage.setItem('cfg-active-tab', CFG_TAB_MIGRATION[p]);
-    }
-  } catch (e) {}
-}
-
 // ---- 子 tab 切换 ----
 function switchCfgTab(tab) {
-  if (CFG_TAB_MIGRATION[tab]) tab = CFG_TAB_MIGRATION[tab];
   if (!CFG_TAB_LABEL[tab]) return;
   currentCfgTab = tab;
   localStorage.setItem('cfg-active-tab', tab);
@@ -281,11 +254,10 @@ function showImportResult(tab, result) {
 // ---- 🤖 默认 CLI ----
 async function loadPreferredCLI() {
   try {
-    const r = await fetchJSON(API + '/api/config/preferred-cli');
-    const v = r.value || 'claude';
+    const r = await fetchJSON(API + '/api/config');
+    const v = r.preferred_cli || 'claude';
     document.querySelectorAll('input[name="cfg-pref-cli"]').forEach(r => { r.checked = (r.value === v); });
-    document.getElementById('cfg-pref-cli-status').textContent =
-      `当前: ${v} · 来源: ${esc(r.source || 'default')}`;
+    document.getElementById('cfg-pref-cli-status').textContent = `当前: ${v} · 来源: config.json`;
   } catch (e) {
     document.getElementById('cfg-pref-cli-status').textContent = '加载失败：' + e.message;
   }
@@ -298,14 +270,20 @@ async function savePreferredCLI() {
   const status = document.getElementById('cfg-pref-cli-status');
   status.textContent = '保存中…';
   try {
-    const r = await fetchJSON(API + '/api/config/preferred-cli', {
-      method: 'POST',
+    await fetchJSON(API + '/api/config', {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: v }),
+      body: JSON.stringify({ preferred_cli: v }),
     });
     // 同步更新全局缓存，让任务页运行 modal 的默认值跟着变
-    window._preferredCLI = r.value;
-    status.textContent = `已保存: ${r.value} · 来源: ${esc(r.source || '')}`;
+    window._preferredCLI = v;
+    // 同步"评估"下拉（让 eval-cli-select + eval-model-select 跟随 preferred_cli）
+    const evalCliSel = document.getElementById('eval-cli-select');
+    if (evalCliSel) {
+      evalCliSel.value = v;
+      if (typeof onEvalCliChange === 'function') onEvalCliChange();
+    }
+    status.textContent = `已保存: ${v} · 来源: config.json`;
   } catch (e) {
     status.textContent = '保存失败：' + e.message;
   }

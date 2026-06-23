@@ -9,9 +9,10 @@ let termReady = false;
 async function onCliChange(value) {
   const disp = document.getElementById('cli-display');
   if (disp) disp.textContent = value;
-  await fetchJSON('/api/settings/aichat_default_cli', {
+  await fetchJSON('/api/config', {
     method: 'PUT',
-    body: JSON.stringify({ value }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ aichat_default_cli: value }),
   });
   if (termReady) {
     term.writeln('\r\n\x1b[33m[xworkbench] CLI 已切换为 ' + value + '，刷新页面后生效\x1b[0m\r\n');
@@ -89,10 +90,10 @@ async function loadCliSetting() {
   const disp = document.getElementById('cli-display');
   if (!sel) return;
   try {
-    const settings = await fetchJSON('/api/settings');
-    if (settings?.aichat_default_cli) {
-      sel.value = settings.aichat_default_cli;
-      if (disp) disp.textContent = settings.aichat_default_cli;
+    const cfg = await fetchJSON('/api/config');
+    if (cfg?.aichat_default_cli) {
+      sel.value = cfg.aichat_default_cli;
+      if (disp) disp.textContent = cfg.aichat_default_cli;
     }
   } catch(e) {
     console.error('[loadCliSetting] error:', e);

@@ -1,6 +1,14 @@
 {
+  "default_terminal": "wezterm",
+  "preferred_cli": "claude",
+  "ai_loop_enabled": false,
+  "aichat_default_cli": "claude",
+  "todo_md_path": "/tmp/todo-final.md",
+  "scheduler_enabled": false,
+  "relay": {
+    "api_key": "xworkbench"
+  },
   "terminal": {
-    "default_type": "wezterm",
     "detect_paths": {
       "wezterm": [
         "/Applications/WezTerm.app/Contents/MacOS/WezTerm"
@@ -179,8 +187,5 @@
         }
       ]
     }
-  },
-  "relay": {
-    "api_key": "xworkbench"
   }
 }

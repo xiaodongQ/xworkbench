@@ -273,8 +273,6 @@
     <!-- 子 tab -->
     <div class="cfg-subtabs" style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
       <button class="cfg-tab-btn active" data-tab="shortcuts" onclick="switchCfgTab('shortcuts')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">⚡ 快捷</button>
-      <button class="cfg-tab-btn" data-tab="experiences" onclick="switchCfgTab('experiences')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">📚 经验</button>
-      <button class="cfg-tab-btn" data-tab="tasks" onclick="switchCfgTab('tasks')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">📋 任务</button>
       <button class="cfg-tab-btn" data-tab="default_cli" onclick="switchCfgTab('default_cli')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">🤖 默认 CLI</button>
       <style>
         .cfg-tab-btn.active { background: var(--primary) !important; color: #fff !important; border-color: var(--primary) !important; font-weight: 500; }
@@ -284,7 +282,7 @@
       <button class="btn btn-small" onclick="copyAllToClipboard()" title="复制完整备份 JSON 到剪贴板">📋 复制全部</button>
     </div>
 
-    <!-- 三个导入/导出子 tab 共享的 “导入” 卡片部分 -->
+    <!-- ⚡ 快捷 子 tab：导入 / 导出 -->
     <div class="cfg-tab-panel" data-tab="shortcuts">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
         <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px">
@@ -335,102 +333,6 @@
       <div class="cfg-preview-area" data-type="shortcuts" style="margin-top:20px"></div>
     </div>
 
-    <div class="cfg-tab-panel hidden" data-tab="experiences">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px">
-          <h3 style="margin:0 0 8px">导出 <span class="cfg-export-summary" data-type="experiences" style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px"></span></h3>
-          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">导出全部经验（含 Markdown 详情全文）。</p>
-          <button class="btn btn-primary" onclick="exportJson('experiences')">📥 下载经验库</button>
-        </div>
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px">
-          <h3 style="margin:0 0 8px">导入 <span style="font-size:12px;color:var(--text-secondary);font-weight:normal">粘贴 JSON 文本</span></h3>
-          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px">去重依据：module + keywords。details（Markdown 全文）会完整保留。</p>
-          <textarea class="cfg-import-text" data-type="experiences" placeholder='贴 JSON（数组、{"items":[...]}、或完整导出包三种都可以）' style="width:100%;height:140px;font-family:monospace;font-size:12px;padding:8px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);resize:vertical"></textarea>
-          <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
-            <select class="cfg-import-dedupe" data-type="experiences" style="font-size:12px;padding:5px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card)">
-              <option value="skip">dedupe: skip（跳过同 module+keywords）</option>
-              <option value="overwrite">dedupe: overwrite（覆盖）</option>
-              <option value="append">dedupe: append（另外加）</option>
-            </select>
-            <button class="btn btn-primary" onclick="previewImport('experiences')">🔍 预览</button>
-            <button class="btn" onclick="confirmImport('experiences')">✅ 确认导入</button>
-            <details style="margin-left:auto;flex:1;min-width:240px">
-              <summary style="cursor:pointer;font-size:11px;color:var(--text-secondary)">▶ JSON 示例</summary>
-              <pre style="margin:8px 0 0;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto">{
-  "experiences": [
-    {
-      "module": "docker",
-      "keywords": "部署、容器化",
-      "summary": "Docker 常用部署命令汇总",
-      "details": "## 1. 构建镜像\n\ndocker build -t myapp ...",
-      "tags": "devops"
-    }
-  ]
-}</pre>
-            </details>
-          </div>
-        </div>
-      </div>
-      <div class="cfg-preview-area" data-type="experiences" style="margin-top:20px"></div>
-    </div>
-
-    <div class="cfg-tab-panel hidden" data-tab="tasks">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px">
-          <h3 style="margin:0 0 8px">导出 <span class="cfg-export-summary" data-type="tasks" style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px"></span></h3>
-          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">手动任务和定时任务合并导出，按 task_type 区分。手动任务导出后 task_type 仍为 manual。</p>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-primary" onclick="exportJson('tasks')">📥 下载全部任务</button>
-            <button class="btn" onclick="exportJson('tasks_manual')">📥 只下手动</button>
-            <button class="btn" onclick="exportJson('tasks_scheduled')">📥 只下定时</button>
-          </div>
-        </div>
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px">
-          <h3 style="margin:0 0 8px">导入 <span style="font-size:12px;color:var(--text-secondary);font-weight:normal">粘贴 JSON 文本</span></h3>
-          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px">
-            去重依据：title。<b>手动任务</b>导入后 task_type 强制 manual；<b>定时任务</b>导入后 <b>enabled=false</b>（防误触发）。
-          </p>
-          <textarea class="cfg-import-text" data-type="tasks" placeholder='贴 JSON（数组、{"items":[...]}、或完整导出包三种都可以）' style="width:100%;height:140px;font-family:monospace;font-size:12px;padding:8px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);resize:vertical"></textarea>
-          <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
-            <select class="cfg-import-dedupe" data-type="tasks" style="font-size:12px;padding:5px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card)">
-              <option value="skip">dedupe: skip（跳过同 title）</option>
-              <option value="overwrite">dedupe: overwrite（覆盖）</option>
-              <option value="append">dedupe: append（另外加）</option>
-            </select>
-            <button class="btn btn-primary" onclick="previewImport('tasks')">🔍 预览</button>
-            <button class="btn" onclick="confirmImport('tasks')">✅ 确认导入</button>
-            <details style="margin-left:auto;flex:1;min-width:240px">
-              <summary style="cursor:pointer;font-size:11px;color:var(--text-secondary)">▶ JSON 示例</summary>
-              <pre style="margin:8px 0 0;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto">{
-  "tasks": [
-    {
-      "title": "部署生产环境",
-      "description": "拉代码、build、重启服务",
-      "task_type": "manual",
-      "priority": 5,
-      "acceptance": "服务返回 200",
-      "command_type": "claude",
-      "model": "sonnet",
-      "experience_ids": []
-    },
-    {
-      "title": "每天凌晨备份",
-      "description": "压缩 /data 到 /backup",
-      "task_type": "scheduled",
-      "cron_expr": "0 2 * * *",
-      "command_type": "shell",
-      "model": "",
-      "enabled": false
-    }
-  ]
-}</pre>
-            </details>
-          </div>
-        </div>
-      </div>
-      <div class="cfg-preview-area" data-type="tasks" style="margin-top:20px"></div>
-    </div>
-
     <!-- 🤖 默认 CLI 子 tab -->
     <div class="cfg-tab-panel hidden" data-tab="default_cli">
       <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;max-width:640px">
@@ -454,8 +356,8 @@
           <span id="cfg-pref-cli-status" style="font-size:12px;color:var(--text-secondary)">未保存</span>
         </div>
         <div style="margin-top:20px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;line-height:1.6">
-          <b>优先级链</b>（与 ai_loop_enabled 一致）：<br>
-          <code>AppSettings (运行时)</code> &gt; <code>config.json (preferred_cli)</code> &gt; <code>默认 claude</code>
+          <b>优先级链</b>（单一来源）：<br>
+          <code>config.json (preferred_cli)</code> &gt; <code>默认 claude</code>
         </div>
       </div>
     </div>

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
+	"github.com/xiaodongQ/xworkbench/internal/config"
 )
 
 // newTestServer creates an APIServer with in-memory SQLite for testing.
@@ -17,11 +18,13 @@ func newTestServer(t *testing.T) *APIServer {
 	if err != nil {
 		t.Fatalf("TestDB: %v", err)
 	}
-	setDB := backend.NewAppSettingsRepo(db)
-	setDB.Set("default_terminal", "wezterm") // avoid nil panic in handlers
+	// config.json（单一来源）设置 default_terminal，避免 handler 走 shortcuts.DefaultTerminal() fallback
+	if config.AppConfig == nil {
+		config.AppConfig = config.DefaultConfig()
+	}
+	config.AppConfig.DefaultTerminal = "wezterm"
 	return &APIServer{
 		db:      backend.NewTaskRepo(db),
-		setDB:   setDB,
 		dirDB:   backend.NewDirShortcutRepo(db),
 		schedDB: backend.NewScheduledTaskRepo(db),
 	}
@@ -57,50 +60,46 @@ func TestHandleTerminalList(t *testing.T) {
 	if !found {
 		t.Error("wezterm not found in supported list")
 	}
+	if resp.Default != "wezterm" {
+		t.Errorf("default = %q, want wezterm", resp.Default)
+	}
 }
 
-func TestHandleGetSetDefaultTerminal(t *testing.T) {
+// TestHandleSetConfig_DefaultTerminal 验证 PUT /api/config 写入 default_terminal 后立即生效
+func TestHandleSetConfig_DefaultTerminal(t *testing.T) {
 	s := newTestServer(t)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/settings/default_terminal", s.handleGetDefaultTerminal)
-	mux.HandleFunc("PUT /api/settings/default_terminal", s.handleSetDefaultTerminal)
+	mux.HandleFunc("PUT /api/config", s.handleSetConfig)
+	mux.HandleFunc("GET /api/config", s.handleGetConfig)
 
-	// GET initial value
-	req := httptest.NewRequest("GET", "/api/settings/default_terminal", nil)
+	// PUT default_terminal
+	body := strings.NewReader(`{"default_terminal":"wt"}`)
+	req := httptest.NewRequest("PUT", "/api/config", body)
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("handleGetDefaultTerminal status = %d, want 200", w.Code)
+		t.Fatalf("handleSetConfig default_terminal status = %d, want 200, body=%s", w.Code, w.Body.String())
 	}
 
-	// PUT valid value
-	body := strings.NewReader(`{"value":"wt"}`)
-	req = httptest.NewRequest("PUT", "/api/settings/default_terminal", body)
-	req.Header.Set("Content-Type", "application/json")
+	// GET 验证已生效
+	req = httptest.NewRequest("GET", "/api/config", nil)
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("handleSetDefaultTerminal valid status = %d, want 200", w.Code)
-	}
-
-	// GET verify
-	req = httptest.NewRequest("GET", "/api/settings/default_terminal", nil)
-	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	var got map[string]string
+	var got map[string]interface{}
 	json.NewDecoder(w.Body).Decode(&got)
-	if got["value"] != "wt" {
-		t.Errorf("handleGetDefaultTerminal after set = %q, want wt", got["value"])
+	if got["default_terminal"] != "wt" {
+		t.Errorf("default_terminal after set = %q, want wt", got["default_terminal"])
 	}
 
-	// PUT invalid value
-	body = strings.NewReader(`{"value":"notexist"}`)
-	req = httptest.NewRequest("PUT", "/api/settings/default_terminal", body)
+	// PUT 无效值 → 400
+	body = strings.NewReader(`{"default_terminal":"notexist"}`)
+	req = httptest.NewRequest("PUT", "/api/config", body)
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("handleSetDefaultTerminal invalid status = %d, want 400", w.Code)
+		t.Errorf("handleSetConfig invalid default_terminal status = %d, want 400", w.Code)
 	}
 }
 
@@ -113,20 +112,6 @@ func TestHandleDirShortcutOpenTerminal_NotFound(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("handleDirShortcutOpenTerminal notfound status = %d, want 404", w.Code)
-	}
-}
-
-func TestHandleSetDefaultTerminal_InvalidJSON(t *testing.T) {
-	s := newTestServer(t)
-	mux := http.NewServeMux()
-	mux.HandleFunc("PUT /api/settings/default_terminal", s.handleSetDefaultTerminal)
-	body := strings.NewReader(`not json`)
-	req := httptest.NewRequest("PUT", "/api/settings/default_terminal", body)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("handleSetDefaultTerminal bad json status = %d, want 400", w.Code)
 	}
 }
 

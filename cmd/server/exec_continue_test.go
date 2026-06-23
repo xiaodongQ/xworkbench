@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
+	"github.com/xiaodongQ/xworkbench/internal/config"
 )
 
 // TestHandleExecutionContinue_CommandContainsPrompt 验证继续对话新 exec 的
@@ -17,9 +18,12 @@ import (
 //      claude -p ... --resume <uuid> "用户 prompt 摘要..."
 // 这个测试是回归保护：用户进 exec 详情看到命令 textarea 期望看到自己发的内容。
 func TestHandleExecutionContinue_CommandContainsPrompt(t *testing.T) {
+	if config.AppConfig == nil {
+		config.AppConfig = config.DefaultConfig()
+	}
 	s := newEvalTestServer(t)
-	defer func() { _ = s.setDB.Set("ai_loop_enabled", "") }()
-	_ = s.setDB.Set("ai_loop_enabled", "1")
+	defer func() { config.AppConfig.AILoopEnabled = false }()
+	config.AppConfig.AILoopEnabled = true
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/executions/{id}/continue", s.handleExecutionContinue)
 

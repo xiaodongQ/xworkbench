@@ -14,20 +14,24 @@ var AppConfig *Config
 // configFilePath 记录最近一次加载的配置文件路径，供 Save() 使用
 var configFilePath string
 
+// Config 全局应用配置（单一来源：config.json）
+//
+// 顶层字段为用户偏好（default_terminal / preferred_cli / ai_loop_enabled /
+// aichat_default_cli / todo_md_path / scheduler_enabled），改完 Save() 立即落盘。
+// nested 结构（terminal / models / relay）为部署级配置，类型/模型/认证密钥。
 type Config struct {
-	Terminal     TerminalConfig `json:"terminal"`
-	Models       ModelsConfig   `json:"models"`
-	Relay        RelayConfig    `json:"relay"`
-	AILoop       AILoopConfig   `json:"ai_loop"`
-	PreferredCLI string         `json:"preferred_cli,omitempty"` // claude | cbc；默认 claude
-}
+	// 用户偏好（顶层，单一来源；空值即未设）
+	DefaultTerminal  string `json:"default_terminal,omitempty"`
+	PreferredCLI     string `json:"preferred_cli,omitempty"` // claude | cbc；空=默认 claude
+	AILoopEnabled    bool   `json:"ai_loop_enabled"`
+	AichatDefaultCLI string `json:"aichat_default_cli,omitempty"` // codex/cbc/shell/claude
+	TodoMDPath       string `json:"todo_md_path,omitempty"`
+	SchedulerEnabled bool   `json:"scheduler_enabled"`
 
-// AILoopConfig 控制 AI 自治能力是否暴露
-//（run-loop / reevaluate / learn 三个后端能力）前端默认隐藏，
-//启用了才在 task-modal 里看到“AI 自治”区块。
-//三个位置可以控制：config.json → AppSettings（运行时热调，优先级：AppSettings > config.json）
-type AILoopConfig struct {
-	Enabled bool `json:"enabled"`
+	// 部署级配置
+	Relay    RelayConfig    `json:"relay"`
+	Terminal TerminalConfig `json:"terminal"`
+	Models   ModelsConfig   `json:"models"`
 }
 
 // SupportedCLIs 允许的 CLI 名（不区分大小写）
@@ -52,9 +56,8 @@ type RelayConfig struct {
 }
 
 type TerminalConfig struct {
-	DefaultType  string                      `json:"default_type"`  // 默认终端类型 key
-	DetectPaths map[string][]string         `json:"detect_paths"` // 检测路径列表
-	Types       map[string]TerminalTypeDef  `json:"types"`        // 终端类型定义
+	DetectPaths map[string][]string        `json:"detect_paths"` // 检测路径列表
+	Types       map[string]TerminalTypeDef `json:"types"`        // 终端类型定义
 }
 
 // TerminalTypeDef 终端类型定义
@@ -136,11 +139,28 @@ func loadFromFile(path string, cfg *Config) (*Config, error) {
 	return cfg, nil
 }
 
+// mergeConfig 把 src 合并到 dst；src 中零值字段不动 dst。
+// 注意：bool 字段（AILoopEnabled / SchedulerEnabled）必须显式写入，
+// 因为 false 也是合法值，不能用"src == 零值"判定"未设"。
 func mergeConfig(dst, src *Config) {
-	// terminal
-	if src.Terminal.DefaultType != "" {
-		dst.Terminal.DefaultType = src.Terminal.DefaultType
+	// 顶层用户偏好（字符串字段：空=未设，跳过合并）
+	if src.DefaultTerminal != "" {
+		dst.DefaultTerminal = src.DefaultTerminal
 	}
+	if src.PreferredCLI != "" {
+		dst.PreferredCLI = src.PreferredCLI
+	}
+	if src.AichatDefaultCLI != "" {
+		dst.AichatDefaultCLI = src.AichatDefaultCLI
+	}
+	if src.TodoMDPath != "" {
+		dst.TodoMDPath = src.TodoMDPath
+	}
+	// bool 字段：直接覆盖（false 也是合法值）
+	dst.AILoopEnabled = src.AILoopEnabled
+	dst.SchedulerEnabled = src.SchedulerEnabled
+
+	// terminal（无 default_type，仅 types + detect_paths）
 	for k, v := range src.Terminal.DetectPaths {
 		if len(v) > 0 {
 			dst.Terminal.DetectPaths[k] = v
@@ -157,8 +177,6 @@ func mergeConfig(dst, src *Config) {
 	if dst.Relay.APIKey == "" {
 		dst.Relay.APIKey = "xworkbench"
 	}
-	// ai_loop（false 为“未启用”）
-	dst.AILoop.Enabled = src.AILoop.Enabled
 
 	// models
 	for cliType, srcGroup := range src.Models {
@@ -198,8 +216,10 @@ func configPath() string {
 // DefaultConfig 返回默认配置（含完整终端类型定义和模型列表）
 func DefaultConfig() *Config {
 	return &Config{
+		DefaultTerminal:  "wezterm",
+		PreferredCLI:     "claude",
+		AichatDefaultCLI: "claude",
 		Terminal: TerminalConfig{
-			DefaultType: "wezterm",
 			DetectPaths: map[string][]string{
 				"wezterm": {"/Applications/WezTerm.app/Contents/MacOS/WezTerm"},
 			},

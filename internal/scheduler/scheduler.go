@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 	"github.com/xiaodongQ/xworkbench/internal/backend"
+	"github.com/xiaodongQ/xworkbench/internal/config"
 	"github.com/xiaodongQ/xworkbench/internal/executor"
 	"github.com/xiaodongQ/xworkbench/internal/executor/runner"
 	"github.com/xiaodongQ/xworkbench/internal/hub"
@@ -18,18 +19,14 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
-
-
-const schedulerEnabledKey = "scheduler.enabled"
-
 // Scheduler 进程内 cron 引擎，加载 DB 中 enabled=1 的 scheduled_tasks。
+// scheduler.enabled 状态存 config.json（顶层 scheduler_enabled 字段）。
 type Scheduler struct {
 	mu      sync.Mutex
 	cron    *cron.Cron
 	repo    *backend.ScheduledTaskRepo
 	execDB  *backend.ExecutionRepo
 	hub     *hub.Hub
-	settings *backend.AppSettingsRepo
 	running bool
 }
 
@@ -43,19 +40,9 @@ func New(repo *backend.ScheduledTaskRepo, execDB *backend.ExecutionRepo, h *hub.
 	}
 }
 
-// WithSettings 设置持久化 repo（用于自动启动/状态保存）。
-func (s *Scheduler) WithSettings(settings *backend.AppSettingsRepo) *Scheduler {
-	s.settings = settings
-	return s
-}
-
-// AutoStart 根据保存的状态自动启动调度器。
+// AutoStart 根据 config.json 的 scheduler_enabled 自动启动调度器。
 func (s *Scheduler) AutoStart() error {
-	if s.settings == nil {
-		return nil
-	}
-	val, err := s.settings.Get(schedulerEnabledKey)
-	if err != nil || val != "true" {
+	if config.AppConfig == nil || !config.AppConfig.SchedulerEnabled {
 		return nil
 	}
 	return s.Start()
@@ -78,9 +65,10 @@ func (s *Scheduler) Start() error {
 	s.running = true
 	s.mu.Unlock()
 	logger.Logger.Info("scheduler: started")
-	// 持久化状态
-	if s.settings != nil {
-		_ = s.settings.Set(schedulerEnabledKey, "true")
+	// 持久化状态到 config.json
+	if config.AppConfig != nil {
+		config.AppConfig.SchedulerEnabled = true
+		_ = config.Save()
 	}
 	s.hub.Broadcast(wsmsg.ChannelScheduler, map[string]any{"status": "running"})
 	return nil
@@ -97,9 +85,10 @@ func (s *Scheduler) Stop() {
 	<-ctx.Done()
 	s.running = false
 	logger.Logger.Info("scheduler: stopped")
-	// 持久化状态
-	if s.settings != nil {
-		_ = s.settings.Set(schedulerEnabledKey, "false")
+	// 持久化状态到 config.json
+	if config.AppConfig != nil {
+		config.AppConfig.SchedulerEnabled = false
+		_ = config.Save()
 	}
 	s.hub.Broadcast(wsmsg.ChannelScheduler, map[string]any{"status": "stopped"})
 }

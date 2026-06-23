@@ -66,10 +66,19 @@ async function fetchJSON(url, opts) {
 
 // 全局缓存系统设置：preferred_cli、ai_loop_enabled 等。
 // 页面加载时拉一次，后续使用 window._preferredCLI 等变量访问。
+// 同时同步"评估"下拉（eval-cli-select + eval-model-select），改 preferred_cli 后评估默认跟随。
 async function loadSystemSettings() {
   try {
-    const r = await fetchJSON(API + '/api/config/preferred-cli');
-    window._preferredCLI = r.value || 'claude';
+    const cfg = await fetchJSON(API + '/api/config');
+    window._preferredCLI = cfg.preferred_cli || 'claude';
+    // 同步评估下拉（如元素已存在）
+    const cliSel = document.getElementById('eval-cli-select');
+    if (cliSel) {
+      cliSel.value = window._preferredCLI;
+      // 先确保 CLI_MODELS 已加载，否则 buildModelOptions 返回空串清空 model select
+      if (typeof loadCLIModels === 'function') await loadCLIModels();
+      if (typeof onEvalCliChange === 'function') onEvalCliChange();
+    }
   } catch (e) {
     window._preferredCLI = 'claude';
   }

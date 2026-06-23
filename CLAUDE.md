@@ -38,26 +38,50 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 4. 配置体系(2026-06 重构后,记清)
 
-两套并存,**互不混用**:
+**单一来源**:所有用户偏好(以前散落在 SQLite `app_settings` 表)+ 部署配置都在 `./config.json`,**无 fallback 优先级链**。
 
 | 维度 | 存哪 | 改的入口 | 说明 |
 |---|---|---|---|
-| 终端类型 + 模型列表 | `./config.json` | `internal/config` (`Load/Save/LoadFromPath`) | 配置驱动,启动读;运行时改 → `PUT /api/config` 回写 |
-| 用户级 KV(`aichat_default_cli` / `default_terminal` / `todo_md_path` / `scheduler.enabled` / ...) | SQLite `app_settings` 表 | `internal/backend.AppSettingsRepo` | `GET /api/settings` / `PUT /api/settings/{key}` |
+| 终端类型 + 模型列表 + 全部用户偏好 | `./config.json` | `internal/config` (`Load/Save/LoadFromPath`) | 配置驱动,启动读;运行时改 → `PUT /api/config` 回写(单一入口,涵盖所有顶层字段) |
 | 路径/常量 | `internal/paths` | 编译期 | context 目录、data 目录、bin 目录的统一入口 |
 
-**重要**:`aichat_default_cli` 是 app_settings 里,**不在** config.json。前端 aichat.js 的 `loadCliSetting()` 走 `/api/settings` 拿。改 CLI 默认值要走 `PUT /api/settings/aichat_default_cli`,不是改 config.json。
+**顶层字段(用户偏好)**:
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `default_terminal` | string | 用户偏好的默认终端类型(原 `terminal.default_type` 升级到顶层) |
+| `preferred_cli` | string | 全局优先 CLI(`claude` / `cbc`),影响创建任务的默认 `command_type` |
+| `ai_loop_enabled` | bool | AI 自治能力开关(run-loop / reevaluate / learn 三个后端能力) |
+| `aichat_default_cli` | string | PTY 多 Tab 默认起哪个 CLI(codex/cbc/shell/claude) |
+| `todo_md_path` | string | todo widget 读取的 todo.md 文件路径 |
+| `scheduler_enabled` | bool | 调度器上次运行状态(`scheduler.enabled` 上移) |
+
+**部署级 nested 字段**:
+
+- `terminal.{detect_paths, types}` —— 终端类型定义 + 启动参数(`default_type` 已上移到顶层 `default_terminal`)
+- `models.{claude,cbc}.{default, options}` —— 模型列表 + 默认模型
+- `relay.api_key` —— 代理接口认证 token
+
+**重要**:以前散落在 SQLite `app_settings` 表的 6 个 key(`aichat_default_cli` / `default_terminal` / `preferred_cli` / `todo_md_path` / `ai_loop_enabled` / `scheduler.enabled`)全部移到 `config.json` 顶层。**不再有 AppSettings 优先级链**。
+
+**重要**:前端 aichat.js 的 `loadCliSetting()` 走 `/api/config`(不是 `/api/settings`)。改 CLI 默认值走 `PUT /api/config`(body: `{"aichat_default_cli":"claude"}`)。
 
 `config.json` 结构(`internal/config/config.go`):
 ```json
 {
+  "default_terminal": "wezterm",
+  "preferred_cli": "claude",
+  "ai_loop_enabled": false,
+  "aichat_default_cli": "claude",
+  "todo_md_path": "",
+  "scheduler_enabled": false,
+  "relay": { "api_key": "xworkbench" },
   "terminal": {
-    "default_type": "wezterm",
-    "detect_paths":  { "wezterm": ["/Applications/WezTerm.app/Contents/MacOS/WezTerm"] },
-    "types": { "wezterm": {"bin": "wezterm", "args": [...], "name": "WezTerm", "plate": "all", "path": "..."} }
+    "detect_paths": { "wezterm": [...] },
+    "types": { "wezterm": {...} }
   },
   "models": {
-    "claude": { "default": "sonnet", "options": [{"value":"sonnet","label":"..."}] },
+    "claude": { "default": "sonnet", "options": [...] },
     "cbc":    { "default": "glm-5.0", "options": [...] }
   }
 }
@@ -99,7 +123,7 @@ internal/
 └── relay/               # 2026-06 新增:Exec 命令执行 + HTTP 代理转发
 ```
 
-## 6. 数据模型(11 张表)
+## 6. 数据模型(10 张表)
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
@@ -109,7 +133,9 @@ internal/
 | `evaluations` | id, task_id, execution_id, evaluator_model, score, comments, created_at | AI 评估结果 |
 | `experiences` | id, module, scene, keywords, tool_usage, log_samples, code_snippets | 知识库 |
 | `scheduled_tasks` | id, name, cron_expr, command_type, model, prompt, enabled, last_run_at, last_status | 定时任务 |
-| `web_links` / `dir_shortcuts` / `app_settings` / `app_meta` / `skill_versions` | | |
+| `web_links` / `dir_shortcuts` / `app_meta` / `skill_versions` | | |
+
+**注**:`app_settings` 表已于 2026-06 重构时移除。所有用户偏好(`aichat_default_cli` / `default_terminal` / `preferred_cli` / `todo_md_path` / `ai_loop_enabled` / `scheduler.enabled`)全部迁至 `config.json` 顶层字段。SQLite 表数从 11 降到 10。
 
 字段迁移:`InitSchema` 内 `migrateTasksColumns` 用 `PRAGMA table_info` 探测后 `ALTER TABLE ADD COLUMN`,旧 db 不丢数据。
 
@@ -163,7 +189,7 @@ BuildCommand(typ, model, sessionID, prompt) ([]string, error)
 
 `WithActionReport()`:给 claude/cbc prompt 末尾追加"动作清单"格式要求(便于 evaluator 验证是否真调了工具)。**evaluator 不传**,否则自指。
 
-`determineAICmd`(`pty.go`)根据 `aichat_default_cli` 决定 PTY 起哪个 CLI(codex/cbc/shell/claude)。
+`determineAICmd`(`pty.go`)根据 `config.AppConfig.AichatDefaultCLI` 决定 PTY 起哪个 CLI(codex/cbc/shell/claude)。
 
 ## 10. 关键约定
 
@@ -242,9 +268,10 @@ E2E_BASE_URL=http://x:9001 ./scripts/e2e.sh fast   # 跑远端 server
 - 加新字段到现有表:用 `migrateTasksColumns` 模式(`PRAGMA table_info` 探测后 `ALTER TABLE ADD COLUMN`)
 
 ### 改配置项
-- **终端类型 / 模型**:改 `config.json` 即可,启动时 `internal/config.Load` 加载,前端 `loadCLIModels()` 拉 `/api/models` 拿
-- **用户级 KV**(`aichat_default_cli` 等):改 `app_settings` 表,前端 `PUT /api/settings/{key}`
-- **新增配置项类型**:在 `internal/config/config.go` 加 struct 字段 + `Save()` 反序列化逻辑
+所有配置(用户偏好 + 部署配置)统一走 `config.json`,无 fallback 链。
+- **顶层偏好**(`default_terminal` / `preferred_cli` / `ai_loop_enabled` / `aichat_default_cli` / `todo_md_path` / `scheduler_enabled`):改 `config.json` 即可,启动时 `internal/config.Load` 加载,前端走 `GET/PUT /api/config`
+- **部署级 nested**(`terminal.*` / `models.*` / `relay.api_key`):同上,改 `config.json`
+- **新增配置项**:在 `internal/config/config.go` 的 `Config` struct 加字段 + 同步 `DefaultConfig()` 默认值 + `mergeConfig()` 合并规则;bool 字段默认 `false` 也是合法值,merge 必须直接覆盖(不能用"零值跳过"模式)
 
 ### 加新 Tab
 1. `index.html` 加 `<div id="page-xxx" class="hidden">...</div>` 和侧边栏 nav-item
@@ -260,7 +287,7 @@ E2E_BASE_URL=http://x:9001 ./scripts/e2e.sh fast   # 跑远端 server
 4. **evaluator 不传 WithActionReport()**: 评估员不该自报清单,否则自指。
 5. **prompt 注入 markdown 限制**:raw string literal 不能用 \` 转义反引号,要么用 `'` 替代,要么 string concat。
 6. **static 文件 embed**:`//go:embed index.html static` 编译时打包进二进制。改完前端代码必须 `./scripts/build.sh` 重新编译,光 go run 不行(开发用 `go run` 也是 embed 当前目录的)。
-7. **aichat_default_cli 不在 config.json**:见 §4。改 CLI 默认走 `PUT /api/settings/aichat_default_cli`。
+7. ~~**aichat_default_cli 不在 config.json**~~:已迁移,所有偏好(包含 `aichat_default_cli`)都在 `config.json` 顶层,改走 `PUT /api/config`(body: `{"aichat_default_cli":"claude"}`)。`/api/settings/*` 路由已全部移除。
 8. **PTY 跨平台**:macOS/Linux 真 PTY(`creack/pty`),Windows ConPTY stub 返回 503。`pty.go` 用 `//go:build !windows` 隔离,`pty_windows.go` 是 stub。
 9. **gofmt 一定要跑**:Go 1.25 工具链强约束,CI 会卡。
 

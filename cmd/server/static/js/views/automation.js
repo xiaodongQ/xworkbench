@@ -126,14 +126,12 @@ function schedulerStart() { fetch('/api/scheduler/start', {method:'POST'}).then(
 function schedulerStop() { fetch('/api/scheduler/stop', {method:'POST'}).then(() => { loadScheduler(); }); }
 
 // ===== AI 自治能力开关（UI 入口：高级设置弹窗）=====
-// 后端：AppSettings (ai_loop_enabled) > config.json (ai_loop.enabled) > 默认 false
-// 页面只能改 AppSettings（运行时热调）；config.json 需要手动编辑重启。
-// 从设置页 toggle 后会刷 task-modal 上的 AI 自治区块可见性。
+// 单一来源：config.json（ai_loop_enabled 顶层字段）
+// 页面改完 PUT /api/config 即落盘；下次进入会保持。
 async function loadAILoopStatus() {
   try {
     const resp = await fetchJSON('/api/ai-loop/status');
     const enabled = !!resp.enabled;
-    const source = resp.source || 'default';
     // 1. 同步 widget 状态
     const checkbox = document.getElementById('ailoop-toggle');
     if (checkbox) checkbox.checked = enabled;
@@ -143,16 +141,13 @@ async function loadAILoopStatus() {
       badge.style.background = enabled ? '#10b981' : '#6b7280';
     }
     const srcEl = document.getElementById('ailoop-source');
-    if (srcEl) {
-      const label = {default: '默认', 'config.json': '位置文件', app_settings: '设置页'}[source] || source;
-      srcEl.textContent = '· 来源：' + label;
-    }
+    if (srcEl) srcEl.textContent = '· 来源：config.json';
     // 2. 同步 task-modal 的 AI 自治区块（如果 modal 打开着）
     const section = document.getElementById('ai-loop-section');
     if (section) {
       section.classList.toggle('hidden', !enabled);
       const srcBadge = document.getElementById('ai-loop-source-badge');
-      if (srcBadge) srcBadge.textContent = enabled ? '(' + source + ')' : '';
+      if (srcBadge) srcBadge.textContent = enabled ? '(config.json)' : '';
     }
     return enabled;
   } catch (e) {
@@ -163,10 +158,10 @@ async function loadAILoopStatus() {
 
 async function toggleAILoop(checked) {
   try {
-    await fetchJSON('/api/settings/ai_loop_enabled', {
+    await fetchJSON('/api/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: checked ? '1' : '0' }),
+      body: JSON.stringify({ ai_loop_enabled: checked }),
     });
     await loadAILoopStatus();
   } catch (e) {

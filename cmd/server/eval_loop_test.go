@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
+	"github.com/xiaodongQ/xworkbench/internal/config"
 	"go.uber.org/zap"
 )
 
@@ -23,18 +24,19 @@ func newEvalTestServer(t *testing.T) *APIServer {
 		z, _ := zap.NewProduction()
 		logger = z.Sugar()
 	}
-	// AI 自治能力默认开启，以便 run-loop/reevaluate/learn 现有测试能走完整逻辑。
-	// 如果某个测试需要验证“未启用返 403”路径，应跳过 helper 默认开（手设 setDB）。
+	// AI 自治能力默认开启（config.json 单一来源），以便 run-loop/reevaluate/learn
+	// 现有测试能走完整逻辑。如某个测试需要验证"未启用返 403"路径，单独重设 config.AppConfig。
+	if config.AppConfig == nil {
+		config.AppConfig = config.DefaultConfig()
+	}
+	config.AppConfig.AILoopEnabled = true
 	s := &APIServer{
 		db:      backend.NewTaskRepo(db),
-		setDB:   backend.NewAppSettingsRepo(db),
 		dirDB:   backend.NewDirShortcutRepo(db),
 		schedDB: backend.NewScheduledTaskRepo(db),
 		execDB:  backend.NewExecutionRepo(db),
 		evalDB:  backend.NewEvaluationRepo(db),
 	}
-	// AI 自治能力默认开启（3 个 handler 走完整逻辑）
-	_ = s.setDB.Set("ai_loop_enabled", "1")
 	// running map 默认初始化（continue/evaluate 类 handler 会用）
 	s.running = map[string]context.CancelFunc{}
 	return s

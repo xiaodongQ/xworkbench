@@ -60,13 +60,13 @@ func DetectTerminalPath(termType string) string {
 	return ""
 }
 
-// DefaultTerminal 返回配置的默认终端类型
+// DefaultTerminal 返回配置的默认终端类型（顶层字段，不再位于 terminal.default_type）
 func DefaultTerminal() string {
 	cfg := config.AppConfig
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
-	return cfg.Terminal.DefaultType
+	return cfg.DefaultTerminal
 }
 
 // OpenRemoteDirShortcut 用配置的终端软件打开远程 SSH 连接。

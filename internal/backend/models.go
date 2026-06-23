@@ -164,7 +164,7 @@ type DirShortcut struct {
 	AuthMethod     string `json:"auth_method,omitempty"`    // "password" | "key"，默认 "password"
 	KeyPath        string `json:"key_path,omitempty"`       // 私钥路径（AuthMethod=key 时使用）
 	// 本地终端配置
-	TerminalCmd    string `json:"terminal_cmd,omitempty"`   // 启动终端的命令，默认从 AppSettings 读取
+	TerminalCmd    string `json:"terminal_cmd,omitempty"`   // 启动终端的命令（per-shortcut 字段，存 DB）
 	CreatedAt      time.Time  `json:"created_at"`
 	LastAccessedAt *time.Time `json:"last_accessed_at,omitempty"`
 }

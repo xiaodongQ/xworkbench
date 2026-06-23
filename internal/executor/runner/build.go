@@ -160,7 +160,7 @@ func CmdStringWithPrompt(cmd []string, prompt string) string {
 	if prompt == "" {
 		return s
 	}
-	const maxLen = 120
+	const maxLen = 1000
 	truncated := strings.ReplaceAll(prompt, "\n", " ")
 	if len([]rune(truncated)) > maxLen {
 		truncated = string([]rune(truncated)[:maxLen]) + "..."

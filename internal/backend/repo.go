@@ -148,11 +148,8 @@ func InitSchema(db *sql.DB) error {
 		last_execution_id TEXT,
 		created_at DATETIME
 	);
-	CREATE TABLE IF NOT EXISTS app_settings (
-		key TEXT PRIMARY KEY,
-		value TEXT NOT NULL,
-		updated_at DATETIME
-	);
+	-- 注:app_settings 表于 2026-06 重构移除,所有 KV 偏好已迁至 config.json 顶层字段
+	-- 老 DB 里残留的 app_settings 表会被忽略,不再使用
 	CREATE TABLE IF NOT EXISTS app_meta (
 		key TEXT PRIMARY KEY,
 		value TEXT NOT NULL
@@ -1719,51 +1716,6 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
-}
-
-// ===== AppSettingsRepo =====
-
-type AppSettingsRepo struct{ db *sql.DB }
-
-func NewAppSettingsRepo(db *sql.DB) *AppSettingsRepo { return &AppSettingsRepo{db: db} }
-
-func (r *AppSettingsRepo) Get(key string) (string, error) {
-	var v string
-	err := r.db.QueryRow(`SELECT value FROM app_settings WHERE key=?`, key).Scan(&v)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return v, err
-}
-
-func (r *AppSettingsRepo) Set(key, value string) error {
-	now := time.Now()
-	_, err := r.db.Exec(`INSERT INTO app_settings (key,value,updated_at) VALUES (?,?,?)
-	        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
-		key, value, now)
-	if err != nil {
-		logger.Logger.Errorw("[app_settings] set failed", "key", key, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[app_settings] set", "key", key)
-	return nil
-}
-
-func (r *AppSettingsRepo) All() (map[string]string, error) {
-	rows, err := r.db.Query(`SELECT key, value FROM app_settings`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	m := map[string]string{}
-	for rows.Next() {
-		var k, v string
-		if err := rows.Scan(&k, &v); err != nil {
-			return nil, err
-		}
-		m[k] = v
-	}
-	return m, rows.Err()
 }
 
 // ===== EvaluationRepo =====

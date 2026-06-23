@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/x/xpty"
 	"github.com/gorilla/websocket"
+	"github.com/xiaodongQ/xworkbench/internal/config"
 )
 
 var upgrader = websocket.Upgrader{
@@ -38,7 +39,10 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 	logger.Infof("pty: ws upgraded tab_id=%q", tabID)
 
-	cliType, _ := s.setDB.Get("aichat_default_cli")
+	cliType := ""
+	if config.AppConfig != nil {
+		cliType = config.AppConfig.AichatDefaultCLI
+	}
 	if cliType == "" {
 		cliType = "claude"
 	}
