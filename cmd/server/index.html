@@ -456,14 +456,26 @@
       .relay-panel .panel-doc { margin-top: 12px; font-size: 11px; user-select: none; }
       .relay-panel .panel-doc-toggle { color: var(--text-secondary); cursor: pointer; }
       .relay-panel .panel-doc-body { display: none; margin-top: 8px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px; font-size: 11px; line-height: 1.6; max-height: 240px; overflow-y: auto; }
+      /* 黑色主题：panel 改用主题色 10% 透明作为底色 + 边框保留 + 文字用主题 primary */
+      [data-theme="dark"] .relay-panel.exec { background: rgba(251, 146, 60, 0.1); border-color: #fb923c; }
+      [data-theme="dark"] .relay-panel.http { background: rgba(96, 165, 250, 0.1); border-color: #60a5fa; }
+      [data-theme="dark"] .relay-panel .panel-desc { color: var(--text-primary); }
+      [data-theme="dark"] .relay-panel .panel-doc-toggle { color: var(--text-primary); }
+      [data-theme="dark"] .relay-panel.exec .panel-title { color: #fb923c; }
+      [data-theme="dark"] .relay-panel.http .panel-title { color: #60a5fa; }
+      [data-theme="dark"] .relay-panel label { color: var(--text-primary); }
+      [data-theme="dark"] .relay-panel .panel-doc-body { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
       .relay-panel .panel-doc.open .panel-doc-body { display: block; }
       .relay-panel .result-box { margin-top: 10px; padding: 10px; border-radius: 4px; background: rgba(0,0,0,0.05); font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow-y: auto; display: none; font-family: monospace; }
       .relay-panel .form-row { display: flex; gap: 10px; margin-top: 8px; }
       .relay-panel .form-row > div { flex: 1; }
-      .relay-panel .form-row > div:first-child { flex: 0 0 200px; }
-      .relay-panel.http .form-row > div:first-child { flex: 0 0 100px; }
+      .relay-panel .form-row > div:first-child { flex: 0 0 150px; }
       .relay-panel .form-row > div:nth-child(2) { flex: 0 0 150px; }
-      .relay-panel button.primary { width: 100%; margin-top: 4px; }
+      .relay-panel .form-spacer { flex: 1; min-height: 16px; }
+      .relay-panel button.primary { width: 100%; }
+      /* 让两个 panel 等高时按钮对齐底部：panel 改 flex column，form 区域占满剩余空间，spacer 撑开 form-row 与 button 间距 */
+      .relay-panel { display: flex; flex-direction: column; }
+      .relay-panel > div:nth-child(3) { display: flex; flex-direction: column; flex: 1; }
     </style>
 
     <div class="relay-grid">
@@ -509,6 +521,7 @@
               <input id="exec-timeout" type="number" value="30000" style="padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card)">
             </div>
           </div>
+          <div class="form-spacer"></div>
           <button class="btn btn-primary primary" onclick="runExec()" style="background:#ea580c;border-color:#ea580c">▶ 执行</button>
         </div>
         <div id="exec-result" class="result-box"></div>
@@ -563,6 +576,7 @@
               <input id="proxy-timeout" type="number" value="30000" style="padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card)">
             </div>
           </div>
+          <div class="form-spacer"></div>
           <button class="btn btn-primary primary" onclick="runProxy()" style="background:#2563eb;border-color:#2563eb">▶ 转发</button>
         </div>
         <div id="proxy-result" class="result-box"></div>
