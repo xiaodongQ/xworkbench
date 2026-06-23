@@ -149,7 +149,7 @@ function renderTaskTable(list) {
     <thead><tr>
       <th class="col-title" style="text-align:left">标题</th>
       <th class="col-status" style="cursor:pointer" onclick="setTaskSort('status')">状态${sortIcon('status')}</th>
-      <th>类型</th>
+      <th class="col-type">类型</th>
       <th class="col-time" style="cursor:pointer" onclick="setTaskSort('created_at')">创建时间${sortIcon('created_at')}</th>
       <th class="col-ops" style="text-align:left">操作</th>
     </tr></thead>
@@ -165,7 +165,7 @@ function renderTaskTable(list) {
           </span>
         </td>
         <td class="col-status">${statusTag(t.status)}</td>
-        <td>${taskTypeTag(t.task_type)}</td>
+        <td class="col-type">${taskTypeTag(t.task_type)}</td>
         <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
         <td class="col-ops" style="display:flex;align-items:center;gap:4px">
           <button class="btn btn-secondary btn-small" onclick="viewTask('${t.id}')">查看</button>
