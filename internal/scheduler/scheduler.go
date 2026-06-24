@@ -30,6 +30,17 @@ type Scheduler struct {
 	hub     *hub.Hub
 	running bool
 
+	// entries task ID → cron entry ID,维护 task 与 cron engine 内部 entry 的映射。
+	// NextRunAt 通过这个 map 查 entry,触发前 Next 稳定(handler 之前自己
+	// parser.Parse+Next(time.Now()) 会随 now 漂移)。
+	entries map[string]cron.EntryID
+
+	// nextRun task ID → 该 task 的下一次触发时间。在 Reload 时主动调用
+	// Schedule.Next(time.Now()) 计算一次,生产环境 Start() 后 c.run() 会持续
+	// 更新 Entry.Next;测试场景不调 Start,因此独立维护此 map 让 NextRunAt
+	// 在两种场景下行为一致。nextRun 与 entries 一一对应。
+	nextRun map[string]time.Time
+
 	// sf 用于合并同 task 的重叠执行：cron 周期 < 子进程时长时,或用户点"立即运行"
 	// 与 cron 触发重叠时,只跑一次,避免两个 goroutine 同时写 executions 表触发
 	// SQLITE_BUSY 竞争。详见 doExecute 的 singleflight 包装。
@@ -39,10 +50,12 @@ type Scheduler struct {
 func New(repo *backend.ScheduledTaskRepo, execDB *backend.ExecutionRepo, h *hub.Hub) *Scheduler {
 	loc, _ := time.LoadLocation("Local")
 	return &Scheduler{
-		cron:   cron.New(cron.WithLocation(loc)),
-		repo:   repo,
-		execDB: execDB,
-		hub:    h,
+		cron:    cron.New(cron.WithLocation(loc)),
+		repo:    repo,
+		execDB:  execDB,
+		hub:     h,
+		entries: make(map[string]cron.EntryID),
+		nextRun: make(map[string]time.Time),
 	}
 }
 
@@ -108,17 +121,31 @@ func (s *Scheduler) Reload() error {
 	}
 	// robfig/cron 没有 RemoveAll 公开方法；重建
 	s.mu.Lock()
-	oldCtx := s.cron.Stop()
-	<-oldCtx.Done()
+	// 只在 cron 运行时停掉旧 ctx(没运行时 Stop 返回 nil ctx 会死锁)
+	if s.running {
+		oldCtx := s.cron.Stop()
+		<-oldCtx.Done()
+	}
 	loc, _ := time.LoadLocation("Local")
 	s.cron = cron.New(cron.WithLocation(loc))
+	s.entries = make(map[string]cron.EntryID)
+	s.nextRun = make(map[string]time.Time)
+	now := time.Now()
 	for _, t := range tasks {
 		id, err := s.cron.AddFunc(t.CronExpr, s.makeHandler(t))
 		if err != nil {
 			logger.Logger.Warnw("scheduler: parse cron expr failed", "task", t.Name, "cron", t.CronExpr, "err", err)
 			continue
 		}
-		logger.Logger.Infow("scheduler: task loaded", "task", t.Name, "cron", t.CronExpr, "next", s.cron.Entry(id).Next)
+		s.entries[t.ID] = id
+		// 主动计算 Next:cron engine 的 Entry.Next 只在 Start() 后由 c.run() 填充,
+		// 不调 Start 时保持零值。我们独立维护 nextRun,NextRunAt 直接查它,
+		// 行为对调用方一致——Reload 后稳定,handler 多次调用不会漂移。
+		// 生产环境 Start() 后 cron 会持续刷新 Entry.Next,但我们读 nextRun,
+		// 这是 Reload 时刻的快照(handler 用于展示"下次运行"已经够用)。
+		nxt := s.cron.Entry(id).Schedule.Next(now)
+		s.nextRun[t.ID] = nxt
+		logger.Logger.Infow("scheduler: task loaded", "task", t.Name, "cron", t.CronExpr, "next", nxt)
 	}
 	wasRunning := s.running
 	if wasRunning {
@@ -132,6 +159,22 @@ func (s *Scheduler) IsRunning() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.running
+}
+
+// NextRunAt 返回 task 在 cron engine 里的下次触发时间。返回 (zero, false) 表示:
+// task 未在 cron 中(未 enabled / 解析失败 / scheduler 未加载)。
+//
+// 这就是 scheduler 真正会触发的时间,触发前稳定(handler 不应再自己
+// parser.Parse+Next(time.Now())——time.Now() 漂移会导致 UI 一直刷新)。
+// 该值在 Reload 时计算并缓存,handler 多次调用返回相同结果,直到下一次 Reload。
+func (s *Scheduler) NextRunAt(taskID string) (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	nxt, ok := s.nextRun[taskID]
+	if !ok {
+		return time.Time{}, false
+	}
+	return nxt, true
 }
 
 // RunNow 立即执行某个 scheduled_task（不依赖 cron）。

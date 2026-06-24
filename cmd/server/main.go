@@ -17,7 +17,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/robfig/cron/v3"
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
 	"github.com/xiaodongQ/xworkbench/internal/evaluator"
@@ -1644,19 +1643,13 @@ func (s *APIServer) handleScheduledList(w http.ResponseWriter, r *http.Request) 
 	if list == nil {
 		list = []*backend.ScheduledTask{}
 	}
-	// 注入下次执行时间（仅 enabled 任务）。复用 robfig/cron，与调度器同一 parser。
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
-	now := time.Now()
+	// 注入下次执行时间：走 scheduler 内部 entry.Next()（触发前稳定），
+	// 不用 handler 现场 Parse+Next(time.Now())——后者会随 now 漂移导致 UI 一直刷新。
+	// 拿不到（未 enabled / 解析失败 / scheduler 未加载）时留 nil,前端不显示。
 	for _, t := range list {
-		if !t.Enabled {
-			continue
+		if nxt, ok := s.sch.NextRunAt(t.ID); ok {
+			t.NextRunAt = &nxt
 		}
-		sched, err := parser.Parse(t.CronExpr)
-		if err != nil {
-			continue // 解析失败留 nil，不阻断整列表
-		}
-		nxt := sched.Next(now)
-		t.NextRunAt = &nxt
 	}
 	writeJSON(w, list)
 }
