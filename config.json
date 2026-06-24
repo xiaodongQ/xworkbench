@@ -115,6 +115,7 @@
   "models": {
     "cbc": {
       "default": "glm-4.7",
+      "eval_default": "glm-5.0",
       "options": [
         {
           "value": "glm-5.1",
@@ -172,6 +173,7 @@
     },
     "claude": {
       "default": "sonnet",
+      "eval_default": "haiku",
       "options": [
         {
           "value": "haiku",

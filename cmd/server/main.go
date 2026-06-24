@@ -991,11 +991,7 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if req.Model == "" {
-		if group, ok := config.AppConfig.Models[req.CliType]; ok && group.Default != "" {
-			req.Model = group.Default
-		} else {
-			req.Model = "sonnet"
-		}
+		req.Model = evalDefaultModel(req.CliType)
 	}
 	if req.TimeoutSec <= 0 {
 		req.TimeoutSec = 120
@@ -1049,11 +1045,7 @@ func (s *APIServer) handleExecutionEvaluateChain(w http.ResponseWriter, r *http.
 		}
 	}
 	if req.Model == "" {
-		if group, ok := config.AppConfig.Models[req.CliType]; ok && group.Default != "" {
-			req.Model = group.Default
-		} else {
-			req.Model = "sonnet"
-		}
+		req.Model = evalDefaultModel(req.CliType)
 	}
 	if req.TimeoutSec <= 0 {
 		req.TimeoutSec = 120
@@ -1543,9 +1535,10 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 		TodoMDPath       *string `json:"todo_md_path,omitempty"`
 		SchedulerEnabled *bool   `json:"scheduler_enabled,omitempty"`
 		// 部署级
-		TerminalType  string            `json:"terminal_type"`
-		TerminalPath  string            `json:"terminal_path"`
-		ModelDefaults map[string]string `json:"model_defaults"` // cli_type -> default model
+		TerminalType      string            `json:"terminal_type"`
+		TerminalPath      string            `json:"terminal_path"`
+		ModelDefaults     map[string]string `json:"model_defaults"`     // cli_type -> 执行默认 model
+		EvalModelDefaults map[string]string `json:"eval_model_defaults"` // cli_type -> 评估默认 model
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -1617,6 +1610,15 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 		for cliType, model := range req.ModelDefaults {
 			if group, ok := cfg.Models[cliType]; ok {
 				group.Default = model
+				cfg.Models[cliType] = group
+				changed = true
+			}
+		}
+	}
+	if req.EvalModelDefaults != nil {
+		for cliType, model := range req.EvalModelDefaults {
+			if group, ok := cfg.Models[cliType]; ok {
+				group.EvalDefault = model
 				cfg.Models[cliType] = group
 				changed = true
 			}
@@ -2053,6 +2055,23 @@ func errStr(err error) string {
 	return err.Error()
 }
 
+// evalDefaultModel 评估入口 model 为空时的 fallback 链。
+// 优先级：Models[cli].EvalDefault（评估专用）→ Models[cli].Default（执行默认）→ "sonnet"
+// 注：调用方应先保证 cliType 非空（已 fallback 到 PreferredCLI/"claude"）。
+func evalDefaultModel(cliType string) string {
+	if config.AppConfig != nil {
+		if group, ok := config.AppConfig.Models[cliType]; ok {
+			if group.EvalDefault != "" {
+				return group.EvalDefault
+			}
+			if group.Default != "" {
+				return group.Default
+			}
+		}
+	}
+	return "sonnet"
+}
+
 // extractResumeSessionID 从 claude -p / cbc -p --output-format json 输出中解析 session_id/sessionId。
 //
 // claude 2.x 输出是 JSON 事件流（多 event 数组），有 session_id 字段：
@@ -2310,11 +2329,7 @@ func (s *APIServer) handleTaskReevaluate(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	if req.Model == "" {
-		if group, ok := config.AppConfig.Models[req.CliType]; ok && group.Default != "" {
-			req.Model = group.Default
-		} else {
-			req.Model = "haiku"
-		}
+		req.Model = evalDefaultModel(req.CliType)
 	}
 	execs, err := s.execDB.ListByTask(id, 1)
 	if err != nil || len(execs) == 0 {

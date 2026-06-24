@@ -32,6 +32,15 @@ function onEvalCliChange() {
   const cli = document.getElementById('eval-cli-select').value;
   const modelSel = document.getElementById('eval-model-select');
   modelSel.innerHTML = buildModelOptions(cli);
+  // 切 CLI 后用评估默认初始化（eval_default → default 兜底）
+  const defaultModel = getEvalDefaultModel(cli);
+  if (defaultModel && modelSel.querySelector('option[value="' + defaultModel + '"]')) {
+    modelSel.value = defaultModel;
+  }
+  // model 切换时保存为评估默认
+  modelSel.onchange = () => {
+    if (cli !== 'shell') saveEvalDefaultModel(cli, modelSel.value);
+  };
 }
 
 window.getRefreshSeconds = function() {

@@ -73,8 +73,9 @@ type TerminalTypeDef struct {
 type ModelsConfig map[string]ModelGroup
 
 type ModelGroup struct {
-	Default string        `json:"default"`
-	Options []ModelOption `json:"options"`
+	Default     string        `json:"default"`               // 任务执行默认模型
+	EvalDefault string        `json:"eval_default,omitempty"` // 评估默认模型（未设则 fallback 到 Default）
+	Options     []ModelOption `json:"options"`
 }
 
 type ModelOption struct {
@@ -184,6 +185,10 @@ func mergeConfig(dst, src *Config) {
 		if srcGroup.Default != "" {
 			dstGroup.Default = srcGroup.Default
 		}
+		// eval_default 留空表示"未设"，merge 时跳过（保留 dst 的值或留空）
+		if srcGroup.EvalDefault != "" {
+			dstGroup.EvalDefault = srcGroup.EvalDefault
+		}
 		if len(srcGroup.Options) > 0 {
 			dstGroup.Options = srcGroup.Options
 		}
@@ -239,12 +244,12 @@ func DefaultConfig() *Config {
 			APIKey: "xworkbench",
 		},
 		Models: ModelsConfig{
-			"claude": {Default: "sonnet", Options: []ModelOption{
+			"claude": {Default: "sonnet", EvalDefault: "haiku", Options: []ModelOption{
 				{Value: "haiku", Label: "haiku（快+便宜）"},
 				{Value: "sonnet", Label: "sonnet（推荐 · 准确）"},
 				{Value: "opus", Label: "opus（最强 · 贵）"},
 			}},
-			"cbc": {Default: "glm-5.1", Options: []ModelOption{
+			"cbc": {Default: "glm-5.1", EvalDefault: "glm-5.0", Options: []ModelOption{
 				{Value: "glm-5.1", Label: "GLM-5.1（x1.06）"},
 				{Value: "glm-5.0", Label: "GLM-5.0（x0.80）"},
 				{Value: "glm-5.0-turbo", Label: "GLM-5.0-Turbo（x0.95）"},

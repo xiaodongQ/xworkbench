@@ -43,6 +43,14 @@ function getDefaultModel(cliType) {
   return (group && group.default) ? group.default : '';
 }
 
+// getEvalDefaultModel 评估默认模型：eval_default → default → ''
+function getEvalDefaultModel(cliType) {
+  if (!CLI_MODELS) return '';
+  const group = CLI_MODELS[cliType] || CLI_MODELS.claude;
+  if (!group) return '';
+  return group.eval_default || group.default || '';
+}
+
 async function saveDefaultModel(cliType, model) {
   try {
     await fetchJSON('/api/config', {
@@ -55,6 +63,20 @@ async function saveDefaultModel(cliType, model) {
     }
   } catch (e) {
     console.warn('保存默认模型失败:', e);
+  }
+}
+
+async function saveEvalDefaultModel(cliType, model) {
+  try {
+    await fetchJSON('/api/config', {
+      method: 'PUT',
+      body: JSON.stringify({ eval_model_defaults: { [cliType]: model } }),
+    });
+    if (CLI_MODELS && CLI_MODELS[cliType]) {
+      CLI_MODELS[cliType].eval_default = model;
+    }
+  } catch (e) {
+    console.warn('保存评估默认模型失败:', e);
   }
 }
 
