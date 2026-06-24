@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/robfig/cron/v3"
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
 	"github.com/xiaodongQ/xworkbench/internal/evaluator"
@@ -1642,6 +1643,20 @@ func (s *APIServer) handleScheduledList(w http.ResponseWriter, r *http.Request) 
 	}
 	if list == nil {
 		list = []*backend.ScheduledTask{}
+	}
+	// 注入下次执行时间（仅 enabled 任务）。复用 robfig/cron，与调度器同一 parser。
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+	now := time.Now()
+	for _, t := range list {
+		if !t.Enabled {
+			continue
+		}
+		sched, err := parser.Parse(t.CronExpr)
+		if err != nil {
+			continue // 解析失败留 nil，不阻断整列表
+		}
+		nxt := sched.Next(now)
+		t.NextRunAt = &nxt
 	}
 	writeJSON(w, list)
 }

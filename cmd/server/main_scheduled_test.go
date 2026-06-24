@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
-	"github.com/xiaodongQ/xworkbench/internal/config"
 )
 
 // TestHandleScheduledList_NextRunAt_Enabled 验证 enabled 任务的 next_run_at 被注入且为未来时间。
@@ -52,7 +51,4 @@ func TestHandleScheduledList_NextRunAt_Enabled(t *testing.T) {
 	if d := time.Until(*got.NextRunAt); d < 0 || d > 6*time.Minute {
 		t.Errorf("NextRunAt in %v; want within 0..6min from now", d)
 	}
-
-	// 用 config 防止其他测试污染
-	_ = config.AppConfig
 }
