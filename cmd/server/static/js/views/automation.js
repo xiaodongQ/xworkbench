@@ -246,7 +246,7 @@ async function loadScheduled() {
   el.innerHTML = `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th>最近执行</th><th>操作</th></tr></thead><tbody>` + list.map(s => {
     const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
     const nextRun = (s.enabled && s.next_run_at)
-      ? `<div style="font-size:10px;color:var(--text-secondary);margin-top:2px">下次 ${esc(new Date(s.next_run_at).toLocaleString())}</div>`
+      ? `<div style="font-size:10px;color:var(--info);margin-top:2px">⏰ 下次 ${esc(new Date(s.next_run_at).toLocaleString())}</div>`
       : '';
     const baseStatus = s.last_status || 'pending';
     // running 检测：last_execution_id 对应的 execution 没有 completed_at
