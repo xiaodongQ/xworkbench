@@ -377,21 +377,32 @@ async function loadRecentExecutions() {
       return;
     }
     // 按 resume_uuid 分组：同 session 的所有 execution 归为一条展示
-    // 规则：resume_uuid == id 的是根节点（显示为一行，含子项折叠）；resume_uuid != "" && != id 的是子节点
-    const groupMap = {}; // resume_uuid -> { root: exec, children: [] }
-    const topLevel = []; // 没有 resume_uuid 或 resume_uuid == id 的
+    // 规则：同 session 链中 started_at 最早的 execution 是根节点（显示为一行，含子项折叠）；其余是子节点
+    // 注意：resume_uuid 是 claude session_id，不是 execution id，不能用 `resume_uuid === id` 判断
+    const rootBySession = {}; // resume_uuid -> earliest exec (root)
+    for (const e of list) {
+      if (!e.resume_uuid) continue;
+      const cur = rootBySession[e.resume_uuid];
+      if (!cur || new Date(e.started_at) < new Date(cur.started_at)) {
+        rootBySession[e.resume_uuid] = e;
+      }
+    }
+    const isRoot = (e) => !!e.resume_uuid && rootBySession[e.resume_uuid]?.id === e.id;
+    const groupMap = {}; // root_exec_id -> { root: exec, children: [] }
+    const topLevel = []; // 没有 resume_uuid 的独立行 + 各 session 根节点
     for (const e of list) {
       if (!e.resume_uuid) {
         // 独立 execution，无分组
         topLevel.push(e);
-      } else if (e.resume_uuid === e.id) {
-        // 自己是根节点
+      } else if (isRoot(e)) {
+        // 自己是 session 根节点
         groupMap[e.id] = { root: e, children: [] };
         topLevel.push(e);
       } else {
         // 是某根节点的子节点
-        if (groupMap[e.resume_uuid]) {
-          groupMap[e.resume_uuid].children.push(e);
+        const root = rootBySession[e.resume_uuid];
+        if (root && groupMap[root.id]) {
+          groupMap[root.id].children.push(e);
         } else {
           // 根节点不在当前列表中（被截断了），当作独立行
           topLevel.push(e);
@@ -446,8 +457,8 @@ async function loadRecentExecutions() {
         ${evalBadge}
         <button class="btn btn-small" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
         <button class="btn btn-small" onclick="runEvaluation('${e.id}')" title="AI 评估" style="${isEvaluating?'opacity:0.5;cursor:wait':''}">${isEvaluating?'⏳':'📊'}</button>
-        ${e.resume_uuid && e.resume_uuid === e.id ? `<button class="btn btn-small" onclick="toggleExecSessionPanel('${e.id}')" title="查看会话历史并继续对话">📎</button>` : ''}
-        ${e.resume_uuid && e.resume_uuid !== e.id ? `<button class="btn btn-small" onclick="jumpToRoot('${e.resume_uuid}')" title="跳转到根节点展开会话历史">🔗</button>` : ''}
+        ${isRoot(e) ? `<button class="btn btn-small" onclick="toggleExecSessionPanel('${e.id}')" title="查看会话历史并继续对话">📎</button>` : ''}
+        ${e.resume_uuid && !isRoot(e) ? `<button class="btn btn-small" onclick="jumpToRoot('${e.resume_uuid}')" title="跳转到根节点展开会话历史">🔗</button>` : ''}
       </div>
       <div id="exec-session-panel-${e.id}" class="hidden" style="display:none;padding:8px 12px 8px 36px;background:var(--hover);border-bottom:1px solid var(--border);font-size:12px"></div>
       <div id="exec-group-${e.id}" style="display:none">${(groupMap[e.id]?.children || []).map(c => renderRow(c, depth + 1)).join('')}</div>`;
@@ -490,8 +501,8 @@ async function renderExecSessionPanel(exec) {
   // 按 started_at 升序排列
   execs.sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
 
-  // 找到根节点（resume_uuid == id 的那个，或第一条）
-  const root = execs.find(e => e.resume_uuid === e.id) || execs[0];
+  // 找到根节点（按 started_at 升序，第一条即根 — ListByResumeUUID 已 ORDER BY started_at ASC）
+  const root = execs[0];
 
   // 生成历史列表 HTML（精简版时间线）
   const historyItems = execs.map((e, idx) => {
@@ -532,17 +543,31 @@ async function renderExecSessionPanel(exec) {
 }
 
 // jumpToRoot: 子节点点击🔗跳转按钮，滚动到根节点行并触发展开
-function jumpToRoot(resumeUuid) {
-  // 找根节点行（id === resume_uuid）
-  const rootRow = document.querySelector(`[data-exec-id="${resumeUuid}"]`);
+// 注意：resumeUuid 是 claude session_id（不是 execution id），需要先通过 ListByResumeUUID
+// 拿到根节点的真实 execution id（按 started_at 升序，第一条即为根节点）。
+async function jumpToRoot(resumeUuid) {
+  let execs;
+  try {
+    execs = await fetchJSON('/api/executions?resume_uuid=' + encodeURIComponent(resumeUuid));
+  } catch (e) {
+    console.error('[jumpToRoot]', e);
+    alert('加载会话链失败：' + (e.message || e));
+    return;
+  }
+  if (!execs || execs.length === 0) {
+    alert('会话链不存在');
+    return;
+  }
+  const root = execs[0]; // ListByResumeUUID 已 ORDER BY started_at ASC
+  const rootRow = document.querySelector(`[data-exec-id="${root.id}"]`);
   if (rootRow) {
     rootRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
     rootRow.style.background = 'rgba(16,185,129,0.2)';
     setTimeout(() => { rootRow.style.background = ''; }, 1000);
-    setTimeout(() => toggleExecSessionPanel(resumeUuid), 300);
+    setTimeout(() => toggleExecSessionPanel(root.id), 300);
   } else {
-    // 根节点不在当前列表中，直接打开详情弹窗
-    viewExecutionDetail(resumeUuid);
+    // 根节点不在当前列表中（被截断了），直接打开详情弹窗
+    viewExecutionDetail(root.id);
   }
 }
 
@@ -563,15 +588,12 @@ async function toggleExecSessionPanel(execId) {
   panel.style.display = 'block';
   panel.innerHTML = '<div style="color:var(--text-secondary);padding:4px">加载中...</div>';
 
-  // 获取 exec 数据（需要 resume_uuid）
+  // 获取 exec 数据
   let exec;
   try {
-    // 查找当前 exec（可能是根节点 id，也可能是子节点 id）
-    const execs = await fetchJSON('/api/executions?resume_uuid=' + encodeURIComponent(execId));
-    exec = execs && execs.find(e => e.id === execId);
-    if (!exec && execs && execs.length > 0) {
-      exec = execs[0]; // fallback 到第一个
-    }
+    // execId 是 execution id（来自跳转或按钮），直接 GET 单条。
+    // 注意：不能用 ?resume_uuid= 查 — resumeUuid 是 session_id，不是 exec id。
+    exec = await fetchJSON('/api/executions/' + execId);
   } catch (e) {
     panel.innerHTML = '<div style="color:var(--exception);padding:4px">加载失败</div>';
     return;
@@ -1105,8 +1127,8 @@ function renderExecConversationTimeline(execs) {
   const totalRounds = execs.length;
   // 倒序排列：最近的在前，最早的在后
   execs.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
-  // 在排序后的数组中找根节点位置
-  const rootIdx = execs.findIndex(e => e.resume_uuid === e.id);
+  // 根节点是最早的一条，倒序后在末尾
+  const rootIdx = execs.length - 1;
   return execs.map((e, idx) => {
     // idx=0 是最新的，显示最大轮次；idx=rootIdx 显示"原始"
     const isRoot = idx === rootIdx;
