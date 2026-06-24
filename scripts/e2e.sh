@@ -720,6 +720,107 @@ case_comments_priority() {
   ok "cmt-pri case ✅"
 }
 
+case_concurrent_scheduled() {
+  info "[concurrent-scheduled] 启 2 个 @every 5s 调度任务并发起 scheduler,验证并发写不报 SQLITE_BUSY"
+
+  # 1. 创建 2 个 enabled 的 @every 5s 调度任务(command_type=shell,prompt=快速 echo)
+  local a_resp b_resp
+  a_resp=$(curl -s -X POST "${BASE_URL}/api/scheduled" -H "Content-Type: application/json" \
+    -d '{"name":"e2e-conc-a","cron_expr":"@every 5s","command_type":"shell","prompt":"echo concurrent-a","enabled":true}')
+  local aid=$(jget "$a_resp" "id")
+  [ -n "$aid" ] || { err "创建 conc-a 失败: $a_resp"; return 1; }
+  ok "conc-a 创建: $aid"
+
+  b_resp=$(curl -s -X POST "${BASE_URL}/api/scheduled" -H "Content-Type: application/json" \
+    -d '{"name":"e2e-conc-b","cron_expr":"@every 5s","command_type":"shell","prompt":"echo concurrent-b","enabled":true}')
+  local bid=$(jget "$b_resp" "id")
+  [ -n "$bid" ] || { err "创建 conc-b 失败: $b_resp"; return 1; }
+  ok "conc-b 创建: $bid"
+
+  # 2. 启动 scheduler(可能因 server 启动时 config 已 enabled 而已经 running,接受 status=running 或 running=true)
+  local start_resp
+  start_resp=$(curl -s -X POST "${BASE_URL}/api/scheduler/start")
+  local status=$(jget "$start_resp" "status")
+  if [ "$status" = "running" ]; then
+    ok "scheduler started (status=$status)"
+  else
+    # fallback:start 可能因 already running 返回非 status,检查 status endpoint
+    local st_chk
+    st_chk=$(curl -s "${BASE_URL}/api/scheduler/status")
+    local running=$(jget "$st_chk" "running")
+    if [ "$running" != "true" ]; then
+      err "scheduler 启动失败: $start_resp / status=$st_chk"
+      curl -s -X DELETE "${BASE_URL}/api/scheduled/$aid" >/dev/null
+      curl -s -X DELETE "${BASE_URL}/api/scheduled/$bid" >/dev/null
+      return 1
+    fi
+    ok "scheduler already running"
+  fi
+
+  # 3. 跑 15s,期望每个 task 触发 2-3 次。两个 task cron 完全一致,大概率并发触发
+  info "等待 15s 让两个 task 多次触发..."
+  sleep 15
+
+  # 4. 停止 scheduler
+  curl -s -X POST "${BASE_URL}/api/scheduler/stop" >/dev/null
+  ok "scheduler stopped"
+
+  # 5. 查 executions 表,验证每个 task 都有 ≥ 2 条 execution 记录
+  # 通过 /api/executions 列表查 source=scheduled 的行
+  local exec_list
+  exec_list=$(curl -s "${BASE_URL}/api/executions?limit=50")
+  local a_count b_count
+  a_count=$(echo "$exec_list" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print(sum(1 for e in d if e.get('scheduled_task_id') == '$aid' and e.get('source') == 'scheduled'))" 2>/dev/null)
+  b_count=$(echo "$exec_list" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print(sum(1 for e in d if e.get('scheduled_task_id') == '$bid' and e.get('source') == 'scheduled'))" 2>/dev/null)
+  a_count=${a_count:-0}; b_count=${b_count:-0}
+
+  if [ "$a_count" -lt 2 ] || [ "$b_count" -lt 2 ]; then
+    err "conc-a executions=$a_count, conc-b executions=$b_count(都期望 ≥ 2,SQLITE_BUSY 可能让某些触发丢失)"
+    curl -s -X DELETE "${BASE_URL}/api/scheduled/$aid" >/dev/null
+    curl -s -X DELETE "${BASE_URL}/api/scheduled/$bid" >/dev/null
+    return 1
+  fi
+  ok "conc-a executions=$a_count, conc-b executions=$b_count(都 ≥ 2)"
+
+  # 6. 验证每个 execution 都成功(exit_code=0 或 completed_at 非空)
+  local failed
+  failed=$(echo "$exec_list" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ids = ('$aid', '$bid')
+print(sum(1 for e in d if e.get('scheduled_task_id') in ids and e.get('exit_code') not in (0, None)))" 2>/dev/null)
+  failed=${failed:-0}
+  [ "$failed" = "0" ] && ok "所有 execution 成功(exit_code=0)" || info "$failed 个 execution 失败(可能是 BuildCommand 问题,与 SQLITE_BUSY 无关)"
+
+  # 7. 验证 server 日志没有 SQLITE_BUSY
+  if [ -f "$TMP_LOG" ]; then
+    local busy_count
+    busy_count=$(grep -c "SQLITE_BUSY\|database is locked" "$TMP_LOG" 2>/dev/null | tr -d '\n' || echo 0)
+    busy_count=${busy_count:-0}
+    # busy_count 必须是整数,否则 [ -gt ] 会报"integer expression expected"
+    [[ "$busy_count" =~ ^[0-9]+$ ]] || busy_count=0
+    if [ "$busy_count" -gt 0 ]; then
+      err "日志中发现 $busy_count 条 SQLITE_BUSY 错误,修复未生效"
+      grep "SQLITE_BUSY\|database is locked" "$TMP_LOG" | head -3
+      curl -s -X DELETE "${BASE_URL}/api/scheduled/$aid" >/dev/null
+      curl -s -X DELETE "${BASE_URL}/api/scheduled/$bid" >/dev/null
+      return 1
+    fi
+    ok "日志无 SQLITE_BUSY"
+  fi
+
+  # 8. 清理
+  curl -s -X DELETE "${BASE_URL}/api/scheduled/$aid" >/dev/null
+  curl -s -X DELETE "${BASE_URL}/api/scheduled/$bid" >/dev/null
+  ok "concurrent-scheduled case ✅"
+}
+
 case_teardown() {
   info "[teardown] 强清残留进程和临时文件"
   lsof -ti :19000-19999 2>/dev/null | xargs -r kill -9 2>/dev/null
@@ -767,6 +868,7 @@ case "$TARGET" in
     run_case case_templates_filters
     run_case case_ratelimit_webhook
     run_case case_comments_priority
+    run_case case_concurrent_scheduled
     ;;
   basic)   run_case case_basic ;;
   delete)  run_case case_delete ;;
@@ -778,6 +880,7 @@ case "$TARGET" in
   tpl)     run_case case_templates_filters ;;
   rl)      run_case case_ratelimit_webhook ;;
   cmt)     run_case case_comments_priority ;;
+  conc)    run_case case_concurrent_scheduled ;;
   fast)
     # 已在入口前处理(start_server 跳过)。这里只跑 case。
     run_case case_basic
