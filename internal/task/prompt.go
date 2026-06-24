@@ -47,8 +47,6 @@ func BuildTaskPrompt(t *backend.Task, exps ...*backend.Experience) string {
 			}
 		}
 	}
-	b.WriteString("# 用户指令\n")
-	b.WriteString(t.Description)
 	return b.String()
 }
 
