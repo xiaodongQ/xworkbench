@@ -84,21 +84,6 @@ function exportJson(type) {
   window.open(API + '/api/config/export?types=' + encodeURIComponent(type), '_blank');
 }
 
-function exportAll() {
-  window.open(API + '/api/config/export', '_blank');
-}
-
-async function copyAllToClipboard() {
-  try {
-    const data = await fetchJSON(API + '/api/config/export');
-    const text = JSON.stringify(data, null, 2);
-    await navigator.clipboard.writeText(text);
-    toast('已复制完整备份到剪贴板（' + text.length + ' 字节）');
-  } catch (e) {
-    alert('复制失败：' + e.message);
-  }
-}
-
 // ---- 导入：粘贴 JSON 文本 ----
 function _readImportText(tab) {
   // tab 形如 'shortcuts'/'experiences'/'tasks'
