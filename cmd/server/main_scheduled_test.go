@@ -153,3 +153,44 @@ func TestHandleScheduledList_NextRunAt_InvalidCron(t *testing.T) {
 		}
 	}
 }
+
+// TestHandleScheduledList_NextRunAt_EveryDescriptor 验证 @every 描述符被识别。
+func TestHandleScheduledList_NextRunAt_EveryDescriptor(t *testing.T) {
+	s := newTestServer(t)
+	task := &backend.ScheduledTask{
+		ID:          "sched-every-1",
+		Name:        "每 30 秒",
+		CronExpr:    "@every 30s",
+		CommandType: "shell",
+		Enabled:     true,
+		TimeoutSec:  10,
+		CreatedAt:   time.Now(),
+	}
+	if err := s.schedDB.Create(task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/scheduled", s.handleScheduledList)
+	req := httptest.NewRequest("GET", "/api/scheduled", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var list []*backend.ScheduledTask
+	if err := json.NewDecoder(w.Body).Decode(&list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("len = %d, want 1", len(list))
+	}
+	if list[0].NextRunAt == nil {
+		t.Fatalf("NextRunAt is nil; @every should be parsed")
+	}
+	// 期望 30 秒 + 误差
+	if d := time.Until(*list[0].NextRunAt); d < 25*time.Second || d > 35*time.Second {
+		t.Errorf("NextRunAt in %v; want ~30s", d)
+	}
+}
