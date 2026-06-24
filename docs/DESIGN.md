@@ -1,7 +1,9 @@
 # xworkbench v2 — All-in-One 个人工作台
 
-> v2 = xworkbench（v1 Go 单体）+ ai-task-system v2.4（Python 调度/执行）+ 5 个新功能（链接/目录/todo/定时/AI 任务）
-> 单 Go 二进制 / 9 张表 / 30+ API / 跨 macOS·Linux·Windows
+> v2 = xworkbench（v1 Go 单体）+ ai-task-system v2.4（Python 调度/执行）+ 多个新功能
+> 单 Go 二进制 / **14 张表** / **91 路由** / 7 Tab + 5 widget / 跨 macOS·Linux·Windows
+
+> ⚠️ **文档历史说明**：本文件 §3 「数据模型」原写于 v2 刚定型时（**9 张表**），后续 2026-06 项目扩了 5 张业务表（`agents` / `task_experiences` / `task_events` / `task_comments` / `execution_comments`），并删了 `app_settings`。当前实际 **14 张表**（schema 中 `CREATE TABLE IF NOT EXISTS` 计数），与下文"3. 数据模型"小节中的"9 张表"已经不一致；本节已就地更新为最新表清单。**实施历程（§2）+ 4. 后端模块 + 5. 执行链路**仍反映 v2 定型时形态，作为历史参考。最新架构以 [CLAUDE.md](../CLAUDE.md) 为准。
 
 ## 1. 演进背景
 
@@ -22,9 +24,11 @@
 | Phase 4 | 11-12 天 | pty build tag 隔离（pty_unix/pty_windows）+ 跨三平台编译 |
 | Phase 5 | 13 天 | 文档 |
 
-## 3. 数据模型（9 张表）
+## 3. 数据模型（**当前 14 张表**，2026-06-25 快照）
 
 `./data/xworkbench.db`（SQLite，无 CGO 跨平台）
+
+### 3.1 业务表（8 张）
 
 | 表 | 来源 | 用途 |
 |---|---|---|
@@ -35,25 +39,47 @@
 | **evaluations** | v2.4 | LLM 打分（0-10 + comments） |
 | **web_links** | 新功能 1 | 主页快捷链接 |
 | **dir_shortcuts** | 新功能 2 | 目录快捷（点击调系统资源管理器） |
-| **scheduled_tasks** | 新功能 3+5 | 定时任务（cron / @every） |
-| **app_settings** | 新功能 4 | KV（todo_md_path / default_model / timezone） |
+| **scheduled_tasks** | 新功能 3+5 | 定时任务（cron / @every）；2026-06 加 `next_run_at` 注入字段 |
+| **agents** | 3.x 新增（2026-06） | 远程 Agent 体系：id/token_hash/capabilities/version/status/auto_claim_enabled/last_heartbeat/bound_dir_shortcut_id |
+
+### 3.2 关联/审计表（4 张）
+
+| 表 | 来源 | 用途 |
+|---|---|---|
+| **task_experiences** | 2.4 新增 | 多对多中间表（task_id+experience_id 联合主键），取代旧 tasks.experience_id 单值字段 |
+| **task_events** | 4.2 新增 | 任务审计日志（task_id/event_type/actor/payload）；**前端 UI 已精简**（10.1），后端表+API 保留 |
+| **task_comments** | 4.1 新增 | 任务评论（id/content/author/mentions/parent_id，支持嵌套）；**前端 UI 已精简**，后端保留 |
+| **execution_comments** | 4.1 新增 | 执行评论，结构同 task_comments；**前端 UI 已精简**，后端保留 |
+
+### 3.3 元数据表（2 张）
+
+| 表 | 来源 | 用途 |
+|---|---|---|
 | **app_meta** | 通用 | KV（user_version 等） |
+| ~~**app_settings**~~ | ~~新功能 4~~ | **已移除（2026-06 重构）**：所有 KV 偏好迁至 `config.json` 顶层字段；schema 注释明确"老 DB 残留的 app_settings 表忽略不再使用"，代码不再读写 |
 
 字段迁移：`InitSchema` 内 `migrateTasksColumns` 用 `PRAGMA table_info` 探测后 `ALTER TABLE ADD COLUMN`，旧 db 不丢数据。
 
-## 4. 后端模块
+## 4. 后端模块（**当前形态**，2026-06-25 快照）
 
 ```
 internal/
-  backend/      models + InitSchema + 8 个 repo（Task/Experience/Execution/Evaluation/WebLink/DirShortcut/Scheduled/AppSettings）
-  executor/     Run(ctx, cmd, onChunk) 流式 + 超时
+  backend/        models + InitSchema + 13 个 repo（Task/Experience/Execution/Evaluation/WebLink/DirShortcut/Scheduled/Agent/TaskEvent/TaskExperience/TaskComment/ExecutionComment/SkillVersion；AppSettings 已删）
+  config/         2026-06 新增：config.json 加载/保存/类型定义/单一来源合并
+  paths/          路径常量（context/data/bin 目录）
+  executor/       Run(ctx, cmd, onChunk) 流式 + 超时 + SSH 远端执行器（ssh_helpers.go + ssh_runner.go）
   executor/runner/  BuildCommand(typ, model, session, prompt)  // claude/cbc/shell
-  executor/confirm.go  NeedsUserInput + ParseConfirmRequest  // 4 种信号
-  hub/          WebSocket 广播中心
-  wsmsg/        6 频道常量 + Message struct
-  scheduler/    robfig/cron 包装 + Reload/Start/Stop/RunNow
-  shortcuts/    OpenDir 跨平台（darwin/linux/windows）
-  todo/         Parse + ReadAndParse + ToggleAndWrite
+  executor/confirm.go  NeedsUserInput + ParseConfirmRequest  // 18 种确认信号（中英文）
+  hub/            WebSocket 广播中心
+  wsmsg/          6 频道常量 + Message struct
+  scheduler/      robfig/cron 包装 + Reload/Start/Stop/RunNow + NextRunAt(taskID)
+  shortcuts/      OpenDir 跨平台（darwin/linux/windows）
+  todo/           Parse + ReadAndParse + ToggleAndWrite
+  evaluator/      LLM-as-a-Judge（evalPromptTpl + parseEval + RunAndSaveChain）
+  relay/          2026-06 新增：Exec 命令执行 + HTTP 代理转发
+  httplog/        HTTP 日志中间件
+  task/           任务纯领域（BuildTaskPrompt 等模板函数）
+  experience/     经验库纯领域
 ```
 
 ### 4.1 CLI 命令构造（移植 cli_executor.py:26-56）

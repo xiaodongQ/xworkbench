@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 1. 项目定位
 
-**All-in-One 个人工作台**: 单 Go 二进制 + SQLite,跨 macOS/Linux/Windows,融合 task / experience / scheduled / AI evaluation,6 Tab(总览/任务/经验库/自动化/AI 对话/代理)+ 5 widget(链接/目录/todo/调度/最近执行)。
+**All-in-One 个人工作台**: 单 Go 二进制 + SQLite,跨 macOS/Linux/Windows,融合 task / experience / scheduled / AI evaluation,7 Tab(总览/任务/经验库/自动化/系统配置/AI 对话/代理)+ 5 widget(链接/目录/todo/调度/最近执行)+ Agent 管理面板嵌于「代理」Tab。
 
 - 入口: [README.md](README.md)
 - 设计文档: [docs/DESIGN.md](docs/DESIGN.md)
@@ -28,12 +28,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 前端 | vanilla JS + CSS(无框架,1 HTML + 6 view JS + widgets + api) |
 | 嵌入资源 | `//go:embed index.html static`(F5 刷新即生效,无 hash 缓存) |
 
-## 3. 规模(随时会变,以代码为准)
+## 3. 规模(随时会变,以代码为准,2026-06-25 快照)
 
-- 41 个 .go 文件,~6882 行
-- 8 个 JS 文件(6 view + api + widgets) + 1 个 CSS + 1 个 index.html
-- 11 张 SQLite 表
-- 65 个 HTTP 路由(`grep -c "HandleFunc\|Handle(" cmd/server/main.go`)
+- 65 个 .go 文件,~14674 行
+- 11 个 JS 文件(8 view: dashboard/tasks/experiences/automation/config/aichat/relay/agents + api + widgets + ws-client) + 1 个 CSS + 1 个 index.html
+- **14 张 SQLite 表**(schema 中 CREATE TABLE IF NOT EXISTS 计数,2026-06-25 现状):
+  - 业务表 8: tasks / experiences / executions / evaluations / scheduled_tasks / web_links / dir_shortcuts / agents
+  - 关联/审计表 4: task_experiences / task_events / task_comments / execution_comments
+  - 元数据表 2: app_meta / skill_versions
+  - 博客/CLAUDE.md 之前写的 "11 张表" "10 张表" 都是历史快照;`app_settings` 表于 2026-06 重构时已不在 schema 中(老 DB 残留的表被注释忽略,代码不再读写)
+- 91 个 HTTP 路由(`grep -c "HandleFunc\|Handle(" cmd/server/main.go`)
 - 1 个 WebSocket 频道(`/ws`,6 业务频道:scheduler/task/exec/scheduled/shortcut/todo)
 
 ## 4. 配置体系(2026-06 重构后,记清)
@@ -94,14 +98,14 @@ cmd/server/
 ├── main.go              # 入口 + 所有 HTTP handler(APIServer struct 包含所有 repo)
 ├── pty.go / pty_windows.go  # PTY build tag 隔离
 ├── *_test.go            # httptest 集成测试(terminal_api_test.go 等)
-├── index.html           # 6 Tab 单页
+├── index.html           # 7 Tab 单页(2026-06-23 增「系统配置」独立 Tab)
 └── static/{css,js}/
     ├── api.js           # fetchJSON + switchTab + 主题 + tooltip + CLI_MODELS 缓存
     ├── widgets.js       # 5 widget(链接/目录/todo/dashboard/调度)
     └── views/{dashboard,tasks,experiences,automation,aichat,relay}.js
 
 internal/
-├── backend/             # 数据层(11 张表 repo + models)
+├── backend/             # 数据层(14 张表 repo + models,见 §3)
 │   ├── models.go        # 所有 struct
 │   ├── repo.go          # 所有 DDL + Repo 方法(InitSchema 唯一来源)
 │   └── httplog/         # 独立包?实际在 internal/httplog
@@ -134,21 +138,26 @@ internal/
 | `experiences` | id, module, scene, keywords, tool_usage, log_samples, code_snippets | 知识库 |
 | `scheduled_tasks` | id, name, cron_expr, command_type, model, prompt, enabled, last_run_at, last_status | 定时任务 |
 | `web_links` / `dir_shortcuts` / `app_meta` / `skill_versions` | | |
+| `agents` | 3.x 新增(2026-06) | 远程 Agent 体系:id/token_hash/capabilities/version/status/auto_claim_enabled/last_heartbeat/bound_dir_shortcut_id |
+| `task_experiences` | 2.4 新增 | 多对多中间表(task_id+experience_id 联合主键),取代旧 tasks.experience_id 单值字段 |
+| `task_events` | 4.2 新增 | 任务审计日志(task_id/event_type/actor/payload),前端 UI 已精简(10.1),后端表+API 保留 |
+| `task_comments` / `execution_comments` | 4.1 新增 | 评论表(结构一致:id/content/author/mentions/parent_id),前端 UI 已精简(10.1),后端表+API 保留 |
 
-**注**:`app_settings` 表已于 2026-06 重构时移除。所有用户偏好(`aichat_default_cli` / `default_terminal` / `preferred_cli` / `todo_md_path` / `ai_loop_enabled` / `scheduler.enabled`)全部迁至 `config.json` 顶层字段。SQLite 表数从 11 降到 10。
+**注**:`app_settings` 表已于 2026-06 重构时**从 schema 中移除**(原 KV 表,所有用户偏好已迁至 `config.json` 顶层字段)。老 DB 残留的 `app_settings` 表 schema 注释明确"忽略不再使用",代码不再读写。**schema 中 CREATE TABLE IF NOT EXISTS 计数从历史的 11/10 升到现在的 14**,因为加了 `agents` / `task_experiences` / `task_events` / `task_comments` / `execution_comments` 5 张新表(其中后 3 张为"前端精简但表保留"以兼容老 db)。
 
 字段迁移:`InitSchema` 内 `migrateTasksColumns` 用 `PRAGMA table_info` 探测后 `ALTER TABLE ADD COLUMN`,旧 db 不丢数据。
 
-## 7. 6 Tab + 5 widget
+## 7. 7 Tab + 5 widget(2026-06-23 后)
 
 | Tab | 后端路由 | 前端 |
 |---|---|---|
 | **总览**(dashboard) | `/api/stats` | `views/dashboard.js` |
 | **任务**(tasks) | `/api/tasks/*` | `views/tasks.js` |
 | **经验库**(experiences) | `/api/experiences/*` | `views/experiences.js` |
-| **自动化**(automation) | `/api/scheduled/*` + `/api/scheduler/*` + `/api/executions/*` + `/api/evaluations` | `views/automation.js` |
+| **自动化**(automation) | `/api/scheduled/*` + `/api/scheduler/*` + `/api/executions/*` + `/api/evaluations` | `views/automation.js`(2026-06 加了下次执行时间列 ⏰) |
+| **系统配置**(config,2026-06-23 由「数据管理」改名为独立 Tab) | `/api/config`(GET/PUT,单一来源) + 导入/导出 + 快捷/链接子 tab | `views/config.js` |
 | **AI 对话**(aichat) | `/api/pty`, `/ws` | `views/aichat.js`(多 Tab PTY) |
-| **代理**(relay,2026 新增) | `/api/exec` + `/api/proxy/*` + `/api/relay/*` | `views/relay.js` |
+| **代理**(relay,2026 新增) | `/api/exec` + `/api/proxy/*` + `/api/relay/*` + `/api/agents/*`(Agent 管理面板嵌于此 Tab) | `views/relay.js` + `views/agents.js`(子区,不占独立 Tab) |
 
 5 widget(首页卡片):web-links / dir-shortcuts / todo.md / scheduled-summary / recent-executions。
 
