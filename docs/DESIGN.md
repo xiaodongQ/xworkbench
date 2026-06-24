@@ -166,10 +166,10 @@ WS 6 频道：`scheduler / task / exec / scheduled / shortcut / todo`
 ```
 xworkbench/
 ├── cmd/server/
-│   ├── main.go            HTTP 入口（30+ 路由 + 装配 9 个 repo）
+│   ├── main.go            HTTP 入口（91 路由 + 装配 13 个 repo；历史快照: 初版 30+ 路由 + 9 repo）
 │   ├── pty.go             PTY Unix 实现（//go:build !windows）
 │   ├── pty_windows.go     PTY Windows stub（503）
-│   └── index.html         45 KB 单页 SPA（5 Tab + 5 widget + 4 modal）
+│   └── index.html         单页 SPA（**7 Tab** + 5 widget + 4 modal；初版 5 Tab）
 ├── internal/
 │   ├── backend/           models.go + repo.go（9 张表 + 8 repo + InitSchema + 迁移）
 │   ├── executor/          exec.go + confirm.go + executor_test.go

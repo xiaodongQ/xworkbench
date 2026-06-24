@@ -37,8 +37,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - 关联/审计表 4: task_experiences / task_events / task_comments / execution_comments
   - 元数据表 2: app_meta / skill_versions
   - 博客/CLAUDE.md 之前写的 "11 张表" "10 张表" 都是历史快照;`app_settings` 表于 2026-06 重构时已不在 schema 中(老 DB 残留的表被注释忽略,代码不再读写)
-- 91 个 HTTP 路由(`grep -c "HandleFunc\|Handle(" cmd/server/main.go`)
-- 1 个 WebSocket 频道(`/ws`,6 业务频道:scheduler/task/exec/scheduled/shortcut/todo)
+- 91 个 HTTP 路由(`grep -c "HandleFunc\|Handle(" cmd/server/main.go`),`routes()` 函数在 main.go:120
+- 1 个 WebSocket 频道(`/ws`),6 业务频道:scheduler / task / exec / scheduled / shortcut / todo
+- PTY 确认信号:18 个字符串(4 大类:问号结尾 / 方括号选项 / 中文询问 / 英文询问;`internal/executor/confirm.go:9-19`)
 
 ## 4. 配置体系(2026-06 重构后,记清)
 
@@ -158,6 +159,8 @@ internal/
 | **系统配置**(config,2026-06-23 由「数据管理」改名为独立 Tab) | `/api/config`(GET/PUT,单一来源) + 导入/导出 + 快捷/链接子 tab | `views/config.js` |
 | **AI 对话**(aichat) | `/api/pty`, `/ws` | `views/aichat.js`(多 Tab PTY) |
 | **代理**(relay,2026 新增) | `/api/exec` + `/api/proxy/*` + `/api/relay/*` + `/api/agents/*`(Agent 管理面板嵌于此 Tab) | `views/relay.js` + `views/agents.js`(子区,不占独立 Tab) |
+
+**config 子 tab (3 个,不是 4)**:📁 快捷目录(`dir_shortcuts`)/ 🔗 快捷链接(`web_links`)/ 🤖 默认 CLI(`default_cli`)。原"数据管理"4 子 tab 已重构为 3 个,见 README §9.5。注意:博客 [9.5] 之前口径"3+1 布局"是错的,实际是 3 子 tab(2026-06-25 校)。
 
 5 widget(首页卡片):web-links / dir-shortcuts / todo.md / scheduled-summary / recent-executions。
 
@@ -316,6 +319,6 @@ E2E_BASE_URL=http://x:9001 ./scripts/e2e.sh fast   # 跑远端 server
 | 终端类型/模型配置 | `internal/config/config.go` + `config.json` + `internal/shortcuts/terminal.go` |
 | WS Hub | `internal/hub/` + `internal/wsmsg/` |
 | 调度器 | `internal/scheduler/scheduler.go` |
-| 端点列表 | `cmd/server/main.go` `routes()` 函数(约 67-160 行) |
+| 端点列表 | `cmd/server/main.go` `routes()` 函数(main.go:120) |
 | 路径常量 | `internal/paths/paths.go` |
 | e2e 测试用例 | `scripts/e2e.sh`(case 函数化) |
