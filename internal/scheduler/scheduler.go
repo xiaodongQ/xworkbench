@@ -206,7 +206,9 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
 	res, _ := executor.Run(ctx, cmd, t.WorkingDir, stdin, func(chunk string) {
-		s.hub.Broadcast(wsmsg.ChannelScheduled, map[string]any{
+		// chunk 推送走 exec 频道（handleExecStream 在前端已存在），
+		// 与 started/done 频道分离，避免每次 chunk 触发前端 loadScheduled() 重算 next_run_at 漂移。
+		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 			"scheduled_task_id": t.ID,
 			"execution_id":      exec.ID,
 			"chunk":             chunk,

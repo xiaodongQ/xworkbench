@@ -24,9 +24,14 @@ function initWS() {
         if (currentTab === 'dashboard' && typeof loadDashboard === 'function') loadDashboard();
         if (currentTab === 'automation' && typeof loadAutomation === 'function') loadAutomation({silent: true});
       } else if (msg.channel === 'scheduled') {
-        // 定时任务被触发：重拉“定时任务”列表和“最近执行”列表
-        if (typeof loadScheduled === 'function') loadScheduled();
-        if (typeof loadRecentExecutions === 'function') loadRecentExecutions();
+        // 定时任务状态变化（started / done）：重拉列表。
+        // chunk 推送已改走 exec 频道（handleExecStream），这里不再无差别重拉，
+        // 避免 task 执行中每次 chunk 触发 loadScheduled() → handler 重算 next_run_at 漂移
+        const evt = msg.payload && msg.payload.event;
+        if (evt === 'started' || evt === 'done') {
+          if (typeof loadScheduled === 'function') loadScheduled();
+          if (typeof loadRecentExecutions === 'function') loadRecentExecutions();
+        }
       } else if (msg.channel === 'shortcut') {
         // 快捷目录被另一个终端打开：重拉 “快捷方式” 列表
         if (currentTab === 'shortcuts' && typeof loadShortcuts === 'function') loadShortcuts();
