@@ -90,3 +90,66 @@ func TestHandleScheduledList_NextRunAt_Disabled(t *testing.T) {
 		t.Errorf("next_run_at should be omitted for disabled task; got %v", list[0]["next_run_at"])
 	}
 }
+
+// TestHandleScheduledList_NextRunAt_InvalidCron 验证非法 cron 不阻断整列表。
+func TestHandleScheduledList_NextRunAt_InvalidCron(t *testing.T) {
+	s := newTestServer(t)
+	now := time.Now()
+	bad := &backend.ScheduledTask{
+		ID:          "sched-bad-1",
+		Name:        "非法 cron",
+		CronExpr:    "not a cron",
+		CommandType: "shell",
+		Enabled:     true,
+		TimeoutSec:  60,
+		CreatedAt:   now,
+	}
+	good := &backend.ScheduledTask{
+		ID:          "sched-good-1",
+		Name:        "合法 cron",
+		CronExpr:    "0 9 * * 1-5",
+		CommandType: "shell",
+		Enabled:     true,
+		TimeoutSec:  60,
+		CreatedAt:   now,
+	}
+	if err := s.schedDB.Create(bad); err != nil {
+		t.Fatalf("Create bad: %v", err)
+	}
+	if err := s.schedDB.Create(good); err != nil {
+		t.Fatalf("Create good: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/scheduled", s.handleScheduledList)
+	req := httptest.NewRequest("GET", "/api/scheduled", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	var list []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("len = %d, want 2", len(list))
+	}
+
+	// bad 应该没有 next_run_at；good 应该有
+	for _, item := range list {
+		id, _ := item["id"].(string)
+		_, has := item["next_run_at"]
+		switch id {
+		case "sched-bad-1":
+			if has {
+				t.Errorf("bad task should not have next_run_at; got %v", item["next_run_at"])
+			}
+		case "sched-good-1":
+			if !has {
+				t.Errorf("good task should have next_run_at")
+			}
+		}
+	}
+}
