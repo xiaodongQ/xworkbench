@@ -17,6 +17,7 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/hub"
 	"github.com/xiaodongQ/xworkbench/internal/wsmsg"
 	"github.com/xiaodongQ/xworkbench/internal/logger"
+	"golang.org/x/sync/singleflight"
 )
 
 // Scheduler 进程内 cron 引擎，加载 DB 中 enabled=1 的 scheduled_tasks。
@@ -28,6 +29,11 @@ type Scheduler struct {
 	execDB  *backend.ExecutionRepo
 	hub     *hub.Hub
 	running bool
+
+	// sf 用于合并同 task 的重叠执行：cron 周期 < 子进程时长时,或用户点"立即运行"
+	// 与 cron 触发重叠时,只跑一次,避免两个 goroutine 同时写 executions 表触发
+	// SQLITE_BUSY 竞争。详见 doExecute 的 singleflight 包装。
+	sf singleflight.Group
 }
 
 func New(repo *backend.ScheduledTaskRepo, execDB *backend.ExecutionRepo, h *hub.Hub) *Scheduler {
@@ -144,7 +150,16 @@ func (s *Scheduler) makeHandler(t *backend.ScheduledTask) func() {
 	}
 }
 
+// execute 是 singleflight 包装入口。同 task 的并发触发(cron + RunNow,或 cron
+// 周期 < 子进程时长)合并为一次实际执行,避免重复写 executions 表。
 func (s *Scheduler) execute(t *backend.ScheduledTask) {
+	_, _, _ = s.sf.Do(t.ID, func() (any, error) {
+		s.doExecute(t)
+		return nil, nil
+	})
+}
+
+func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 	cmd, stdin, cleanup, err := runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
 		runner.WithStdin(),
 		runner.WithActionReport(),
