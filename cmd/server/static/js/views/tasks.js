@@ -157,19 +157,23 @@ function renderTaskTable(list) {
       const ops = taskOpsByStatus(t);
       return `
       <tr>
-        <td class="col-title" style="display:flex;align-items:center;gap:4px">
-          <span class="title" onclick="editTask('${t.id}')" title="编辑：${esc(t.title)}" style="cursor:pointer;color:var(--text-secondary);font-size:13px;white-space:nowrap">✏️</span>
-          <span class="task-title-cell">
-            <span class="title">${esc(t.title)}</span>
-            ${t.description ? `<span class="desc" title="${esc(t.description)}">${esc(t.description)}</span>` : ''}
-          </span>
+        <td class="col-title">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="title" onclick="editTask('${t.id}')" title="编辑：${esc(t.title)}" style="cursor:pointer;color:var(--text-secondary);font-size:13px;white-space:nowrap">✏️</span>
+            <div class="task-title-cell">
+              <div class="title">${esc(t.title)}</div>
+              ${t.description ? `<div class="desc" title="${esc(t.description)}">${esc(t.description)}</div>` : ''}
+            </div>
+          </div>
         </td>
         <td class="col-status">${statusTag(t.status)}</td>
         <td class="col-type">${taskTypeTag(t.task_type)}</td>
         <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
-        <td class="col-ops" style="display:flex;align-items:center;gap:4px">
-          <button class="btn btn-secondary btn-small" onclick="viewTask('${t.id}')">查看</button>
-          ${ops}
+        <td class="col-ops">
+          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-small" onclick="viewTask('${t.id}')">查看</button>
+            ${ops}
+          </div>
         </td>
       </tr>`;
     }).join('')}</tbody>
