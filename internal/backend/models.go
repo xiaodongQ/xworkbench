@@ -181,6 +181,7 @@ type ScheduledTask struct {
 	Enabled        bool       `json:"enabled"`
 	TimeoutSec     int        `json:"timeout_sec"` // 超时秒数，0=默认（AI任务1小时，shell 5分钟）
 	LastRunAt      *time.Time `json:"last_run_at,omitempty"`
+	NextRunAt      *time.Time `json:"next_run_at,omitempty"` // 下次执行时间；仅 enabled 任务注入，nil=禁用或解析失败
 	LastStatus     string     `json:"last_status,omitempty"`
 	LastExecutionID string    `json:"last_execution_id,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
