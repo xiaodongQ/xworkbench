@@ -26,6 +26,9 @@ func TestHandleScheduledList_NextRunAt_Enabled(t *testing.T) {
 	if err := s.schedDB.Create(enabled); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	if err := s.sch.Reload(); err != nil {
+		t.Fatalf("sch.Reload: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/scheduled", s.handleScheduledList)
@@ -67,6 +70,9 @@ func TestHandleScheduledList_NextRunAt_Disabled(t *testing.T) {
 	}
 	if err := s.schedDB.Create(disabled); err != nil {
 		t.Fatalf("Create: %v", err)
+	}
+	if err := s.sch.Reload(); err != nil {
+		t.Fatalf("sch.Reload: %v", err)
 	}
 
 	mux := http.NewServeMux()
@@ -119,6 +125,9 @@ func TestHandleScheduledList_NextRunAt_InvalidCron(t *testing.T) {
 	if err := s.schedDB.Create(good); err != nil {
 		t.Fatalf("Create good: %v", err)
 	}
+	if err := s.sch.Reload(); err != nil {
+		t.Fatalf("sch.Reload: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/scheduled", s.handleScheduledList)
@@ -168,6 +177,9 @@ func TestHandleScheduledList_NextRunAt_EveryDescriptor(t *testing.T) {
 	}
 	if err := s.schedDB.Create(task); err != nil {
 		t.Fatalf("Create: %v", err)
+	}
+	if err := s.sch.Reload(); err != nil {
+		t.Fatalf("sch.Reload: %v", err)
 	}
 
 	mux := http.NewServeMux()

@@ -10,6 +10,8 @@ import (
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
+	"github.com/xiaodongQ/xworkbench/internal/hub"
+	"github.com/xiaodongQ/xworkbench/internal/scheduler"
 )
 
 // newTestServer creates an APIServer with in-memory SQLite for testing.
@@ -23,10 +25,22 @@ func newTestServer(t *testing.T) *APIServer {
 		config.AppConfig = config.DefaultConfig()
 	}
 	config.AppConfig.DefaultTerminal = "wezterm"
+	schedDB := backend.NewScheduledTaskRepo(db)
+	execDB := backend.NewExecutionRepo(db)
+	h := hub.New()
+	sch := scheduler.New(schedDB, execDB, h)
+	// Reload 加载 enabled 任务到 entries map(用于 NextRunAt),
+	// 不调 Start() 因为 Start 会启 cron engine 实际跑 task——测试期间 task 实际执行会污染 DB。
+	if err := sch.Reload(); err != nil {
+		t.Fatalf("scheduler.Reload: %v", err)
+	}
 	return &APIServer{
 		db:      backend.NewTaskRepo(db),
 		dirDB:   backend.NewDirShortcutRepo(db),
-		schedDB: backend.NewScheduledTaskRepo(db),
+		schedDB: schedDB,
+		execDB:  execDB,
+		sch:     sch,
+		hub:     h,
 	}
 }
 
