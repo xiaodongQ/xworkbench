@@ -1,4 +1,6 @@
-#!/usr/bin/env bash
+#!/bin/bash
+# 注意：Windows 下如果使用 Gow bash 可能有问题，建议使用 Git Bash
+# 如果遇到问题，请直接运行：& "C:\Program Files\Git\bin\bash.exe" scripts/run.sh
 # xworkbench 启停脚本（只管启停，编译由 build.sh 负责）
 # 用法：
 #   ./scripts/run.sh                # 启动（进程已在跑则先停止再启动）
@@ -110,7 +112,8 @@ find_pid_by_port() {
       ;;
     windows)
       # 用 netstat 找端口对应的 pid，再用 PowerShell 确认进程名含 xworkbench
-      pid=$(netstat -ano 2>/dev/null | grep ":$port" | grep LISTEN | \
+      # 注意：Windows netstat 输出是 LISTENING 而不是 LISTEN
+      pid=$(netstat -ano 2>/dev/null | grep ":$port" | grep LISTENING | \
         awk '{print $NF}' | sort -u | \
         while read p; do
           name=$(powershell -NoProfile -Command \
@@ -155,7 +158,7 @@ is_port_in_use() {
       ss -tln 2>/dev/null | grep -q ":$port "
       ;;
     windows)
-      netstat -ano 2>/dev/null | grep ":$port" | grep -q LISTEN
+      netstat -ano 2>/dev/null | grep ":$port" | grep -q LISTENING
       ;;
   esac
 }
@@ -176,7 +179,9 @@ stop() {
   printf "  SIGTERM → ... "
   local term_ok=0
   if [ "$os" = "windows" ]; then
-    taskkill /PID "$pid" >/dev/null 2>&1 && term_ok=1
+    # Windows 下控制台程序不响应 WM_CLOSE，直接用 /F 强制终止
+    # Git Bash 会把 /F 转换成路径，通过 cmd.exe 调用避免此问题
+    cmd.exe //c "taskkill /F /PID $pid" >/dev/null 2>&1 && term_ok=1
   else
     kill "$pid" 2>/dev/null && term_ok=1
   fi
@@ -201,7 +206,8 @@ stop() {
       echo "  ${YELLOW}SIGKILL ($i/3) →${NC}  pids=$all_pids"
       for p in $all_pids; do
         if [ "$os" = "windows" ]; then
-          taskkill /F /PID "$p" >/dev/null 2>&1
+          # Git Bash 路径转换问题：通过 cmd.exe 调用
+          cmd.exe //c "taskkill /F /PID $p" >/dev/null 2>&1
         else
           kill -9 "$p" 2>/dev/null
         fi
