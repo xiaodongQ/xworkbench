@@ -1,7 +1,7 @@
 {
   "default_terminal": "wezterm",
   "preferred_cli": "claude",
-  "ai_loop_enabled": true,
+  "ai_loop_enabled": false,
   "aichat_default_cli": "claude",
   "todo_md_path": "/tmp/todo-final.md",
   "scheduler_enabled": true,
@@ -114,7 +114,7 @@
   },
   "models": {
     "cbc": {
-      "default": "glm-4.7",
+      "default": "deepseek-v4-pro",
       "eval_default": "kimi-k2.6",
       "options": [
         {
