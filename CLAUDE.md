@@ -216,8 +216,20 @@ BuildCommand(typ, model, sessionID, prompt) ([]string, error)
 ### 10.3 解析失败 vs 真低分
 `Evaluation.Score = -1` 表示评估员输出无法解析(前端显示"解析失败"灰卡),`0` 表示真低分。**不要 fallback 到 0**。
 
-### 10.4 调度器超时
-`executor.Run` 默认 30 分钟 ctx 超时。`scheduled_tasks.last_status` 取值:`success` / `failed` / `timeout` / `build_error`(如 cbc/codebuddy 都不在 PATH)。
+### 10.4 超时设置(按入口拆开,不要混淆)
+
+`executor.Run` 本身不带超时,ctx 由调用方 `context.WithTimeout` 注入。不同入口默认值不一样,**别拿"30 分钟"一概而论**:
+
+| 入口 | 文件:行 | 默认超时 | 触发场景 |
+|---|---|---|---|
+| `handleTaskRun`(手动 ▶ 按钮) | [main.go:728](cmd/server/main.go#L728) | **10 分钟** | 用户在任务详情手动跑 task |
+| `handleExecutionContinue`(💬 继续对话) | [main.go:1009](cmd/server/main.go#L1009) | **10 分钟** | 继续对话的执行 |
+| `runLoopBackground`(Run Loop 单次迭代) | [main.go:2563](cmd/server/main.go#L2563) | 30 分钟 | AI 自治 Run Loop 的每次 claude 调用 |
+| `scheduler.execute`(调度器) | [scheduler.go:244](internal/scheduler/scheduler.go#L244) | **AI 10 分钟 / shell 5 分钟** | `scheduled_tasks.timeout_sec=0` 时按 `command_type` 取默认 |
+| `evaluator.Run`(LLM 评估) | [evaluator.go:162](internal/evaluator/evaluator.go#L162) | 3 分钟 | 评估一次 execution |
+| `handleTaskLearn`(经验学习反思) | [main.go:2675](cmd/server/main.go#L2675) | 2 分钟 | 学完 task 后反思 prompt 跑 claude |
+
+`scheduled_tasks.last_status` 取值:`success` / `failed` / `timeout` / `build_error`(如 cbc/codebuddy 都不在 PATH)。`timeout` 表示 ctx 超时杀掉子进程(区分于 `failed` 是子进程主动非 0 退出)。
 
 ### 10.5 PTY 多 Tab
 `/api/pty?tab_id=...` 每个 tab 独立 WebSocket + xterm.js。`tabRegistry: id -> {id, name, term, ws, needsAuth, wsConnected}`(`aichat.js`),最多 5 Tab。`needsAuth` 由 `authRequiredPatterns` 18 种中英文信号检测(Approve/[Y/n]/请确认/...)驱动 UI 红点。

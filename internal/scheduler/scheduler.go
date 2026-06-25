@@ -235,13 +235,15 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 		"event":             "started",
 	})
 
-	// 计算超时：任务配置 > 默认（AI任务1小时，shell任务5分钟）
+	// 计算超时：任务配置 > 默认（AI 任务 10 分钟，shell 任务 5 分钟）
+	// AI 默认从 1 小时改成 10 分钟，与 handleTaskRun / handleExecutionContinue 对齐；
+	// shell 保持 5 分钟不变（命令通常秒级完成，5 分钟足够）
 	timeout := t.TimeoutSec
 	if timeout <= 0 {
 		if t.CommandType == "shell" {
-			timeout = 5 * 60 // 5分钟
+			timeout = 5 * 60 // 5 分钟
 		} else {
-			timeout = 60 * 60 // 1小时
+			timeout = 10 * 60 // 10 分钟
 		}
 	}
 	logger.Logger.Infow("scheduler: task execution started", "task", t.Name, "exec_id", exec.ID, "timeout_sec", timeout)
