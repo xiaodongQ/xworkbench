@@ -473,11 +473,18 @@ async function loadRecentExecutions() {
         ${evalBadge}
         <button class="btn btn-small" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
         <button class="btn btn-small" onclick="runEvaluation('${e.id}')" title="AI 评估" style="${isEvaluating?'opacity:0.5;cursor:wait':''}">${isEvaluating?'⏳':'📊'}</button>
-        ${isRoot(e) ? `<button class="btn btn-small" onclick="toggleExecSessionPanel('${e.id}')" title="查看会话历史并继续对话">📎</button>` : ''}
-        ${e.resume_uuid && !isRoot(e) ? `<button class="btn btn-small" onclick="jumpToRoot('${e.resume_uuid}')" title="跳转到根节点展开会话历史">🔗</button>` : ''}
-        ${isRunning ? `<button class="btn btn-small" onclick="cancelExecution('${e.id}')" title="标记为已完成（强制结束卡住的执行）" style="background:var(--warning);color:#fff;border-color:var(--warning)">⚠ 标记完成</button>` : ''}
+        ${(() => {
+          // 「取消」按钮只在 execution 已卡住 ≥1 分钟时显示：
+          // 任务刚启动时（短任务通常几秒~几分钟内完成）不需要这个手动恢复入口，
+          // 避免误操作。1 分钟后还没完成才算疑似卡住（正常超时至少 5~10 分钟）。
+          // 列表 30s 自动刷新或 WS 推送时会重渲,ageMs 自然重新计算。
+          if (!isRunning) return '';
+          const startedMs = e.started_at ? new Date(e.started_at).getTime() : 0;
+          const ageMs = Date.now() - startedMs;
+          if (ageMs < 60000) return '';
+          return `<button class="btn btn-small" onclick="cancelExecution('${e.id}')" title="已运行 ${Math.floor(ageMs/60000)} 分钟仍未完成，点击取消（强制结束）" style="background:var(--warning);color:#fff;border-color:var(--warning)">⚠ 取消</button>`;
+        })()}
       </div>
-      <div id="exec-session-panel-${e.id}" class="hidden" style="display:none;padding:8px 12px 8px 36px;background:var(--hover);border-bottom:1px solid var(--border);font-size:12px"></div>
       <div id="exec-group-${e.id}" style="display:none">${(groupMap[e.id]?.children || []).map(c => renderRow(c, depth + 1)).join('')}</div>`;
     };
     const atEnd = list.length < recentExecLimit;
@@ -499,190 +506,7 @@ async function loadRecentExecutions() {
   if (el2) render(el2, list, errMsg);
 }
 
-// renderExecSessionPanel: 根据 exec 的 resume_uuid 加载完整会话链，渲染展开面板
-async function renderExecSessionPanel(exec) {
-  if (!exec.resume_uuid) return '<div style="color:var(--text-secondary)">无会话ID</div>';
-
-  // 加载该 resume_uuid 关联的所有 execution（GET /api/executions?resume_uuid=xxx）
-  let execs;
-  try {
-    execs = await fetchJSON('/api/executions?resume_uuid=' + encodeURIComponent(exec.resume_uuid));
-  } catch (e) {
-    return '<div style="color:var(--exception)">加载会话历史失败：' + esc(e.message) + '</div>';
-  }
-
-  if (!execs || execs.length === 0) {
-    return '<div style="color:var(--text-secondary)">暂无会话历史</div>';
-  }
-
-  // 按 started_at 升序排列
-  execs.sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
-
-  // 找到根节点（按 started_at 升序，第一条即根 — ListByResumeUUID 已 ORDER BY started_at ASC）
-  const root = execs[0];
-
-  // 生成历史列表 HTML（精简版时间线）
-  const historyItems = execs.map((e, idx) => {
-    const isRoot = e.id === root.id;
-    const tag = isRoot
-      ? '<span style="background:var(--accent);color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">原始</span>'
-      : '<span style="background:#0ea5e9;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">继续 ' + idx + '</span>';
-    const ts = e.started_at ? new Date(e.started_at).toLocaleString('zh-CN', {hour12: false}) : '';
-    const status = e.exit_code === 0
-      ? '<span style="color:#10b981;font-size:10px">✓</span>'
-      : '<span style="color:var(--exception);font-size:10px">✗</span>';
-    const prompt = e.prompt ? esc(e.prompt) : '<i style="color:var(--text-secondary)">(无prompt)</i>';
-    return `<div style="display:flex;gap:6px;align-items:flex-start;padding:4px 0;border-bottom:1px solid var(--border)">
-      <div style="flex-shrink:0;margin-top:2px">${status}</div>
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;gap:4px;align-items:center;margin-bottom:2px">${tag}<span style="color:var(--text-secondary);font-size:10px">${ts}</span></div>
-        <div style="color:var(--text);font-size:11px;word-break:break-word">${prompt}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  // 继续对话输入框
-  const inputId = 'panel-continue-input-' + exec.id;
-  const submitId = 'panel-continue-submit-' + exec.id;
-
-  return `
-    <div style="margin:6px 0">
-      <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;font-weight:600">💬 会话历史 (${execs.length}条)</div>
-      <div style="border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:8px;max-height:200px;overflow-y:auto">
-        ${historyItems}
-      </div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <input id="${inputId}" placeholder="输入想继续问的内容..." style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();submitContinueFromPanel('${exec.id}')}">
-        <button id="${submitId}" class="btn btn-small btn-primary" onclick="submitContinueFromPanel('${exec.id}')">▶</button>
-      </div>
-    </div>
-  `;
-}
-
-// jumpToRoot: 子节点点击🔗跳转按钮，滚动到根节点行并触发展开
-// 注意：resumeUuid 是 claude session_id（不是 execution id），需要先通过 ListByResumeUUID
-// 拿到根节点的真实 execution id（按 started_at 升序，第一条即为根节点）。
-async function jumpToRoot(resumeUuid) {
-  let execs;
-  try {
-    execs = await fetchJSON('/api/executions?resume_uuid=' + encodeURIComponent(resumeUuid));
-  } catch (e) {
-    console.error('[jumpToRoot]', e);
-    alert('加载会话链失败：' + (e.message || e));
-    return;
-  }
-  if (!execs || execs.length === 0) {
-    alert('会话链不存在');
-    return;
-  }
-  const root = execs[0]; // ListByResumeUUID 已 ORDER BY started_at ASC
-
-  // 根节点不在当前 DOM（被 recentExecLimit 分页截断）时，自动加载更多 + 重试一次，
-  // 让用户看到一致行为：滚动到根节点 + 展开会话历史面板，而不是打开详情弹窗。
-  // 找不到的兜底（DB 里 root 已被删等异常情况）才走 viewExecutionDetail。
-  let rootRow = _highlightRootRow(root.id);
-  if (!rootRow) {
-    console.log('[jumpToRoot] 根节点不在当前视图，自动加载更多后重试...');
-    try {
-      await loadMoreExecutions();
-    } catch (e) {
-      console.warn('[jumpToRoot] loadMoreExecutions 失败:', e);
-    }
-    rootRow = _highlightRootRow(root.id);
-  }
-  if (!rootRow) {
-    // 兜底：加载更多后还是找不到（罕见，比如根节点被硬删）
-    viewExecutionDetail(root.id);
-  }
-}
-
-// _highlightRootRow: 滚动到根节点行 + 绿色高亮 1s + 展开会话面板。
-// 找不到时返回 null，让 caller 决定是否加载更多重试。
-function _highlightRootRow(rootId) {
-  const rootRow = document.querySelector(`[data-exec-id="${rootId}"]`);
-  if (!rootRow) return null;
-  rootRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  rootRow.style.background = 'rgba(16,185,129,0.2)';
-  setTimeout(() => { rootRow.style.background = ''; }, 1000);
-  setTimeout(() => toggleExecSessionPanel(rootId), 300);
-  return rootRow;
-}
-
-// toggleExecSessionPanel: 展开或收起执行行的会话历史面板
-async function toggleExecSessionPanel(execId) {
-  const panel = document.getElementById('exec-session-panel-' + execId);
-  if (!panel) return;
-
-  if (!panel.classList.contains('hidden')) {
-    // 收起
-    panel.classList.add('hidden');
-    panel.style.display = 'none';
-    return;
-  }
-
-  // 先展示空白面板（避免点击无响应感）
-  panel.classList.remove('hidden');
-  panel.style.display = 'block';
-  panel.innerHTML = '<div style="color:var(--text-secondary);padding:4px">加载中...</div>';
-
-  // 获取 exec 数据
-  let exec;
-  try {
-    // execId 是 execution id（来自跳转或按钮），直接 GET 单条。
-    // 注意：不能用 ?resume_uuid= 查 — resumeUuid 是 session_id，不是 exec id。
-    exec = await fetchJSON('/api/executions/' + execId);
-  } catch (e) {
-    panel.innerHTML = '<div style="color:var(--exception);padding:4px">加载失败</div>';
-    return;
-  }
-
-  if (!exec) {
-    panel.innerHTML = '<div style="color:var(--text-secondary);padding:4px">未找到执行记录</div>';
-    return;
-  }
-
-  // 渲染面板内容
-  panel.innerHTML = await renderExecSessionPanel(exec);
-}
-
-// submitContinueFromPanel: 从展开面板内提交继续对话
-async function submitContinueFromPanel(execId) {
-  const input = document.getElementById('panel-continue-input-' + execId);
-  const submitBtn = document.getElementById('panel-continue-submit-' + execId);
-  const prompt = input?.value?.trim();
-  if (!prompt) return;
-
-  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '⏳'; }
-
-  try {
-    const res = await fetchJSON('/api/executions/' + execId + '/continue', {
-      method: 'POST',
-      body: JSON.stringify({ prompt }),
-    });
-    const newExecId = res && res.execution_id;
-    // 清空输入框
-    if (input) input.value = '';
-    // 刷新执行列表
-    loadRecentExecutions();
-    // 提示用户
-    const panel = document.getElementById('exec-session-panel-' + execId);
-    if (panel) {
-      const feedback = document.createElement('div');
-      feedback.style.cssText = 'margin-top:8px;padding:6px 8px;background:rgba(16,185,129,0.12);border:1px solid #10b981;border-radius:4px;font-size:11px;color:#10b981';
-      feedback.textContent = '✓ 继续对话已提交，新执行ID: ' + (newExecId || '?');
-      panel.appendChild(feedback);
-      setTimeout(() => feedback.remove(), 5000);
-    }
-  } catch (e) {
-    alert('继续对话失败：' + e.message);
-  } finally {
-    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '▶'; }
-  }
-}
-
 // loadMoreExecutions: 增加 recentExecLimit + 重渲染最近执行列表。
-// 改为 async + await loadRecentExecutions()，让调用方（如 jumpToRoot 自动重试）
-// 能真正等渲染完成后再 query DOM，否则 scrollIntoView 会落在空 DOM。
 async function loadMoreExecutions() {
   recentExecLimit += 50;
   // 给所有"加载更多"按钮加 loading 反馈（innerHTML 重渲染前）
@@ -780,14 +604,18 @@ async function viewExecutionDetail(id) {
     }
     // 继续对话按钮：有 resume_uuid 时可点，否则禁用 + tooltip 提示
     //（不隐藏：让用户知道这个功能存在，理解为什么这个 execution 不可续）
+    // 启用态用 btn-primary（蓝色）跟「📊 评估」主操作对齐，禁用态用 btn-secondary（灰色）
+    //——之前一直用灰色，看着跟「关闭」按钮一样没主次，启用后也不够显眼。
     const continueBtn = document.getElementById('exec-continue-btn');
     if (continueBtn) {
       if (exec.resume_uuid) {
-        continueBtn.classList.remove('hidden');
+        continueBtn.classList.remove('hidden', 'btn-secondary');
+        continueBtn.classList.add('btn-primary');
         continueBtn.disabled = false;
         continueBtn.removeAttribute('title');
       } else {
-        continueBtn.classList.remove('hidden');
+        continueBtn.classList.remove('hidden', 'btn-primary');
+        continueBtn.classList.add('btn-secondary');
         continueBtn.disabled = true;
         continueBtn.title = '该执行未生成 session_id，无法继续对话（执行失败或尚未完成）';
       }
@@ -1024,7 +852,7 @@ function _markEvaluating(execId, on) {
 // 后端 /api/executions/{id}/cancel 会智能选择：in-flight 调 cancel func；否则直接写 completed_at。
 async function cancelExecution(id) {
   if (!id) return;
-  if (!confirm('确认将这条执行标记为已完成？\n\n适用场景：子进程已死但 DB 没收到 done 事件（WS 断连 / 服务重启后），导致一直显示「运行中」。')) return;
+  if (!confirm('确认取消这条执行？\n\n适用场景：子进程已死但 DB 没收到 done 事件（WS 断连 / 服务重启后），导致一直显示「运行中」。\n\n已运行超过 1 分钟还没完成才显示这个按钮，确认执行是真正卡住了再点。')) return;
   try {
     const resp = await fetchJSON('/api/executions/' + id + '/cancel', {method: 'POST'});
     const mode = resp.mode || (resp.already_done ? 'already_done' : 'unknown');
