@@ -87,3 +87,82 @@ async function loadRelayStats() {
     console.error('loadRelayStats error', e);
   }
 }
+
+// ===== Linux 调用脚本生成 =====
+// showRelayScriptModal 打开 modal,展示一段可直接拷贝到 Linux 机器运行的 shell 脚本。
+// 脚本内置 exec_cmd / proxy_http 两个函数封装,用户改 3 处(API_HOST/API_KEY/参数)即可用。
+// 脚本内容是常量字符串(不依赖任何运行时变量),避免脚本里出现实际 token 等敏感信息。
+function showRelayScriptModal() {
+  const script = `#!/usr/bin/env bash
+# xworkbench Relay 调用脚本
+# 用途:在 Linux 机器上调用本服务代理(执行命令 / HTTP 转发)
+# 改 3 处即可:API_HOST / API_KEY / 调用参数(command / url)
+
+set -euo pipefail
+
+API_HOST="\${API_HOST:-http://localhost:8902}"   # ← 改成你的 xworkbench 地址
+API_KEY="\${API_KEY:-xworkbench}"                # ← 改成实际 API key(默认 "xworkbench")
+
+# === 方式 1:执行 shell 命令(POST /api/exec) ===
+# body 形如: '{"command":"ls -la /tmp","cwd":"/","timeout_ms":30000}'
+exec_cmd() {
+  local body="\${1:?usage: exec_cmd '<json_body>'}"
+  curl -fsS -X POST "$API_HOST/api/exec" \\
+    -H "Content-Type: application/json" \\
+    -H "Authorization: Bearer $API_KEY" \\
+    -d "$body"
+}
+
+# === 方式 2:HTTP 代理转发(POST /api/relay/proxy) ===
+# body 形如: '{"method":"GET","url":"https://api.example.com/data","timeout_ms":10000}'
+proxy_http() {
+  local body="\${1:?usage: proxy_http '<json_body>'}"
+  curl -fsS -X POST "$API_HOST/api/relay/proxy" \\
+    -H "Content-Type: application/json" \\
+    -H "Authorization: Bearer $API_KEY" \\
+    -d "$body"
+}
+
+# === 示例(取消注释运行) ===
+# exec_cmd '{"command":"ls -la /tmp","timeout_ms":10000}'
+# proxy_http '{"method":"GET","url":"https://api.github.com","timeout_ms":10000}'
+`;
+  document.getElementById('relay-script-content').value = script;
+  // 重置拷贝按钮文字(防止上次打开后被改成"✅ 已复制")
+  const btn = document.getElementById('relay-script-copy-btn');
+  if (btn) btn.textContent = '📋 复制全部';
+  document.getElementById('relay-script-modal').classList.remove('hidden');
+}
+
+function closeRelayScriptModal() {
+  document.getElementById('relay-script-modal').classList.add('hidden');
+}
+
+function copyRelayScript() {
+  const text = document.getElementById('relay-script-content').value;
+  const btn = document.getElementById('relay-script-copy-btn');
+  if (!text || !btn) return;
+  // 用 navigator.clipboard(https/localhost 都可用)。fallback 到 execCommand 兼容旧浏览器。
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = '✅ 已复制';
+      setTimeout(() => { btn.textContent = '📋 复制全部'; }, 1500);
+    }).catch(() => fallbackCopy(text, btn));
+  } else {
+    fallbackCopy(text, btn);
+  }
+}
+
+function fallbackCopy(text, btn) {
+  const ta = document.getElementById('relay-script-content');
+  if (!ta) return;
+  ta.select();
+  try {
+    document.execCommand('copy');
+    btn.textContent = '✅ 已复制';
+    setTimeout(() => { btn.textContent = '📋 复制全部'; }, 1500);
+  } catch (e) {
+    btn.textContent = '❌ 复制失败,请手动 Ctrl+C';
+    setTimeout(() => { btn.textContent = '📋 复制全部'; }, 2000);
+  }
+}

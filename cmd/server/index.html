@@ -429,7 +429,10 @@
 
   <!-- 代理 Tab -->
   <div id="page-relay" class="hidden">
-    <h1 class="page-title">🔀 代理 <span style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px">执行命令 / 转发请求</span></h1>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h1 class="page-title" style="margin:0">🔀 代理 <span style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px">执行命令 / 转发请求</span></h1>
+      <button class="btn btn-secondary" onclick="showRelayScriptModal()" title="生成 Linux shell 脚本,拷贝到 Linux 机器即可调用本服务代理" style="font-size:12px;padding:6px 12px">📋 生成调用脚本</button>
+    </div>
 
     <style>
       /* 代理页面：两栏区分，命令执行（橙）与 HTTP 转发（蓝） */
@@ -623,6 +626,25 @@
     </div>
   </div>
 </main>
+</div>
+
+<!-- Relay 调用脚本生成 modal:展示可直接拷贝到 Linux 机器运行的 shell 脚本,
+     内置 exec_cmd / proxy_http 两个函数封装,改 3 处(API_HOST/API_KEY/参数)即可用 -->
+<div id="relay-script-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeRelayScriptModal()">
+  <div class="modal" style="max-width:780px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+    <h2 style="margin:0 0 8px 0;font-size:16px">📋 Linux 调用脚本</h2>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+      拷贝到 Linux 机器,改 3 处即可使用:<br>
+      <code style="background:var(--hover);padding:1px 4px;border-radius:2px">API_HOST</code> = xworkbench 地址 &nbsp;|&nbsp;
+      <code style="background:var(--hover);padding:1px 4px;border-radius:2px">API_KEY</code> = 实际 key &nbsp;|&nbsp;
+      <code style="background:var(--hover);padding:1px 4px;border-radius:2px">exec_cmd / proxy_http</code> 的入参
+    </div>
+    <textarea id="relay-script-content" readonly style="flex:1;min-height:380px;font-family:Menlo,Monaco,Consolas,monospace;font-size:12px;line-height:1.55;padding:12px;border:1px solid var(--border);border-radius:4px;background:#0f172a;color:#e2e8f0;resize:vertical" onclick="this.select()"></textarea>
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn btn-secondary" onclick="closeRelayScriptModal()">关闭</button>
+      <button id="relay-script-copy-btn" class="btn btn-primary" onclick="copyRelayScript()">📋 复制全部</button>
+    </div>
+  </div>
 </div>
 
 <!-- Task Modal -->
