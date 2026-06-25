@@ -4,15 +4,18 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -2262,13 +2265,41 @@ func main() {
 		logger.Fatalw("listen failed", "addr", addr, "err", err)
 	}
 	logger.Infof("Skill Factory started at http://localhost%s  build=%s", addr, BuildInfo)
-	if err := (&http.Server{
-		Handler:      srv,
-		IdleTimeout:  30 * time.Second,
-		ReadTimeout:  60 * time.Second,
-		WriteTimeout: 60 * time.Second,
-	}).Serve(ln); err != nil {
-		logger.Fatalw("http serve failed", "err", err)
+
+	// 优雅关闭：监听 SIGINT/SIGTERM，收到后 http.Server.Shutdown 给正在执行的
+	// handler 30s 时间排空，再强制关闭。修复"kill PID 后日志断片 + claude
+	// 子进程变孤儿"两个老问题。
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	httpSrv := &http.Server{
+		Handler:     srv,
+		IdleTimeout: 30 * time.Second,
+		ReadTimeout: 60 * time.Second,
+		// WriteTimeout=0（无限制）：run-loop handler 已经异步化（立即返 202），其它
+		// handler 都是 ms 级返回，不再需要短超时。原 60s 会在长任务上报文被截断。
+		WriteTimeout: 0,
+	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- httpSrv.Serve(ln)
+	}()
+
+	select {
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Fatalw("http serve failed", "err", err)
+		}
+	case <-ctx.Done():
+		logger.Infow("shutdown signal received, draining connections (30s timeout)...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+			logger.Errorw("http shutdown failed", "err", err)
+		}
+		<-serveErr
+		logger.Infow("http server stopped")
 	}
 }
 
@@ -2344,6 +2375,11 @@ func (s *APIServer) handleTaskReevaluate(w http.ResponseWriter, r *http.Request)
 }
 
 // handleTaskRunLoop 评估闭环：执行→评估→分数<阈值则换更强模型重试。
+//
+// 异步实现：handler 立即返回 202 + {task_id, status:"started"}，后台 goroutine
+// 跑循环。每次迭代/完成/异常通过 wsmsg.ChannelExec 推送到前端，前端用
+// handleExecStream 增量渲染进度。设计原因见 P1 修复（同步阻塞 + WriteTimeout
+// 60s 双重矛盾让长任务必死）。Sync 版本已移除。
 func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 	if !s.aiLoopEnabled() {
 		writeErr(w, http.StatusForbidden, "AI 自治能力未启用（设 AI_LOOP_ENABLED=1 或 config.json ai_loop.enabled=true）")
@@ -2381,6 +2417,32 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 	if req.Model == "haiku" || req.Model == "" {
 		models = []string{"haiku", "sonnet", "opus"}
 	}
+
+	// 立即返回 202，让 client 不要再阻塞等循环跑完。
+	writeJSON(w, map[string]interface{}{
+		"task_id":        id,
+		"status":         "started",
+		"max_iterations": req.MaxIterations,
+		"threshold":      req.Threshold,
+	})
+
+	// 后台 goroutine 跑循环，WS 推进度。
+	// - iteration_started: 即将调 claude
+	// - iteration_done: claude + evaluator 都跑完（带 score/exit_code）
+	// - loop_done: 达到阈值/最大迭代/被 build 失败中断
+	// - loop_error: 整个 goroutine panic
+	go s.runLoopBackground(id, req, models)
+}
+
+// runLoopBackground 是 handleTaskRunLoop 的后台执行体，单独拆出来便于测试和
+// recover panic。WS payload 字段见 handleExecStream 的 run-loop 分支。
+func (s *APIServer) runLoopBackground(taskID string, req struct {
+	Prompt        string  `json:"prompt"`
+	Model         string  `json:"model"`
+	CliType       string  `json:"cli_type"`
+	Threshold     float64 `json:"threshold"`
+	MaxIterations int     `json:"max_iterations"`
+}, models []string) {
 	type Step struct {
 		Iteration int      `json:"iteration"`
 		Model     string   `json:"model"`
@@ -2388,43 +2450,97 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 		Score     *float64 `json:"score,omitempty"`
 		Error     string   `json:"error,omitempty"`
 	}
-	result := map[string]interface{}{"task_id": id, "loop_done": false, "history": []Step{}}
+	history := []Step{}
+
+	defer func() {
+		if rec := recover(); rec != nil {
+			logger.Errorw("run-loop background panic", "task_id", taskID, "panic", rec)
+			s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+				"task_id": taskID, "event": "loop_error", "error": fmt.Sprintf("%v", rec),
+			})
+		}
+	}()
 
 	for i := 0; i < req.MaxIterations; i++ {
 		model := models[i%len(models)]
+		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+			"task_id": taskID, "event": "iteration_started",
+			"iteration": i + 1, "model": model,
+		})
+
 		cmd, stdin, cleanup, err := runner.BuildCommand(req.CliType, model, "", req.Prompt)
 		if err != nil {
-			result["history"] = append(result["history"].([]Step), Step{Iteration: i + 1, Model: model, Error: err.Error()})
-			break
+			step := Step{Iteration: i + 1, Model: model, Error: err.Error()}
+			history = append(history, step)
+			s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+				"task_id": taskID, "event": "loop_done", "reason": "build_failed",
+				"history": history,
+			})
+			return
 		}
-		exec := &backend.Execution{ID: uuid.New().String(), TaskID: id, Source: "loop", Command: runner.CmdStringWithPrompt(cmd, req.Prompt), Model: model, StartedAt: time.Now()}
+
+		exec := &backend.Execution{ID: uuid.New().String(), TaskID: taskID, Source: "loop", Command: runner.CmdStringWithPrompt(cmd, req.Prompt), Model: model, StartedAt: time.Now()}
 		s.execDB.Create(exec)
-		go func() { defer cleanup() }()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		res, _ := executor.Run(ctx, cmd, "", stdin, nil)
+		res, runErr := executor.Run(ctx, cmd, "", stdin, nil)
 		cancel()
+
+		// cleanup 是 runner 提供的资源回收（cbc/shell 类型的临时脚本文件），
+		// claude 类型返回 nil。放到 goroutine 异步回收，避免阻塞循环。
+		if cleanup != nil {
+			go func() { defer cleanup() }()
+		}
+
 		exitCode := -1
 		var out string
 		if res != nil {
-			out, _ = res.Output, res.ErrorOut
+			out = res.Output
 			exitCode = res.ExitCode
 		}
 		resumeSessionID := extractResumeSessionID(out)
 		s.execDB.Finish(exec.ID, out, "", exitCode, resumeSessionID)
+
 		step := Step{Iteration: i + 1, Model: model, ExitCode: exitCode}
-		if evID, err := evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, req.Prompt, req.CliType, model); err == nil {
-			if evs, _ := s.evalDB.ListByExecution(exec.ID); len(evs) > 0 {
-				step.Score = &evs[0].Score
+		if runErr != nil {
+			// 之前 res,_ 把错误吞了，错误信息会丢；现在显式带上，便于前端展示 + WS 推送
+			step.Error = runErr.Error()
+			logger.Warnw("run-loop executor failed", "task_id", taskID, "iteration", i+1, "err", runErr.Error())
+		} else {
+			// evaluator 只在执行成功时跑；失败时跳过（避免给 broken execution 打分）
+			if evID, err := evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, req.Prompt, req.CliType, model); err == nil {
+				if evs, _ := s.evalDB.ListByExecution(exec.ID); len(evs) > 0 {
+					step.Score = &evs[0].Score
+				}
+				_ = evID
 			}
-			_ = evID
 		}
-		result["history"] = append(result["history"].([]Step), step)
+		history = append(history, step)
+
+		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+			"task_id":      taskID,
+			"event":        "iteration_done",
+			"iteration":    i + 1,
+			"model":        model,
+			"exit_code":    exitCode,
+			"execution_id": exec.ID,
+			"score":        step.Score,
+			"error":        step.Error,
+		})
+
 		if step.Score != nil && *step.Score >= req.Threshold {
-			result["loop_done"] = true
-			break
+			s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+				"task_id": taskID, "event": "loop_done", "reason": "threshold_met",
+				"history": history,
+			})
+			return
 		}
 	}
-	writeJSON(w, result)
+
+	s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+		"task_id": taskID, "event": "loop_done", "reason": "max_iterations",
+		"history": history,
+	})
 }
 
 // handleTaskLearn 对完成任务触发自我学习，从执行记录生成经验写入 experiences 表。

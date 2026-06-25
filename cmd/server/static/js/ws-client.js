@@ -18,7 +18,13 @@ function initWS() {
       if (msg.channel === 'task') {
         handleTaskUpdate(msg.payload);
       } else if (msg.channel === 'exec') {
-        handleExecStream(msg.payload);
+        // 区分 run-loop 事件（payload.event 存在）和原生 exec 流（payload.chunk/done）
+        const p = msg.payload || {};
+        if (p.event) {
+          handleRunLoopProgress(p);
+        } else {
+          handleExecStream(p);
+        }
       } else if (msg.channel === 'scheduler') {
         // scheduler 启停状态变化：重拉 dashboard 和 automation
         if (currentTab === 'dashboard' && typeof loadDashboard === 'function') loadDashboard();
@@ -107,6 +113,75 @@ function handleExecStream(payload) {
     if (currentTab === 'automation' && typeof loadRecentExecutions === 'function') {
       loadRecentExecutions();
     }
+  }
+}
+
+// handleRunLoopProgress 消费 handleTaskRunLoop 后端 goroutine 推的进度事件。
+// payload 字段（与 cmd/server/main.go runLoopBackground 对应）：
+//   - task_id: 哪个 task（用 _currentTaskId() 过滤，避免弹窗关闭/切换时误渲染）
+//   - event: iteration_started | iteration_done | loop_done | loop_error
+//   - iteration: 1-based（iteration_started/iteration_done）
+//   - model: "haiku"/"sonnet"/"opus"
+//   - score: number（iteration_done/loop_done）
+//   - exit_code: int（iteration_done）
+//   - error: string（loop_error / iteration_done 失败时）
+//   - reason: "threshold_met" | "max_iterations" | "build_failed"（loop_done）
+//   - history: Step[]（loop_done 时一次性给完整 history）
+function handleRunLoopProgress(payload) {
+  if (!payload || !payload.task_id) return;
+  // 只渲染当前打开的 task 的进度（避免多个 task 弹窗互窜）
+  const cur = (typeof _currentTaskId === 'function') ? _currentTaskId() : '';
+  if (cur && payload.task_id !== cur) return;
+  if (typeof _aiLoopProgressShow !== 'function') return; // tasks.js 还没加载
+
+  switch (payload.event) {
+    case 'iteration_started':
+      _aiLoopProgressShow(
+        `迭代 ${payload.iteration} 启动 (model: ${payload.model})...`
+      );
+      break;
+    case 'iteration_done': {
+      const scoreStr = payload.score != null ? ` · score=${payload.score.toFixed(2)}` : '';
+      const errStr = payload.error ? ` · ❌ ${payload.error}` : '';
+      _aiLoopProgressShow(
+        `迭代 ${payload.iteration} 完成 (exit=${payload.exit_code}${scoreStr}${errStr})`
+      );
+      // 历史区增量重渲染：iteration_done 不带 history,所以从累计中加这一步
+      const histEl = document.getElementById('ai-loop-progress-history');
+      if (histEl) {
+        const cur = histEl.getAttribute('data-history') ? JSON.parse(histEl.getAttribute('data-history')) : [];
+        cur.push({
+          iteration: payload.iteration, model: payload.model,
+          exit_code: payload.exit_code, score: payload.score, error: payload.error,
+        });
+        histEl.setAttribute('data-history', JSON.stringify(cur));
+        // 复用 _aiLoopProgressRenderHistory 的渲染逻辑
+        if (typeof _aiLoopProgressRenderHistory === 'function') {
+          _aiLoopProgressRenderHistory(cur);
+        }
+      }
+      break;
+    }
+    case 'loop_done': {
+      const reasonMap = {
+        threshold_met: '✓ 达到阈值,循环结束',
+        max_iterations: '⏸ 达到最大迭代次数',
+        build_failed: '⚠ 命令构建失败',
+      };
+      _aiLoopProgressShow(reasonMap[payload.reason] || '✓ 循环结束');
+      if (Array.isArray(payload.history) && typeof _aiLoopProgressRenderHistory === 'function') {
+        _aiLoopProgressRenderHistory(payload.history);
+        const histEl = document.getElementById('ai-loop-progress-history');
+        if (histEl) histEl.setAttribute('data-history', JSON.stringify(payload.history));
+      }
+      break;
+    }
+    case 'loop_error':
+      _aiLoopProgressShow('❌ 后端 panic: ' + (payload.error || 'unknown'));
+      break;
+    default:
+      // 未知 event:忽略,不影响其他 handler
+      break;
   }
 }
 

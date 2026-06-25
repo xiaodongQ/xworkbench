@@ -654,6 +654,25 @@
       <div id="task-waiting-input-content" style="background:#fff8e1;border:1px solid #ffc107;border-radius:4px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:150px;overflow-y:auto;"></div>
     </div>
 
+    <!-- AI 自治能力（ai_loop_enabled=true 时由 loadAILoopStatus 显示区块并设置来源角标） -->
+    <div id="ai-loop-section" class="form-group hidden" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card)">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:13px;font-weight:600">🤖 AI 自治</span>
+          <span id="ai-loop-source-badge" style="font-size:10px;color:var(--text-secondary)"></span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="runTaskLoop()">🔁 Run Loop</button>
+          <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="reevaluateTask()">📊 Reevaluate</button>
+          <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="learnFromTask()">📚 Learn</button>
+        </div>
+      </div>
+      <div id="ai-loop-progress" class="hidden" style="margin-top:10px;padding:8px;background:var(--hover);border-radius:6px">
+        <div id="ai-loop-progress-text" style="font-size:11px;margin-bottom:6px">进行中...</div>
+        <div id="ai-loop-progress-history" style="max-height:140px;overflow-y:auto"></div>
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTaskModal()">取消</button>
       <button id="task-submit-btn" class="btn btn-primary" onclick="submitTask()">创建</button>

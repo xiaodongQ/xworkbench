@@ -853,6 +853,10 @@ function _aiLoopErrorHandler(e) {
   }
 }
 
+// runTaskLoop fire-and-forget：POST 后立即返回 {status:"started"}，后端在
+// 后台 goroutine 跑循环并通过 wsmsg.ChannelExec 推进度。前端用
+// handleRunLoopProgress (在 ws-client.js) 增量渲染。3 分钟级别的循环不再阻塞
+// HTTP 连接，配合服务端 WriteTimeout=0 和 signal handler 优雅关闭。
 async function runTaskLoop() {
   const id = _currentTaskId();
   if (!id) return;
@@ -863,16 +867,15 @@ async function runTaskLoop() {
   const maxIterStr = prompt('最大迭代次数（默认 3）:', '3');
   const threshold = parseFloat(thresholdStr) || 7;
   const maxIter = parseInt(maxIterStr) || 3;
-  _aiLoopProgressShow('Run Loop 启动中...');
+  _aiLoopProgressShow('Run Loop 已启动,等待后端推送进度...');
+  _aiLoopProgressRenderHistory([]); // 清空上次残留
   try {
-    const result = await fetchJSON('/api/tasks/' + id + '/run-loop', {
+    await fetchJSON('/api/tasks/' + id + '/run-loop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, model, cli_type: 'claude', threshold, max_iterations: maxIter }),
     });
-    const text = result.loop_done ? '✓ 达到阈值，循环结束' : '⏸ 达到最大迭代次数';
-    _aiLoopProgressShow(text);
-    _aiLoopProgressRenderHistory(result.history);
+    // 200/202:handler 立即返回,后续进度由 ws 推送
   } catch (e) {
     _aiLoopProgressShow('❌ ' + e.message);
     _aiLoopErrorHandler(e);

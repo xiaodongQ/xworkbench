@@ -43,29 +43,47 @@ func Run(ctx context.Context, cmd []string, dir string, stdin string, onChunk fu
 	if dir != "" {
 		c.Dir = dir
 	}
+	// StdinPipe 必须在 Start 之前创建（Go 限制），但写 + Close 放到 Start 之后：
+	// 旧实现 goroutine 异步写 + Close，可能在子进程启动前就 EOF，导致 claude
+	// 等 node 进程 ready 时 stdin 已关闭，偶发 prompt 丢失或进程立即退出。
+	var stdinPipe io.WriteCloser
 	if stdin != "" {
-		stdinPipe, err := c.StdinPipe()
+		var err error
+		stdinPipe, err = c.StdinPipe()
 		if err != nil {
 			return nil, err
 		}
-		go func() {
-			defer stdinPipe.Close()
-			io.WriteString(stdinPipe, stdin)
-		}()
 	}
 	stdout, err := c.StdoutPipe()
 	if err != nil {
+		if stdinPipe != nil {
+			stdinPipe.Close()
+		}
 		return nil, err
 	}
 	stderr, err := c.StderrPipe()
 	if err != nil {
+		if stdinPipe != nil {
+			stdinPipe.Close()
+		}
 		return nil, err
 	}
 	started := time.Now()
 	if err := c.Start(); err != nil {
+		if stdinPipe != nil {
+			stdinPipe.Close()
+		}
 		return nil, err
 	}
 	logger.Logger.Debugw("executor: process started", "cmd", truncateCmd(cmd), "pid", c.Process.Pid)
+	// Start 成功后同步写 stdin：子进程已 ready，写入 kernel pipe buffer 64KB 内的
+	// 字符串立即返回；超过 64KB 才会阻塞到子进程读（这是期望的背压）。
+	if stdinPipe != nil {
+		if _, werr := io.WriteString(stdinPipe, stdin); werr != nil {
+			logger.Logger.Warnw("executor: write stdin failed", "cmd", truncateCmd(cmd), "err", werr.Error())
+		}
+		stdinPipe.Close()
+	}
 
 	var out, errBuf strings.Builder
 	var wg sync.WaitGroup
