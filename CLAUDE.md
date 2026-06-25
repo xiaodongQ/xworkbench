@@ -55,7 +55,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 字段 | 类型 | 含义 |
 |---|---|---|
 | `default_terminal` | string | 用户偏好的默认终端类型(原 `terminal.default_type` 升级到顶层) |
-| `preferred_cli` | string | 全局优先 CLI(`claude` / `cbc`),影响创建任务的默认 `command_type` |
+| `preferred_cli` | string | 全局优先 CLI(`claude` / `cbc`)，影响创建任务的默认 `command_type` |
 | `ai_loop_enabled` | bool | AI 自治能力开关(run-loop / reevaluate / learn 三个后端能力) |
 | `aichat_default_cli` | string | PTY 多 Tab 默认起哪个 CLI(codex/cbc/shell/claude) |
 | `todo_md_path` | string | todo widget 读取的 todo.md 文件路径 |
@@ -64,7 +64,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **部署级 nested 字段**:
 
 - `terminal.{detect_paths, types}` —— 终端类型定义 + 启动参数(`default_type` 已上移到顶层 `default_terminal`)
-- `models.{claude,cbc}.{default, options}` —— 模型列表 + 默认模型
+- `models.{claude,cbc}.{default, eval_default, options}` —— 模型列表 + **执行默认模型** + **评估默认模型**(独立配置,未设时 fallback 到 `default`)+ 选项列表
 - `relay.api_key` —— 代理接口认证 token
 
 **重要**:以前散落在 SQLite `app_settings` 表的 6 个 key(`aichat_default_cli` / `default_terminal` / `preferred_cli` / `todo_md_path` / `ai_loop_enabled` / `scheduler.enabled`)全部移到 `config.json` 顶层。**不再有 AppSettings 优先级链**。
@@ -86,11 +86,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     "types": { "wezterm": {...} }
   },
   "models": {
-    "claude": { "default": "sonnet", "options": [...] },
-    "cbc":    { "default": "glm-5.0", "options": [...] }
+    "claude": { "default": "sonnet", "eval_default": "sonnet", "options": [...] },
+    "cbc":    { "default": "glm-5.1", "eval_default": "glm-5.0", "options": [...] }
   }
 }
 ```
+
+**eval_default vs default(重点区分)**:
+- `models.<cli>.default` —— **任务执行**的默认模型(用户创建任务 / 调度器跑 AI 任务时用)
+- `models.<cli>.eval_default` —— **AI 评估员**的默认模型(`/api/executions/{id}/evaluate` / `evaluate-chain` / `run-loop` / `reevaluate` 评估用)
+- 两者可不同:评估需要更稳的判断(推荐 sonnet),执行可走性价比(haiku/glm-4.7 等)
+- `eval_default` 未设时 fallback 到 `default`,都未设时硬编码 `"sonnet"`(评估 fallback 链)
 
 ## 5. 目录结构
 
@@ -134,7 +140,7 @@ internal/
 |---|---|---|
 | `tasks` | id, title, description, status, priority, experience_id, resources, acceptance | 任务(24 字段,带自动迁移) |
 | `task_experiences` | task_id, experience_id | 多对多关联(2026 新增,取代单 experience_id) |
-| `executions` | id, task_id, scheduled_task_id, source, command, model, started_at, completed_at, output, error, exit_code, **evaluation_score** | 一次执行 |
+| `executions` | id, task_id, scheduled_task_id, source, command, **prompt, cli_type**, model, started_at, completed_at, output, error, exit_code, resume_uuid, **status**, evaluation_score | 一次执行(`status` 显式状态字段,2026-06 新增,详见 §8.4) |
 | `evaluations` | id, task_id, execution_id, evaluator_model, score, comments, created_at | AI 评估结果 |
 | `experiences` | id, module, scene, keywords, tool_usage, log_samples, code_snippets | 知识库 |
 | `scheduled_tasks` | id, name, cron_expr, command_type, model, prompt, enabled, last_run_at, last_status | 定时任务 |
@@ -181,14 +187,39 @@ internal/
 用户点"📊 AI 评估" → POST /api/executions/{id}/evaluate
   → handleExecutionEvaluate 构造评估 prompt(evalPromptTpl:指令 vs AI 自报动作清单 vs Claude 元数据 vs 实际 stdout 四方对照)
   → evaluator.Evaluate 异步调 claude 打分
+    · 评估模型走 config.json 的 models.{cli}.eval_default(与任务执行模型独立)
+    · 评估超時 3 分钟(evaluator.go:162)
   → parseEval 提取 "评分: X" + "评语: ..." (scoreRe / cmtRe)
   → evaluations 表写记录(Score=-1 = 解析失败,前端显示灰卡;0 = 真低分)
   → 前端 1-60s 轮询,渲染评分卡
 ```
 
+**评估与执行模型独立**(commit 55a826c):`models.claude.eval_default` 默认 sonnet,`models.cbc.eval_default` 默认 glm-5.0;未设时 fallback 到 `default`,都未设时硬编码 `"sonnet"`。评估需要更稳的判断(推荐 sonnet),执行可走性价比(haiku/glm-4.7 等)。
+
 ### 8.3 Prompt 模板
 - **执行 prompt** `BuildTaskPrompt(task, experience)`:注入 5 个 task 字段(title/description/priority/resources/acceptance)+ 7 个 experience 字段(module/keywords/log_paths/tool_usage/scene/log_samples/code_snippets)
 - **评估 prompt** `evalPromptTpl`:要求基于"指令 vs AI 自报动作清单 vs Claude 执行元数据(num_turns) vs 实际 stdout"四方对照打分
+
+### 8.4 Execution.status 显式状态字段(2026-06 新增)
+- `executions.status` 列(2026-06 be08ccf 引入),取代之前"靠 completed_at+exit_code+error 拼凑"判定
+- **取值 6 个**:`running` / `success` / `failed` / `timeout` / `cancelled` / `build_error`
+  - `running`:已创建未 Finish
+  - `success`:exit_code=0
+  - `failed`:exit_code≠0 且 ≠-1(子进程报错)
+  - `timeout`:exit_code=-1 且 errOut 含 "context deadline"
+  - `cancelled`:用户手动调 `/api/executions/{id}/cancel` 强制结束
+  - `build_error`:`runner.BuildCommand` 返回 err
+- **execution 错误信息保留**(同 commit):executor.Run 杀子进程时 stderr 是空的,错误在 res.Err(以前 write 空白),现在 res.Err.Error() 兜底写入 errOut
+- **手动取消接口**:`POST /api/executions/{id}/cancel`(同 commit),服务器重启后 in-flight goroutine 消失可手动恢复
+
+### 8.5 继续对话延续原 CLI/model(2026-06 新增)
+- **背景**:`handleExecutionContinue` 以前硬编码 CLI="claude",原 exec 如果是 cbc/shell 会切断运行环境(session 延续但 CLI 切了)
+- **改动**(9ddad16):
+  - `executions` 表加 `cli_type TEXT` 列(老库自动 ALTER 迁移)
+  - `Execution.CliType` 字段(jaon tag `cli_type`)
+  - `handleExecutionContinue` 从原 exec 读 CliType,fallback `claude`
+  - 继续对话响应生成新 exec,cli_type 继承原 exec
+- 评估/前端用 `execution.cli_type` 判断运行环境,避免 cbc session 误以 claude 评估
 
 ## 9. AI CLI 命令构造(`internal/executor/runner/build.go`)
 
@@ -205,8 +236,13 @@ BuildCommand(typ, model, sessionID, prompt) ([]string, error)
 
 ## 10. 关键约定
 
-### 10.1 评估模型
-默认 `sonnet`(前端 `/api/evaluations` 渲染 / 后端 `main.go:476` fallback 都是),UI 可在 exec-detail-modal 下拉选 haiku/sonnet/opus。**模型列表来自 `config.json` 的 `models.claude.options`**,不写死。
+### 10.1 评估模型 vs 执行模型(独立配置)
+2026-06 重构(55a826c)后两者彻底拆开:
+
+- **执行模型**:`models.<cli>.default` —— 用户创建任务 / 调度器 / RunNow / 继续对话 时用
+- **评估模型**:`models.<cli>.eval_default` —— `/api/executions/{id}/evaluate` / `evaluate-chain` / `run-loop` / `reevaluate` 评估用
+
+fallback 链:`eval_default` 未设 → `default` → 硬编码 `"sonnet"`。前端两个下拉是独立的(创建任务选 default;exec-detail-modal 选 eval)。**模型选项列表来自 `config.json` 的 `models.<cli>.options`**,不写死。
 
 ### 10.2 端口 / DB / 配置路径
 - 默认端口 `:8902`(避免 8080 冲突),环境变量 `ADDR` 可覆盖;`scripts/run.sh --port 9090` 也行
@@ -305,8 +341,8 @@ E2E_BASE_URL=http://x:9001 ./scripts/e2e.sh fast   # 跑远端 server
 
 ## 13. 常见坑
 
-1. **JSON tag omitempty**:`*float64` / `*time.Time` nil 时字段不出现,前端 `obj.score` undefined。`completed_at` 在 running 状态下必为 nil(用于"运行中"徽章检测)。
-2. **scheduler.execute 同步**:task 调度时 main goroutine 阻塞等子进程完成,`last_status="running"` 中间态写不进去,改用"last_execution_id 对应 exec.completed_at 是否为空"判断。
+1. **JSON tag omitempty**:`*float64` / `*time.Time` nil 时字段不出现,前端 `obj.score` undefined。`completed_at` 在 running 状态下必为 nil(用于"运行中"徽章检测);`status` 字段(2026-06 新增)是显式状态,取代"靠 completed_at+exit_code+error 拼凑",取值 `running/success/failed/timeout/cancelled/build_error`。
+2. **scheduler.execute 同步**:task 调度时 main goroutine 阻塞等子进程完成,`last_status="running"` 中间态写不进去,改用 `last_execution_id` 对应 `exec.status`(或 `exec.completed_at` 是否为空)判断。**trigger 后记得刷 nextRun map**(c12db3b),不然 next_run_at UI 不实时。
 3. **claude -p --output-format json**: 单次 JSON ~1.5KB,极轻量。`num_turns=1` 强信号表示 AI 没调任何工具(单轮不可能调)。
 4. **evaluator 不传 WithActionReport()**: 评估员不该自报清单,否则自指。
 5. **prompt 注入 markdown 限制**:raw string literal 不能用 \` 转义反引号,要么用 `'` 替代,要么 string concat。
