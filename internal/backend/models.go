@@ -100,21 +100,30 @@ type TaskResult struct {
 
 // Execution 任务执行记录（一次执行 = 一次子进程跑）
 type Execution struct {
-	ID             string     `json:"id"`
-	TaskID         string     `json:"task_id,omitempty"`
-	ScheduledTaskID string    `json:"scheduled_task_id,omitempty"`
-	Source         string     `json:"source"` // 'manual' | 'scheduled' | 'retry'
-	Command        string     `json:"command"`
-	Prompt         string     `json:"prompt,omitempty"` // 原始 prompt（scheduled task 用，评估时优先用这个）
-	Model          string     `json:"model,omitempty"`
-	StartedAt      time.Time  `json:"started_at"`
-	CompletedAt    *time.Time `json:"completed_at,omitempty"`
-	Output         string     `json:"output,omitempty"`
-	Error          string     `json:"error,omitempty"`
-	ExitCode       int        `json:"exit_code"`
+	ID              string     `json:"id"`
+	TaskID          string     `json:"task_id,omitempty"`
+	ScheduledTaskID string     `json:"scheduled_task_id,omitempty"`
+	Source          string     `json:"source"` // 'manual' | 'scheduled' | 'retry'
+	Command         string     `json:"command"`
+	Prompt          string     `json:"prompt,omitempty"` // 原始 prompt（scheduled task 用，评估时优先用这个）
+	Model           string     `json:"model,omitempty"`
+	StartedAt       time.Time  `json:"started_at"`
+	CompletedAt     *time.Time `json:"completed_at,omitempty"`
+	Output          string     `json:"output,omitempty"`
+	Error           string     `json:"error,omitempty"`
+	ExitCode        int        `json:"exit_code"`
 	ResumeSessionID string     `json:"resume_uuid,omitempty"` // claude -p 返回的 session_id（注意：不是单次执行的 uuid，是 session 级别的稳定标识），用于 --resume 继续对话
+	// Status 显式状态字段，2026-06 新增。取代之前用 completed_at+exit_code+error 拼凑的判定。
+	// 取值：running / success / failed / timeout / cancelled / build_error
+	//   - running:     已创建未 Finish
+	//   - success:     exit_code=0
+	//   - failed:      exit_code≠0 且 ≠-1（子进程报错）
+	//   - timeout:     exit_code=-1 且 errOut 含 "context deadline"
+	//   - cancelled:   用户手动调 /api/executions/{id}/cancel 强制结束
+	//   - build_error: runner.BuildCommand 返回 err
+	Status string `json:"status,omitempty"`
 	// JOIN 填充的标题（非数据库字段）
-	TaskTitle         string `json:"task_title,omitempty"`
+	TaskTitle          string `json:"task_title,omitempty"`
 	ScheduledTaskTitle string `json:"scheduled_task_title,omitempty"`
 	// 最近一次评估分数（NULL = 未评估）。list 接口 JOIN 填，单 exec 接口也填。
 	EvaluationScore *float64 `json:"evaluation_score,omitempty"`

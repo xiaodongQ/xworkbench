@@ -98,7 +98,8 @@ func InitSchema(db *sql.DB) error {
 		output TEXT NOT NULL DEFAULT '',
 		error TEXT NOT NULL DEFAULT '',
 		exit_code INTEGER NOT NULL DEFAULT 0,
-		resume_uuid TEXT
+		resume_uuid TEXT,
+		status TEXT NOT NULL DEFAULT 'success'
 	);
 	CREATE INDEX IF NOT EXISTS idx_executions_task ON executions(task_id, started_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_executions_scheduled ON executions(scheduled_task_id, started_at DESC);
@@ -519,12 +520,20 @@ func migrateExecutionsColumns(db *sql.DB) error {
 	add := []struct{ n, d string }{
 		{"prompt", "prompt TEXT"},
 		{"resume_uuid", "resume_uuid TEXT"},
+		{"status", "status TEXT NOT NULL DEFAULT 'success'"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
 			return err
 		}
 	}
+	// 老数据迁移：status 默认 'success'（来自 ALTER ADD COLUMN DEFAULT）。
+	// 把 completed_at IS NULL 的行改成 'running'，exit_code=-1 的行根据 error 派生。
+	// 用一行 SQL 完成，简单粗暴：
+	_, _ = db.Exec(`UPDATE executions SET status='running' WHERE completed_at IS NULL AND status='success'`)
+	_, _ = db.Exec(`UPDATE executions SET status='timeout' WHERE exit_code=-1 AND error LIKE '%context%deadline%' AND status='success'`)
+	_, _ = db.Exec(`UPDATE executions SET status='cancelled' WHERE exit_code=-1 AND error LIKE '%cancel%' AND status='success'`)
+	_, _ = db.Exec(`UPDATE executions SET status='failed' WHERE exit_code<>0 AND exit_code<>-1 AND status='success'`)
 	return nil
 }
 
@@ -1162,8 +1171,9 @@ func NewExecutionRepo(db *sql.DB) *ExecutionRepo { return &ExecutionRepo{db: db}
 func (r *ExecutionRepo) Create(e *Execution) error {
 	// 显式插入所有字段，completed_at/output/error/exit_code 传 NULL/空/0，
 	// 避免"在跑中"行（未 Finish）这些字段为 NULL 时 ListRecent scan 炸。
-	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid)
-	        VALUES (?,?,?,?,?,?,?,?,NULL,'','',0,'')`
+	// status 默认 'running'（新执行尚未结束）。
+	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid,status)
+	        VALUES (?,?,?,?,?,?,?,?,NULL,'','',0,'','running')`
 	_, err := r.db.Exec(q, e.ID, e.TaskID, e.ScheduledTaskID, e.Source, e.Command, e.Prompt, e.Model, e.StartedAt)
 	if err != nil {
 		logger.Logger.Errorw("executions create failed", "id", e.ID, "error", err.Error())
@@ -1173,15 +1183,60 @@ func (r *ExecutionRepo) Create(e *Execution) error {
 	return nil
 }
 
+// DeriveStatus 根据 exit_code + errOut 派生 status 字符串。供 handleTaskRun / runLoopBackground
+// 等调用方在调用 Finish 之前算一次，避免散落多处。
+//
+//   - exit_code = 0                        → "success"
+//   - exit_code != 0 && != -1              → "failed"（子进程报错，如 shell exit 1）
+//   - exit_code = -1 && errOut 含 "deadline" → "timeout"（ctx 超时）
+//   - exit_code = -1 && errOut 含 "cancel" 或 "signal: killed" → "cancelled"（用户主动取消）
+//   - exit_code = -1 && 其他               → "failed"（兜底）
+//
+// 注意：ctx cancel 和 ctx deadline 在 Go exec.CommandContext 都会用 SIGKILL 子进程，
+// 错误信息通常是 "signal: killed"（waitErr）而 res.Err.Error() 因 Go 版本不同可能不同。
+// 所以把 "signal: killed" / "kill" 也归为 cancelled 路径（与 deadline 不匹配时）。
+func DeriveStatus(exitCode int, errOut string) string {
+	if exitCode == 0 {
+		return "success"
+	}
+	if exitCode == -1 {
+		low := strings.ToLower(errOut)
+		// ctx 超时：errOut 形如 "executor: context deadline exceeded"
+		if strings.Contains(low, "deadline") {
+			return "timeout"
+		}
+		// 用户主动取消：ctx.Canceled 路径，errOut 形如 "executor: context canceled"
+		// 或子进程被 SIGKILL 后的 "executor: signal: killed"
+		if strings.Contains(low, "cancel") || strings.Contains(low, "signal") || strings.Contains(low, "killed") {
+			return "cancelled"
+		}
+	}
+	return "failed"
+}
+
 func (r *ExecutionRepo) Finish(id, output, errOut string, exitCode int, resumeUUID string) error {
 	now := time.Now()
-	_, err := r.db.Exec(`UPDATE executions SET completed_at=?, output=?, error=?, exit_code=?, resume_uuid=? WHERE id=?`,
-		now, output, errOut, exitCode, resumeUUID, id)
+	status := DeriveStatus(exitCode, errOut)
+	_, err := r.db.Exec(`UPDATE executions SET completed_at=?, output=?, error=?, exit_code=?, resume_uuid=?, status=? WHERE id=?`,
+		now, output, errOut, exitCode, resumeUUID, status, id)
 	if err != nil {
 		logger.Logger.Errorw("executions finish failed", "id", id, "error", err.Error())
 		return err
 	}
-	logger.Logger.Infow("executions finished", "id", id, "exit_code", exitCode)
+	logger.Logger.Infow("executions finished", "id", id, "exit_code", exitCode, "status", status)
+	return nil
+}
+
+// ForceFinish 强制把 execution 标记为完成（用于没有 in-flight goroutine 的僵尸状态）。
+// 专给 handleExecutionCancel 的「running map miss」分支用。status 强制为 'cancelled'。
+func (r *ExecutionRepo) ForceFinish(id string, completedAt time.Time, reason string) error {
+	_, err := r.db.Exec(`UPDATE executions SET completed_at=?, error=?, exit_code=-1, status='cancelled' WHERE id=? AND completed_at IS NULL`,
+		completedAt, reason, id)
+	if err != nil {
+		logger.Logger.Errorw("executions force-finish failed", "id", id, "error", err.Error())
+		return err
+	}
+	logger.Logger.Warnw("executions force-finished", "id", id, "reason", reason)
 	return nil
 }
 
@@ -1192,17 +1247,17 @@ func (r *ExecutionRepo) SetSessionGroupID(id, groupID string) error {
 
 func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.prompt,e.model,
-	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,
+	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,e.status,
 	             t.title, s.name
 	        FROM executions e
 	        LEFT JOIN tasks t ON e.task_id = t.id
 	        LEFT JOIN scheduled_tasks s ON e.scheduled_task_id = s.id
 	        WHERE e.id=?`
 	var e Execution
-	var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, prompt sql.NullString
+	var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, prompt, status sql.NullString
 	var completedAt sql.NullTime
 	err := r.db.QueryRow(q, id).Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
-		&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID,
+		&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &status,
 		&taskTitle, &schedTitle)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("execution %s not found", id)
@@ -1219,6 +1274,7 @@ func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	e.Output = output.String
 	e.Error = errOut.String
 	e.ResumeSessionID = resumeUUID.String
+	e.Status = status.String
 	if completedAt.Valid {
 		e.CompletedAt = &completedAt.Time
 	}
@@ -1230,7 +1286,7 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 	if limit <= 0 {
 		limit = 20
 	}
-	q := `SELECT id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid
+	q := `SELECT id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid,status
 	        FROM executions WHERE task_id=? ORDER BY started_at DESC LIMIT ?`
 	rows, err := r.db.Query(q, taskID, limit)
 	if err != nil {
@@ -1240,10 +1296,10 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 	var out []*Execution
 	for rows.Next() {
 		var e Execution
-		var taskID, schedID, model, output, errOut, resumeUUID, prompt sql.NullString
+		var taskID, schedID, model, output, errOut, resumeUUID, prompt, status sql.NullString
 		var completedAt sql.NullTime
 		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
-			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID); err != nil {
+			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &status); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
@@ -1253,6 +1309,7 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 		e.Output = output.String
 		e.Error = errOut.String
 		e.ResumeSessionID = resumeUUID.String
+		e.Status = status.String
 		if completedAt.Valid {
 			e.CompletedAt = &completedAt.Time
 		}
@@ -1266,7 +1323,7 @@ func (r *ExecutionRepo) ListByResumeUUID(resumeUUID string, limit int) ([]*Execu
 	if limit <= 0 {
 		limit = 50
 	}
-	q := `SELECT id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid
+	q := `SELECT id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid,status
 	        FROM executions WHERE resume_uuid=? ORDER BY started_at ASC LIMIT ?`
 	rows, err := r.db.Query(q, resumeUUID, limit)
 	if err != nil {
@@ -1276,10 +1333,10 @@ func (r *ExecutionRepo) ListByResumeUUID(resumeUUID string, limit int) ([]*Execu
 	var out []*Execution
 	for rows.Next() {
 		var e Execution
-		var taskID, schedID, model, output, errOut, resumeUuid, prompt sql.NullString
+		var taskID, schedID, model, output, errOut, resumeUuid, prompt, status sql.NullString
 		var completedAt sql.NullTime
 		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
-			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUuid); err != nil {
+			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUuid, &status); err != nil {
 			return nil, err
 		}
 		e.TaskID = taskID.String
@@ -1289,6 +1346,7 @@ func (r *ExecutionRepo) ListByResumeUUID(resumeUUID string, limit int) ([]*Execu
 		e.Output = output.String
 		e.Error = errOut.String
 		e.ResumeSessionID = resumeUuid.String
+		e.Status = status.String
 		if completedAt.Valid {
 			e.CompletedAt = &completedAt.Time
 		}
@@ -1305,7 +1363,7 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	// LEFT JOIN evaluations 取最近一次分数（每 exec 只关联最新一条）
 	// LEFT JOIN tasks / scheduled_tasks 取标题
 	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.prompt,e.model,
-	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,
+	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,e.status,
 	             (SELECT ev.score FROM evaluations ev
 	                WHERE ev.execution_id = e.id
 	                ORDER BY ev.created_at DESC LIMIT 1) AS eval_score,
@@ -1323,12 +1381,12 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	var out []*Execution
 	for rows.Next() {
 		var e Execution
-		var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, prompt sql.NullString
+		var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, prompt, status sql.NullString
 		var completedAt sql.NullTime
 		var evalScore sql.NullFloat64
 		var evalCount int
 		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
-			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &evalScore,
+			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &status, &evalScore,
 			&evalCount, &taskTitle, &schedTitle); err != nil {
 			return nil, err
 		}
@@ -1346,6 +1404,7 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 		e.Output = output.String
 		e.Error = errOut.String
 		e.ResumeSessionID = resumeUUID.String
+		e.Status = status.String
 		if completedAt.Valid {
 			e.CompletedAt = &completedAt.Time
 		}

@@ -421,19 +421,26 @@ async function loadRecentExecutions() {
     const renderRow = (e, depth) => {
       const dt = new Date(e.started_at).toLocaleString();
       const src = e.source === 'scheduled' ? '⏰' : e.source === 'continue' ? '💬' : '▶';
-      const isRunning = !e.completed_at;
+      // 优先用显式 status 字段（2026-06 加），fallback 老逻辑
+      const isRunning = e.status ? e.status === 'running' : !e.completed_at;
       const isEvaluating = _evaluatingIds.has(e.id);
       let statusIcon, statusColor, statusTitle;
       let evalBadge = '';
       if (isRunning) {
         statusIcon = '⏳'; statusColor = 'var(--info,#3b82f6)';
         statusTitle = '执行中…（尚未 Finish）';
-      } else if (e.exit_code === 0) {
+      } else if (e.status === 'success' || e.exit_code === 0) {
         statusIcon = '✓'; statusColor = 'var(--archived)';
-        statusTitle = 'exit_code=0';
+        statusTitle = e.status ? `status=${e.status}, exit_code=0` : 'exit_code=0';
+      } else if (e.status === 'timeout') {
+        statusIcon = '⏱ 超时'; statusColor = 'var(--warning)';
+        statusTitle = '执行超时（10/30 min）';
+      } else if (e.status === 'cancelled') {
+        statusIcon = '⊘ 已取消'; statusColor = 'var(--text-secondary)';
+        statusTitle = '用户主动取消';
       } else {
         statusIcon = '✗ ' + e.exit_code; statusColor = 'var(--exception)';
-        statusTitle = 'exit_code=' + e.exit_code;
+        statusTitle = `status=${e.status || 'failed'}, exit_code=${e.exit_code}`;
       }
       if (isEvaluating) {
         evalBadge = ' <span class="s-status" style="background:var(--info,#3b82f6);color:#fff;font-size:11px;font-weight:600;padding:2px 10px;border-radius:10px;animation:pulse 1.5s ease-in-out infinite">⏳ 评估中</span>';
@@ -468,6 +475,7 @@ async function loadRecentExecutions() {
         <button class="btn btn-small" onclick="runEvaluation('${e.id}')" title="AI 评估" style="${isEvaluating?'opacity:0.5;cursor:wait':''}">${isEvaluating?'⏳':'📊'}</button>
         ${isRoot(e) ? `<button class="btn btn-small" onclick="toggleExecSessionPanel('${e.id}')" title="查看会话历史并继续对话">📎</button>` : ''}
         ${e.resume_uuid && !isRoot(e) ? `<button class="btn btn-small" onclick="jumpToRoot('${e.resume_uuid}')" title="跳转到根节点展开会话历史">🔗</button>` : ''}
+        ${isRunning ? `<button class="btn btn-small" onclick="cancelExecution('${e.id}')" title="标记为已完成（强制结束卡住的执行）" style="background:var(--warning);color:#fff;border-color:var(--warning)">⚠ 标记完成</button>` : ''}
       </div>
       <div id="exec-session-panel-${e.id}" class="hidden" style="display:none;padding:8px 12px 8px 36px;background:var(--hover);border-bottom:1px solid var(--border);font-size:12px"></div>
       <div id="exec-group-${e.id}" style="display:none">${(groupMap[e.id]?.children || []).map(c => renderRow(c, depth + 1)).join('')}</div>`;
@@ -680,6 +688,10 @@ let currentExecId = null;
 
 async function viewExecutionDetail(id) {
   currentExecId = id;
+  // 立刻重置继续对话按钮状态,避免上一次 viewExecutionDetail 留下的
+  // disabled + 误导性 tooltip 在 fetch 完成前被用户 hover 看到。
+  const cbInit = document.getElementById('exec-continue-btn');
+  if (cbInit) { cbInit.disabled = true; cbInit.title = '加载中...'; }
   try {
     const exec = await fetchJSON('/api/executions/' + id);
     document.getElementById('exec-detail-cmd').value = exec.command || '';
@@ -979,6 +991,46 @@ function _markEvaluating(execId, on) {
   // 立即刷新最近执行列表显示徽章
   loadRecentExecutions();
 }
+
+// cancelExecution 强制结束卡住的 execution。
+// 解决 WS 断连后执行列表里永远显示「运行中」的问题——用户能一键自救。
+// 后端 /api/executions/{id}/cancel 会智能选择：in-flight 调 cancel func；否则直接写 completed_at。
+async function cancelExecution(id) {
+  if (!id) return;
+  if (!confirm('确认将这条执行标记为已完成？\n\n适用场景：子进程已死但 DB 没收到 done 事件（WS 断连 / 服务重启后），导致一直显示「运行中」。')) return;
+  try {
+    const resp = await fetchJSON('/api/executions/' + id + '/cancel', {method: 'POST'});
+    const mode = resp.mode || (resp.already_done ? 'already_done' : 'unknown');
+    console.log('[cancelExecution]', id, mode, resp);
+    // 立即刷新一次（不等 setInterval）
+    loadRecentExecutions();
+    if (currentExecId === id) {
+      // 如果当前打开的是这个 exec 的 detail modal，也重新拉一次详情
+      viewExecutionDetail(id);
+    }
+  } catch (e) {
+    alert('取消失败：' + (e.message || e));
+  }
+}
+
+// execAutoRefreshTimer 30s 兜底轮询：即使 _autoRefreshEnabled = false（用户暂停了自动刷新），
+// 也能保证 running execution 状态最终更新。避免 WS 断连 + 用户暂停刷新双重盲区。
+// 注意：主刷新由 startAutoRefresh（默认 3s）负责，这里只是兜底。
+let _execAutoRefreshTimer = null;
+function _startExecAutoRefresh() {
+  if (_execAutoRefreshTimer) clearInterval(_execAutoRefreshTimer);
+  _execAutoRefreshTimer = setInterval(() => {
+    // 只在 automation tab 可见时跑
+    if (document.hidden) return;
+    const automationTab = document.getElementById('page-automation');
+    if (!automationTab || automationTab.classList.contains('hidden')) return;
+    // 找列表容器，强制刷一次（不读 _autoRefreshEnabled 标志，覆盖用户暂停的场景）
+    const el = document.getElementById('recent-execs');
+    const el2 = document.getElementById('exec-list');
+    if (el || el2) loadRecentExecutions();
+  }, 30000);
+}
+_startExecAutoRefresh(); // 启动一次，30s 兜底
 
 // renderExecOutput 解析 `claude -p --output-format json` 的输出，提取 result 字段。
 // 非 JSON 格式 fallback 原样返回。

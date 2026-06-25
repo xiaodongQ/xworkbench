@@ -144,6 +144,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/executions/{id}/evaluate", s.handleExecutionEvaluate)
 	mux.HandleFunc("POST /api/executions/{id}/evaluate-chain", s.handleExecutionEvaluateChain)
 	mux.HandleFunc("GET /api/executions/{id}/evaluations", s.handleExecutionEvaluations)
+	mux.HandleFunc("POST /api/executions/{id}/cancel", s.handleExecutionCancel)
 	mux.HandleFunc("GET /api/experiences", s.handleExperiences)
 	mux.HandleFunc("POST /api/experiences", s.handleExpCreate)
 	mux.HandleFunc("PUT /api/experiences/{id}", s.handleExpUpdate)
@@ -759,8 +760,18 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		out, errOut := "", ""
 		exitCode := -1
 		if res != nil {
-			out, errOut = res.Output, res.ErrorOut
+			out = res.Output
 			exitCode = res.ExitCode
+			// 兜底：ctx 超时时 stderr 通常为空（子进程被 SIGKILL 后管道没收数据），
+			// 真正错误信息在 res.Err（"signal: killed"）或 runErr（context.DeadlineExceeded）
+			if res.ErrorOut != "" {
+				errOut = res.ErrorOut
+			} else if res.Err != nil {
+				errOut = "executor: " + res.Err.Error()
+			}
+		}
+		if runErr != nil && errOut == "" {
+			errOut = "run: " + runErr.Error()
 		}
 		// 解析 claude -p --output-format json 输出中的 session_id（用于 --resume 继续对话）
 		resumeSessionID := extractResumeSessionID(out)
@@ -828,6 +839,73 @@ func (s *APIServer) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
 	}
 	cancel()
 	writeJSON(w, map[string]any{"task_id": id, "cancelled": true})
+}
+
+// handleExecutionCancel 强制结束卡住的 execution。两种情况：
+//  1. running map 里有 task_id 的 cancel func（in-flight goroutine 还在）→ 调 cancel()，
+//     触发 executor.Run ctx 超时，goroutine 内会调 execDB.Finish 写 completed_at
+//  2. running map 里没有（服务器重启 / goroutine 已被 GC）→ 直接写 completed_at=now
+//     强制把"僵尸"execution 标完成，error="manually cancelled (force)"
+//
+// 这是 task 详情「⚠ 标记完成」按钮的底层接口，主要解决 WS 断连后前端永远看到「运行中」的问题。
+func (s *APIServer) handleExecutionCancel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	exec, err := s.execDB.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if exec.CompletedAt != nil {
+		// 已经完成了，告诉前端无需再取消
+		writeJSON(w, map[string]any{
+			"execution_id": id,
+			"already_done": true,
+			"completed_at": exec.CompletedAt,
+		})
+		return
+	}
+
+	// 尝试通过 task_id 找 in-flight goroutine 的 cancel func
+	if exec.TaskID != "" {
+		s.mu.Lock()
+		cancel, ok := s.running[exec.TaskID]
+		s.mu.Unlock()
+		if ok {
+			cancel()
+			logger.Infow("execution cancelled via running map", "execution_id", id, "task_id", exec.TaskID)
+			writeJSON(w, map[string]any{
+				"execution_id": id,
+				"task_id":      exec.TaskID,
+				"mode":         "running",
+				"cancelled":    true,
+			})
+			return
+		}
+	}
+
+	// 兜底：in-flight goroutine 已不在（服务器重启 / WS 断连丢 done 事件），
+	// 强制写 completed_at。前端下次 listRecent 就能看到状态变化。
+	now := time.Now()
+	if err := s.execDB.ForceFinish(id, now, "manually cancelled (force, no in-flight goroutine)"); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	logger.Warnw("execution force-finished (no in-flight goroutine)", "execution_id", id, "task_id", exec.TaskID)
+	// 通过 WS 广播 done 事件，前端若连接着能立即看到更新
+	s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+		"execution_id": id,
+		"task_id":      exec.TaskID,
+		"done":         true,
+		"exit_code":    -1,
+		"force":        true,
+	})
+	writeJSON(w, map[string]any{
+		"execution_id": id,
+		"task_id":      exec.TaskID,
+		"mode":         "force_finished",
+		"cancelled":    true,
+		"completed_at": now,
+	})
 }
 
 // handleTaskDelete 硬删 task + 关联 executions + evaluations（不可恢复）。
@@ -2493,13 +2571,22 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 		}
 
 		exitCode := -1
-		var out string
+		var out, errOut string
 		if res != nil {
 			out = res.Output
 			exitCode = res.ExitCode
+			// 兜底：ctx 超时时 stderr 为空，错误在 res.Err / runErr
+			if res.ErrorOut != "" {
+				errOut = res.ErrorOut
+			} else if res.Err != nil {
+				errOut = "executor: " + res.Err.Error()
+			}
+		}
+		if runErr != nil && errOut == "" {
+			errOut = "run: " + runErr.Error()
 		}
 		resumeSessionID := extractResumeSessionID(out)
-		s.execDB.Finish(exec.ID, out, "", exitCode, resumeSessionID)
+		s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
 
 		step := Step{Iteration: i + 1, Model: model, ExitCode: exitCode}
 		if runErr != nil {
