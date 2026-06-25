@@ -276,6 +276,16 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 	resumeSessionID := extractSessionID(out)
 	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
 	_ = s.repo.UpdateAfterRun(t.ID, status, exec.ID)
+	// 刷新 nextRun map:trigger 后 cron library 的 Schedule.Next 已推进到下一次触发时间,
+	// 写回 s.nextRun 让 NextRunAt 返回新值(否则前端 loadScheduled 拿到的 next_run_at
+	// 永远是 Reload 时算的初始值,跟 last_run 严重对不上)
+	if entryID, ok := s.entries[t.ID]; ok {
+		if entry := s.cron.Entry(entryID); entry.ID != 0 {
+			s.mu.Lock()
+			s.nextRun[t.ID] = entry.Schedule.Next(time.Now())
+			s.mu.Unlock()
+		}
+	}
 	logger.Logger.Infow("scheduler: task finished", "task", t.Name, "exec_id", exec.ID, "session_id", resumeSessionID, "status", status, "exit_code", exitCode)
 	s.hub.Broadcast(wsmsg.ChannelScheduled, map[string]any{
 		"scheduled_task_id": t.ID,
