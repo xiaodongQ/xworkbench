@@ -576,16 +576,36 @@ async function jumpToRoot(resumeUuid) {
     return;
   }
   const root = execs[0]; // ListByResumeUUID 已 ORDER BY started_at ASC
-  const rootRow = document.querySelector(`[data-exec-id="${root.id}"]`);
-  if (rootRow) {
-    rootRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    rootRow.style.background = 'rgba(16,185,129,0.2)';
-    setTimeout(() => { rootRow.style.background = ''; }, 1000);
-    setTimeout(() => toggleExecSessionPanel(root.id), 300);
-  } else {
-    // 根节点不在当前列表中（被截断了），直接打开详情弹窗
+
+  // 根节点不在当前 DOM（被 recentExecLimit 分页截断）时，自动加载更多 + 重试一次，
+  // 让用户看到一致行为：滚动到根节点 + 展开会话历史面板，而不是打开详情弹窗。
+  // 找不到的兜底（DB 里 root 已被删等异常情况）才走 viewExecutionDetail。
+  let rootRow = _highlightRootRow(root.id);
+  if (!rootRow) {
+    console.log('[jumpToRoot] 根节点不在当前视图，自动加载更多后重试...');
+    try {
+      await loadMoreExecutions();
+    } catch (e) {
+      console.warn('[jumpToRoot] loadMoreExecutions 失败:', e);
+    }
+    rootRow = _highlightRootRow(root.id);
+  }
+  if (!rootRow) {
+    // 兜底：加载更多后还是找不到（罕见，比如根节点被硬删）
     viewExecutionDetail(root.id);
   }
+}
+
+// _highlightRootRow: 滚动到根节点行 + 绿色高亮 1s + 展开会话面板。
+// 找不到时返回 null，让 caller 决定是否加载更多重试。
+function _highlightRootRow(rootId) {
+  const rootRow = document.querySelector(`[data-exec-id="${rootId}"]`);
+  if (!rootRow) return null;
+  rootRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  rootRow.style.background = 'rgba(16,185,129,0.2)';
+  setTimeout(() => { rootRow.style.background = ''; }, 1000);
+  setTimeout(() => toggleExecSessionPanel(rootId), 300);
+  return rootRow;
 }
 
 // toggleExecSessionPanel: 展开或收起执行行的会话历史面板
@@ -660,13 +680,16 @@ async function submitContinueFromPanel(execId) {
   }
 }
 
-function loadMoreExecutions() {
+// loadMoreExecutions: 增加 recentExecLimit + 重渲染最近执行列表。
+// 改为 async + await loadRecentExecutions()，让调用方（如 jumpToRoot 自动重试）
+// 能真正等渲染完成后再 query DOM，否则 scrollIntoView 会落在空 DOM。
+async function loadMoreExecutions() {
   recentExecLimit += 50;
   // 给所有"加载更多"按钮加 loading 反馈（innerHTML 重渲染前）
   document.querySelectorAll('[data-exec-loadmore]').forEach(b => {
     b.disabled = true; b.textContent = '⏳ 加载中...';
   });
-  loadRecentExecutions();
+  await loadRecentExecutions();
 }
 
 // 会话链折叠/展开

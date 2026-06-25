@@ -198,6 +198,33 @@ function updateThemeBtn(theme) {
 loadTheme();
 
 // ===== 自定义 tooltip（真实 DOM，\n 真换行） =====
+// positionTooltip 把 tip 放到 anchorRect 旁边：水平优先右侧（放不下翻左侧），
+// 垂直对齐元素中点（受 transform translateY(-50%) 影响，最终视觉中心对齐元素中心）。
+// 视口上下边缘自动内缩 8px，避免被屏幕边界裁掉。
+function positionTooltip(tip, anchorRect) {
+  const margin = 8;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  // 先重置到 (0,0) + show 触发布局,offsetWidth/Height 才有真实尺寸
+  // （否则上一次定位的值会让浏览器读取 stale geometry）
+  tip.style.left = '0px';
+  tip.style.top = '0px';
+  tip.classList.add('show');
+  const tipW = tip.offsetWidth;
+  const tipH = tip.offsetHeight;
+  // 水平:右侧放不下翻到左侧（贴在 anchor 左边外 8px）
+  let left = anchorRect.right + margin;
+  if (left + tipW + margin > vw) {
+    left = Math.max(margin, anchorRect.left - tipW - margin);
+  }
+  // 垂直:对齐元素中点（注意 transform 是 translateY(-50%)，top 是 tip 中心位置）
+  let top = anchorRect.top + anchorRect.height / 2;
+  if (top - tipH / 2 < margin) top = margin + tipH / 2;
+  if (top + tipH / 2 + margin > vh) top = vh - margin - tipH / 2;
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+
 let _tooltipEl = null;
 function ensureTooltip() {
   if (_tooltipEl) return _tooltipEl;
@@ -217,10 +244,7 @@ function showTooltip(target) {
   tip.innerHTML = lines.map((l, i) =>
     i === 0 ? `<span class="tt-line tt-head">${esc(l)}</span>` : `<span class="tt-line">${esc(l)}</span>`
   ).join('');
-  const rect = target.getBoundingClientRect();
-  tip.style.left = (rect.right + 8) + 'px';
-  tip.style.top = (rect.top + rect.height / 2) + 'px';
-  tip.classList.add('show');
+  positionTooltip(tip, target.getBoundingClientRect());
 }
 function hideTooltip() {
   if (_tooltipEl) _tooltipEl.classList.remove('show');
@@ -274,10 +298,7 @@ function showFastTip(target) {
   target.setAttribute('title', '');
   const tip = ensureFastTip();
   tip.innerHTML = `<span class="tt-line">${esc(text)}</span>`;
-  const rect = target.getBoundingClientRect();
-  tip.style.left = (rect.right + 8) + 'px';
-  tip.style.top = (rect.top + rect.height / 2) + 'px';
-  tip.classList.add('show');
+  positionTooltip(tip, target.getBoundingClientRect());
 }
 function hideFastTip(target) {
   if (_fastTipEl) _fastTipEl.classList.remove('show');

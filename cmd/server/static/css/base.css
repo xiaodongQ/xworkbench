@@ -126,6 +126,9 @@ body {
   padding: 8px 12px; border-radius: 4px;
   font-size: 12px; line-height: 1.5;
   max-width: 400px;
+  /* 长文本(如 30+ 行 task detail)限制高度，超出滚动，避免被屏幕底部裁掉 */
+  max-height: 60vh;
+  overflow-y: auto;
   box-shadow: 0 4px 12px rgba(0,0,0,0.25);
   pointer-events: none;
   opacity: 0; transform: translateY(-50%) translateX(-4px);
