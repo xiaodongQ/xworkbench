@@ -99,7 +99,8 @@ func InitSchema(db *sql.DB) error {
 		error TEXT NOT NULL DEFAULT '',
 		exit_code INTEGER NOT NULL DEFAULT 0,
 		resume_uuid TEXT,
-		status TEXT NOT NULL DEFAULT 'success'
+		status TEXT NOT NULL DEFAULT 'success',
+		cli_type TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_executions_task ON executions(task_id, started_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_executions_scheduled ON executions(scheduled_task_id, started_at DESC);
@@ -521,6 +522,7 @@ func migrateExecutionsColumns(db *sql.DB) error {
 		{"prompt", "prompt TEXT"},
 		{"resume_uuid", "resume_uuid TEXT"},
 		{"status", "status TEXT NOT NULL DEFAULT 'success'"},
+		{"cli_type", "cli_type TEXT"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
@@ -1172,9 +1174,9 @@ func (r *ExecutionRepo) Create(e *Execution) error {
 	// 显式插入所有字段，completed_at/output/error/exit_code 传 NULL/空/0，
 	// 避免"在跑中"行（未 Finish）这些字段为 NULL 时 ListRecent scan 炸。
 	// status 默认 'running'（新执行尚未结束）。
-	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid,status)
-	        VALUES (?,?,?,?,?,?,?,?,NULL,'','',0,'','running')`
-	_, err := r.db.Exec(q, e.ID, e.TaskID, e.ScheduledTaskID, e.Source, e.Command, e.Prompt, e.Model, e.StartedAt)
+	q := `INSERT INTO executions (id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid,status,cli_type)
+	        VALUES (?,?,?,?,?,?,?,?,NULL,'','',0,?,'running',?)`
+	_, err := r.db.Exec(q, e.ID, e.TaskID, e.ScheduledTaskID, e.Source, e.Command, e.Prompt, e.Model, e.StartedAt, e.ResumeSessionID, e.CliType)
 	if err != nil {
 		logger.Logger.Errorw("executions create failed", "id", e.ID, "error", err.Error())
 		return err
@@ -1247,17 +1249,17 @@ func (r *ExecutionRepo) SetSessionGroupID(id, groupID string) error {
 
 func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.prompt,e.model,
-	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,e.status,
+	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,e.status,e.cli_type,
 	             t.title, s.name
 	        FROM executions e
 	        LEFT JOIN tasks t ON e.task_id = t.id
 	        LEFT JOIN scheduled_tasks s ON e.scheduled_task_id = s.id
 	        WHERE e.id=?`
 	var e Execution
-	var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, prompt, status sql.NullString
+	var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, prompt, status, cliType sql.NullString
 	var completedAt sql.NullTime
 	err := r.db.QueryRow(q, id).Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
-		&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &status,
+		&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &status, &cliType,
 		&taskTitle, &schedTitle)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("execution %s not found", id)
@@ -1275,6 +1277,7 @@ func (r *ExecutionRepo) Get(id string) (*Execution, error) {
 	e.Error = errOut.String
 	e.ResumeSessionID = resumeUUID.String
 	e.Status = status.String
+	e.CliType = cliType.String
 	if completedAt.Valid {
 		e.CompletedAt = &completedAt.Time
 	}

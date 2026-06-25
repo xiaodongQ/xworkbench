@@ -223,6 +223,7 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 		Command:   runner.CmdStringWithPrompt(cmd, t.Prompt),
 		Prompt:    t.Prompt,
 		Model:     t.Model,
+		CliType:   t.CommandType, // scheduled task 的 CommandType = claude/cbc/shell
 		StartedAt: time.Now(),
 	}
 	if err := s.execDB.Create(exec); err != nil {

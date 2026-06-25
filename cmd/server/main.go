@@ -694,6 +694,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		Command:   runner.CmdStringWithPrompt(cmd, req.Prompt),
 		Prompt:    req.Prompt, // 保存完整 prompt
 		Model:     req.Model,
+		CliType:   req.CommandType, // 用于"继续对话"延续原 CLI 类型
 		StartedAt: time.Now(),
 	}
 	if err := s.execDB.Create(exec); err != nil {
@@ -984,8 +985,18 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		writeErr(w, http.StatusBadRequest, "prompt 不能为空")
 		return
 	}
-	// 用 --resume 构造新命令
-	cmd, stdin, cleanup, err := runner.BuildCommand("claude", req.Model, "", req.Prompt,
+	// 延续原执行环境:CLI 用原 exec 的 cli_type(老数据可能为空 → fallback claude),
+	// model 不传则沿用原 model。--resume session_id 已在命令构造时加进去,
+	// 不再硬编码 "claude"。
+	cliType := orig.CliType
+	if cliType == "" {
+		cliType = "claude"
+	}
+	model := req.Model
+	if model == "" {
+		model = orig.Model
+	}
+	cmd, stdin, cleanup, err := runner.BuildCommand(cliType, model, "", req.Prompt,
 		runner.WithResume(orig.ResumeSessionID))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -998,7 +1009,8 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		Source:    "continue",
 		Command:   runner.CmdStringWithPrompt(cmd, req.Prompt),
 		Prompt:    req.Prompt,
-		Model:     req.Model,
+		Model:     model,
+		CliType:   cliType,
 		StartedAt: time.Now(),
 	}
 	if err := s.execDB.Create(exec); err != nil {
@@ -2557,7 +2569,7 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 			return
 		}
 
-		exec := &backend.Execution{ID: uuid.New().String(), TaskID: taskID, Source: "loop", Command: runner.CmdStringWithPrompt(cmd, req.Prompt), Model: model, StartedAt: time.Now()}
+		exec := &backend.Execution{ID: uuid.New().String(), TaskID: taskID, Source: "loop", Command: runner.CmdStringWithPrompt(cmd, req.Prompt), Model: model, CliType: req.CliType, StartedAt: time.Now()}
 		s.execDB.Create(exec)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)

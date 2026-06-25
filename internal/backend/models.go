@@ -107,6 +107,7 @@ type Execution struct {
 	Command         string     `json:"command"`
 	Prompt          string     `json:"prompt,omitempty"` // 原始 prompt（scheduled task 用，评估时优先用这个）
 	Model           string     `json:"model,omitempty"`
+	CliType         string     `json:"cli_type,omitempty"` // CLI 类型（claude/cbc/shell），用于"继续对话"时延续原运行环境
 	StartedAt       time.Time  `json:"started_at"`
 	CompletedAt     *time.Time `json:"completed_at,omitempty"`
 	Output          string     `json:"output,omitempty"`
