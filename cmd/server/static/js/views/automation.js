@@ -802,6 +802,10 @@ async function viewExecutionDetail(id) {
     document.getElementById('exec-detail-modal').classList.remove('hidden');
   } catch (e) {
     alert('加载执行详情失败：' + e.message);
+    // 失败时也要恢复继续对话按钮的 loading 状态,避免按钮永久 disabled + title
+    // 永久停留在"加载中..."(入口 cbInit 设的状态)。
+    // 错误信息塞进 tooltip,用户 hover 知道为什么 + 关闭重开 modal 重试。
+    if (cbInit) { cbInit.disabled = true; cbInit.title = '加载失败：' + e.message + '（关闭弹窗重试）'; }
   }
 }
 
