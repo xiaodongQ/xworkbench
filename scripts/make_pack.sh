@@ -37,7 +37,7 @@ chmod +x "$OUT/run.sh"
 cat > "$OUT/README.md" << EOF
 # xworkbench — 个人工作台
 
-> 单 Go 二进制 · 6 Tab（总览 / 任务 / 经验库 / 自动化 / AI 对话 / 代理）跨平台
+> 单 Go 二进制 · 7 Tab（总览 / 任务 / 经验库 / 自动化 / 系统配置 / AI 对话 / 代理）跨平台
 
 ## 快速启动
 
@@ -51,11 +51,9 @@ cat > "$OUT/README.md" << EOF
 
 ### Windows
 \`\`\`cmd
-run.bat              # 启动
-run.bat --stop       # 停止
-run.bat --status     # 状态
-run.bat --help       # 帮助
+bin\\xworkbench-windows-amd64.exe -config config.json
 \`\`\`
+（Windows 下没有 run.sh 等价脚本，自行起停 / 用任务管理器 / 写自己的 .bat）
 
 然后浏览器打开 http://localhost:8902
 
@@ -63,7 +61,7 @@ run.bat --help       # 帮助
 
 \`\`\`
 .
-├── run.sh / run.bat  # 启停脚本
+├── run.sh            # 启停脚本（macOS / Linux）
 ├── config.json       # 配置文件
 ├── bin/
 │   └── $bin_name
@@ -80,17 +78,17 @@ run.bat --help       # 帮助
 - 日志：\`bin/xworkbench.log\`
 EOF
 
-# 4. 打包
+# 4. 打包（产物放 dist/ 内部，dist 本身就是发布包）
+# --exclude 排除目标归档自身（避免 bsdtar "Can't add archive to itself" 误报）
 echo "==> 打包..."
-cd "$OUT"
+pkg="xworkbench-${os}-${arch}.$([ "$os" == "windows" ] && echo "zip" || echo "tar.gz")"
 if [[ "$os" == "windows" ]]; then
-  zip -r "../xworkbench-${os}-${arch}.zip" . > /dev/null
+  (cd "$OUT" && zip -r "$pkg" . > /dev/null)
 else
-  tar czf "../xworkbench-${os}-${arch}.tar.gz" .
+  tar czf "$OUT/$pkg" -C "$OUT" --exclude="$pkg" .
 fi
-cd ..
 
 echo
-echo "==> 输出：xworkbench-${os}-${arch}.$([ "$os" == "windows" ] && echo "zip" || echo "tar.gz")"
+echo "==> 输出：$OUT/$pkg"
 echo "==> dist 目录结构："
 find "$OUT" -type f | sort
