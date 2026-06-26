@@ -16,3 +16,8 @@ cmd/server/*.exe
 nohup.out
 # Claude Code 本机配置（per-user 工具状态，不入库）
 .claude/
+
+# AI 任务烟雾测试产物（TwoSum/Sum 之类的 LeetCode 试写代码，曾经混进
+# 源码目录污染 build。AI 任务 CWD 是仓库根，必须显式隔离防止再写入）
+internal/sum/
+internal/twosum/
