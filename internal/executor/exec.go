@@ -34,18 +34,11 @@ type Result struct {
 // learn、evaluator 等）。这样 AI 调 Write 工具写的代码/中间产物只落在
 // data/ai-sandbox/ 下，不会污染源码树（data/ 已在 .gitignore）。
 //
-// 任务结束后会自动跑 ValidateAIWrites()，兜底处理 AI 用绝对路径 / 其它
-// trick 绕开沙盒写到 internal/ 等源码路径的情况。
-//
 // 不用 RunInSandbox 的场景：
 //   - 调度器任务（用户配置了 t.WorkingDir，让它用 WorkingDir 跑）
 //   - PTY 交互（用户主动在终端里 cd 到别处）
 func RunInSandbox(ctx context.Context, cmd []string, stdin string, onChunk func(string)) (*Result, error) {
-	res, err := Run(ctx, cmd, paths.AISandboxDir(), stdin, onChunk)
-	// post-write validation：AI 可能用绝对路径绕开沙盒，检查并清理
-	// 落到 internal/ cmd/ openspec/ 等源码路径的产物
-	ValidateAIWrites()
-	return res, err
+	return Run(ctx, cmd, paths.AISandboxDir(), stdin, onChunk)
 }
 
 // Run 启动子进程并流式回调 stdout/stderr。ctx 取消会 kill 子进程。
