@@ -3,9 +3,9 @@
   "preferred_cli": "claude",
   "ai_loop_enabled": false,
   "aichat_default_cli": "claude",
-  "dangerously_skip_permissions": false,
   "todo_md_path": "/tmp/todo-final.md",
   "scheduler_enabled": true,
+  "dangerously_skip_permissions": false,
   "relay": {
     "api_key": "xworkbench"
   },
