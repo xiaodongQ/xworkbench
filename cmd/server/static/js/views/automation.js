@@ -977,9 +977,10 @@ function extractSessionId(raw) {
 // ===== 终端类型设置 =====
 async function onTerminalChange(value) {
   try {
+    // fix: 字段从 terminal_type 改为顶层 default_terminal
     await fetchJSON('/api/config', {
       method: 'PUT',
-      body: JSON.stringify({ terminal_type: value }),
+      body: JSON.stringify({ default_terminal: value }),
     });
   } catch (e) {
     console.warn('保存默认终端失败:', e);
@@ -1103,7 +1104,8 @@ function renderExecConversationTimeline(execs) {
 async function loadTerminalSetting() {
   try {
     const data = await fetchJSON('/api/config');
-    const val = data.terminal?.default_type || 'wezterm';
+    // fix: 默认终端字段从 terminal.default_type 改为顶层 default_terminal
+    const val = data.default_terminal || data.terminal?.default_type || 'wezterm';
     const sel = document.getElementById('default-terminal-select');
     if (sel) sel.value = val;
   } catch (e) {
