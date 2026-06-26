@@ -165,7 +165,8 @@ function showDirSettingsModal() {
   fetchJSON('/api/config').then(data => {
     const term = data.terminal;
     const sel = document.getElementById('dir-settings-terminal-select');
-    sel.value = term.default_type || 'wezterm';
+    // fix: 默认终端已上移到顶层 default_terminal（旧字段 terminal.default_type 已不存在）
+    sel.value = data.default_terminal || term.default_type || 'wezterm';
     // 显示当前选中类型的 path
     const typeKey = sel.value.toLowerCase();
     const typeDef = term.types[typeKey];
@@ -229,7 +230,10 @@ function submitDirSettings() {
   fetch('/api/config', {
     method: 'PUT',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({terminal_type: term, terminal_path: path})
+    // fix: 同步写默认终端（default_terminal）+ 终端 path
+    // terminal_type/terminal_path 只更新 types 表里某条的 path；
+    // 真正生效的是顶层 default_terminal
+    body: JSON.stringify({default_terminal: term, terminal_type: term, terminal_path: path})
   }).then(() => closeDirSettingsModal()).catch(e => {
     alert('保存失败：' + e.message);
     closeDirSettingsModal();
@@ -309,7 +313,8 @@ async function openDir(id) {
 async function openDirTerminal(id) {
   try {
     const data = await fetchJSON('/api/config');
-    const termType = data.terminal?.default_type || 'wezterm';
+    // fix: 默认终端字段从 terminal.default_type 改为顶层 default_terminal
+    const termType = data.default_terminal || data.terminal?.default_type || 'wezterm';
     const r = await fetch('/api/dir-shortcuts/' + id + '/open-terminal?type=' + encodeURIComponent(termType), {method:'POST'});
     if (!r.ok) {
       const body = await r.json().catch(() => ({}));
