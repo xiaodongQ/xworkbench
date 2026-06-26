@@ -61,7 +61,8 @@ func New(repo *backend.ScheduledTaskRepo, execDB *backend.ExecutionRepo, h *hub.
 
 // AutoStart 根据 config.json 的 scheduler_enabled 自动启动调度器。
 func (s *Scheduler) AutoStart() error {
-	if config.AppConfig == nil || !config.AppConfig.SchedulerEnabled {
+	cfg := config.Get()
+	if cfg == nil || !cfg.SchedulerEnabled {
 		return nil
 	}
 	return s.Start()
@@ -84,10 +85,11 @@ func (s *Scheduler) Start() error {
 	s.running = true
 	s.mu.Unlock()
 	logger.Logger.Info("scheduler: started")
-	// 持久化状态到 config.json
-	if config.AppConfig != nil {
-		config.AppConfig.SchedulerEnabled = true
-		_ = config.Save()
+	// 持久化状态到 config.json（线程安全 + Save 失败容错）
+	if _, err := config.SetAndSave(func(c *config.Config) {
+		c.SchedulerEnabled = true
+	}); err != nil {
+		logger.Logger.Warnw("scheduler: persist enabled failed", "err", err)
 	}
 	s.hub.Broadcast(wsmsg.ChannelScheduler, map[string]any{"status": "running"})
 	return nil
@@ -104,10 +106,11 @@ func (s *Scheduler) Stop() {
 	<-ctx.Done()
 	s.running = false
 	logger.Logger.Info("scheduler: stopped")
-	// 持久化状态到 config.json
-	if config.AppConfig != nil {
-		config.AppConfig.SchedulerEnabled = false
-		_ = config.Save()
+	// 持久化状态到 config.json（线程安全 + Save 失败容错）
+	if _, err := config.SetAndSave(func(c *config.Config) {
+		c.SchedulerEnabled = false
+	}); err != nil {
+		logger.Logger.Warnw("scheduler: persist disabled failed", "err", err)
 	}
 	s.hub.Broadcast(wsmsg.ChannelScheduler, map[string]any{"status": "stopped"})
 }

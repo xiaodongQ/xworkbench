@@ -14,16 +14,18 @@ import (
 // TestHandleExecutionContinue_CommandContainsPrompt 验证继续对话新 exec 的
 // Command 字段必须包含用户新发的 prompt 摘要（不再是裸的 cmd slice）。
 // 根因：原实现 runner.CmdString(cmd) 在 stdin 传 prompt 时命令里看不到 prompt；
-//      改用 runner.CmdStringWithPrompt(cmd, prompt) 后命令形如：
-//      claude -p ... --resume <uuid> "用户 prompt 摘要..."
+//
+//	改用 runner.CmdStringWithPrompt(cmd, prompt) 后命令形如：
+//	claude -p ... --resume <uuid> "用户 prompt 摘要..."
+//
 // 这个测试是回归保护：用户进 exec 详情看到命令 textarea 期望看到自己发的内容。
 func TestHandleExecutionContinue_CommandContainsPrompt(t *testing.T) {
-	if config.AppConfig == nil {
-		config.AppConfig = config.DefaultConfig()
+	if config.Get() == nil {
+		config.Set(config.DefaultConfig())
 	}
 	s := newEvalTestServer(t)
-	defer func() { config.AppConfig.AILoopEnabled = false }()
-	config.AppConfig.AILoopEnabled = true
+	t.Cleanup(func() { config.Update(func(c *config.Config) { c.AILoopEnabled = false }) })
+	config.Update(func(c *config.Config) { c.AILoopEnabled = true })
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/executions/{id}/continue", s.handleExecutionContinue)
 

@@ -698,12 +698,12 @@
       <div id="task-waiting-input-content" style="background:#fff8e1;border:1px solid #ffc107;border-radius:4px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:150px;overflow-y:auto;"></div>
     </div>
 
-    <!-- AI 自治能力（ai_loop_enabled=true 时由 loadAILoopStatus 显示区块并设置来源角标） -->
-    <div id="ai-loop-section" class="form-group hidden" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card)">
+    <!-- 任务详情弹窗里的 AI 自治按钮区（ai_loop_enabled=true 时由 loadAILoopStatus 显示） -->
+    <div id="task-ailoop-block" class="form-group hidden" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card)">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:13px;font-weight:600">🤖 AI 自治</span>
-          <span id="ai-loop-source-badge" style="font-size:10px;color:var(--text-secondary)"></span>
+          <span id="task-ailoop-source" style="font-size:10px;color:var(--text-secondary)"></span>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="runTaskLoop()">🔁 Run Loop</button>
@@ -1039,9 +1039,9 @@
           <span style="font-size:14px;font-weight:600">🤖 AI 自治</span>
           <span id="ailoop-badge" style="font-size:11px;padding:1px 8px;border-radius:10px;background:#6b7280;color:#fff">未启用</span>
         </div>
-        <span id="ailoop-section-arrow" style="font-size:12px;color:var(--text-secondary);transition:transform 0.2s">▶</span>
+        <span id="advanced-ailoop-arrow" style="font-size:12px;color:var(--text-secondary);transition:transform 0.2s">▶</span>
       </div>
-      <div id="ailoop-section-content" class="hidden" style="padding:14px;background:var(--card)">
+      <div id="advanced-ailoop-content" class="hidden" style="padding:14px;background:var(--card)">
         <!-- 功能说明 -->
         <div style="margin-bottom:14px">
           <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px">功能说明</div>
@@ -1080,7 +1080,7 @@
           <span id="ailoop-source" style="font-size:11px;color:var(--text-secondary)"></span>
         </div>
         <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">
-          提示：位置文件控制 config.json → ai_loop.enabled
+          提示：位置文件控制 config.json → 顶层 ai_loop_enabled
         </div>
       </div>
     </div>

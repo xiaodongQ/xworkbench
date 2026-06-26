@@ -17,7 +17,7 @@ import (
 
 // IsSupportedTerminal 检查终端类型是否支持
 func IsSupportedTerminal(termType string) bool {
-	cfg := config.AppConfig
+	cfg := config.Get()
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
@@ -27,7 +27,7 @@ func IsSupportedTerminal(termType string) bool {
 
 // DetectTerminalPath 检测终端类型的可执行文件路径，优先从 PATH 找，找不到时探测配置中的路径。
 func DetectTerminalPath(termType string) string {
-	cfg := config.AppConfig
+	cfg := config.Get()
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
@@ -62,7 +62,7 @@ func DetectTerminalPath(termType string) string {
 
 // DefaultTerminal 返回配置的默认终端类型（顶层字段，不再位于 terminal.default_type）
 func DefaultTerminal() string {
-	cfg := config.AppConfig
+	cfg := config.Get()
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
@@ -146,7 +146,7 @@ func OpenTerminal(termType, dir, binPath string) error {
 	if dir == "" {
 		dir = os.Getenv("HOME")
 	}
-	cfg := config.AppConfig
+	cfg := config.Get()
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}

@@ -17,8 +17,8 @@ function closeAdvancedSettings() {
 }
 // AI 自治区块折叠/展开
 function toggleAILoopSection() {
-  const content = document.getElementById('ailoop-section-content');
-  const arrow = document.getElementById('ailoop-section-arrow');
+  const content = document.getElementById('advanced-ailoop-content');
+  const arrow = document.getElementById('advanced-ailoop-arrow');
   if (!content) return;
   const isHidden = content.classList.contains('hidden');
   content.classList.toggle('hidden');
@@ -141,22 +141,22 @@ async function loadAILoopStatus() {
   try {
     const resp = await fetchJSON('/api/ai-loop/status');
     const enabled = !!resp.enabled;
-    // 1. 同步 widget 状态
+    // 1. 同步「高级设置」弹窗里 AI 自治 widget 状态
     const checkbox = document.getElementById('ailoop-toggle');
     if (checkbox) checkbox.checked = enabled;
-    const badge = document.getElementById('ailoop-badge');
-    if (badge) {
-      badge.textContent = enabled ? '已启用' : '未启用';
-      badge.style.background = enabled ? '#10b981' : '#6b7280';
+    const widgetBadge = document.getElementById('ailoop-badge');
+    if (widgetBadge) {
+      widgetBadge.textContent = enabled ? '已启用' : '未启用';
+      widgetBadge.style.background = enabled ? '#10b981' : '#6b7280';
     }
     const srcEl = document.getElementById('ailoop-source');
     if (srcEl) srcEl.textContent = '· 来源：config.json';
-    // 2. 同步 task-modal 的 AI 自治区块（如果 modal 打开着）
-    const section = document.getElementById('ai-loop-section');
-    if (section) {
-      section.classList.toggle('hidden', !enabled);
-      const srcBadge = document.getElementById('ai-loop-source-badge');
-      if (srcBadge) srcBadge.textContent = enabled ? '(config.json)' : '';
+    // 2. 同步任务详情弹窗里的 AI 自治按钮区（如果 modal 打开着）
+    const taskBlock = document.getElementById('task-ailoop-block');
+    if (taskBlock) {
+      taskBlock.classList.toggle('hidden', !enabled);
+      const taskSrc = document.getElementById('task-ailoop-source');
+      if (taskSrc) taskSrc.textContent = enabled ? '(config.json)' : '';
     }
     return enabled;
   } catch (e) {
@@ -165,7 +165,19 @@ async function loadAILoopStatus() {
   }
 }
 
+// _ailoopInflight 防止用户在 fetch 期间反复点导致多个并发 PUT；
+// 最终落盘状态以最后一次点操作为准（服务端按请求顺序处理）。
+let _ailoopInflight = false;
+
 async function toggleAILoop(checked) {
+  const checkbox = document.getElementById('ailoop-toggle');
+  // 1. 已有请求在飞：禁用 checkbox 等当前完成（避免 UI 与服务端不一致）
+  if (_ailoopInflight) {
+    if (checkbox) checkbox.checked = !checked;
+    return;
+  }
+  _ailoopInflight = true;
+  if (checkbox) checkbox.disabled = true;
   try {
     await fetchJSON('/api/config', {
       method: 'PUT',
@@ -176,8 +188,10 @@ async function toggleAILoop(checked) {
   } catch (e) {
     alert('切换 AI 自治开关失败：' + e.message);
     // 回滚 checkbox 状态
-    const checkbox = document.getElementById('ailoop-toggle');
     if (checkbox) checkbox.checked = !checked;
+  } finally {
+    _ailoopInflight = false;
+    if (checkbox) checkbox.disabled = false;
   }
 }
 

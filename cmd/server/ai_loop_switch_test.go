@@ -17,13 +17,12 @@ import (
 // TestAILoopStatus_DefaultOff 验证默认状态：未启用（config.json 默认关）。
 // 这个测试是回归保护：AI 自治能力默认关，需要用户主动开（防止误用 + 默认安全）。
 func TestAILoopStatus_DefaultOff(t *testing.T) {
-	orig := config.AppConfig
-	defer func() { config.AppConfig = orig }()
+	t.Cleanup(config.TestSnapshotAndRestore())
 
 	srv := newTestAPIServer(t)
 	defer srv.cleanup()
 	// helper 默认开 AILoopEnabled，关掉以验证"未启用"路径
-	config.AppConfig.AILoopEnabled = false
+	config.Update(func(c *config.Config) { c.AILoopEnabled = false })
 
 	rec := httptest.NewRecorder()
 	srv.srv.handleAILoopStatus(rec, httptest.NewRequest("GET", "/api/ai-loop/status", nil))
@@ -42,9 +41,8 @@ func TestAILoopStatus_DefaultOff(t *testing.T) {
 // TestAILoopStatus_ConfigEnabled 验证 config.json ai_loop_enabled=true 时 enabled
 // 这是单一来源（config.json）的路径。
 func TestAILoopStatus_ConfigEnabled(t *testing.T) {
-	orig := config.AppConfig
-	defer func() { config.AppConfig = orig }()
-	config.AppConfig = &config.Config{AILoopEnabled: true}
+	t.Cleanup(config.TestSnapshotAndRestore())
+	config.Set(&config.Config{AILoopEnabled: true})
 
 	srv := newTestAPIServer(t)
 	defer srv.cleanup()
@@ -60,12 +58,11 @@ func TestAILoopStatus_ConfigEnabled(t *testing.T) {
 
 // TestRunLoop_Disabled_Returns403 验证 run-loop handler 在开关未启用时返回 403
 func TestRunLoop_Disabled_Returns403(t *testing.T) {
-	orig := config.AppConfig
-	defer func() { config.AppConfig = orig }()
+	t.Cleanup(config.TestSnapshotAndRestore())
 
 	srv := newTestAPIServer(t)
 	defer srv.cleanup()
-	config.AppConfig.AILoopEnabled = false
+	config.Update(func(c *config.Config) { c.AILoopEnabled = false })
 
 	body := `{"prompt":"test","model":"sonnet"}`
 	req := httptest.NewRequest("POST", "/api/tasks/test-id/run-loop", strings.NewReader(body))
@@ -83,12 +80,11 @@ func TestRunLoop_Disabled_Returns403(t *testing.T) {
 
 // TestReevaluate_Disabled_Returns403 验证 reevaluate 在开关未启用时返回 403
 func TestReevaluate_Disabled_Returns403(t *testing.T) {
-	orig := config.AppConfig
-	defer func() { config.AppConfig = orig }()
+	t.Cleanup(config.TestSnapshotAndRestore())
 
 	srv := newTestAPIServer(t)
 	defer srv.cleanup()
-	config.AppConfig.AILoopEnabled = false
+	config.Update(func(c *config.Config) { c.AILoopEnabled = false })
 
 	body := `{"model":"sonnet"}`
 	req := httptest.NewRequest("POST", "/api/tasks/test-id/reevaluate", strings.NewReader(body))
@@ -103,12 +99,11 @@ func TestReevaluate_Disabled_Returns403(t *testing.T) {
 
 // TestLearn_Disabled_Returns403 验证 learn 在开关未启用时返回 403
 func TestLearn_Disabled_Returns403(t *testing.T) {
-	orig := config.AppConfig
-	defer func() { config.AppConfig = orig }()
+	t.Cleanup(config.TestSnapshotAndRestore())
 
 	srv := newTestAPIServer(t)
 	defer srv.cleanup()
-	config.AppConfig.AILoopEnabled = false
+	config.Update(func(c *config.Config) { c.AILoopEnabled = false })
 
 	req := httptest.NewRequest("POST", "/api/tasks/test-id/learn", nil)
 	req.SetPathValue("id", "test-id")

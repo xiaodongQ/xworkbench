@@ -147,8 +147,8 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	logger.Infof("pty: ws upgraded tab_id=%q", tabID)
 
 	cliType := ""
-	if config.AppConfig != nil {
-		cliType = config.AppConfig.AichatDefaultCLI
+	if cfg := config.Get(); cfg != nil {
+		cliType = cfg.AichatDefaultCLI
 	}
 	if cliType == "" {
 		cliType = "claude"

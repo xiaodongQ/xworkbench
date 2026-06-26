@@ -21,10 +21,10 @@ func newTestServer(t *testing.T) *APIServer {
 		t.Fatalf("TestDB: %v", err)
 	}
 	// config.json（单一来源）设置 default_terminal，避免 handler 走 shortcuts.DefaultTerminal() fallback
-	if config.AppConfig == nil {
-		config.AppConfig = config.DefaultConfig()
+	if config.Get() == nil {
+		config.Set(config.DefaultConfig())
 	}
-	config.AppConfig.DefaultTerminal = "wezterm"
+	config.Update(func(c *config.Config) { c.DefaultTerminal = "wezterm" })
 	schedDB := backend.NewScheduledTaskRepo(db)
 	execDB := backend.NewExecutionRepo(db)
 	h := hub.New()
@@ -56,7 +56,7 @@ func TestHandleTerminalList(t *testing.T) {
 	}
 	var resp struct {
 		Supported []map[string]string `json:"supported"`
-		Default  string             `json:"default"`
+		Default   string              `json:"default"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)

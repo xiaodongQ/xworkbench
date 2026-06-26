@@ -70,6 +70,9 @@ type APIServer struct {
 	// 进程内运行中的执行（task_id → cancel func）
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
+	// 进程内跑 run-loop 的任务（task_id → true），防同一任务并发触发多个循环，
+	// 避免 WS 推送重复 iteration 事件让前端进度条错乱。
+	runLoops map[string]bool
 }
 
 func NewAPIServer(
@@ -90,7 +93,9 @@ func NewAPIServer(
 		cmtDB: cmtDB, execCmtDB: execCmtDB,
 		sch: sch, hub: h,
 		relayHandler: relay.NewRelayHandler(relayRepo),
-		mux:          http.NewServeMux(), running: map[string]context.CancelFunc{},
+		mux:          http.NewServeMux(),
+		running:      map[string]context.CancelFunc{},
+		runLoops:     map[string]bool{},
 	}
 	s.routes()
 	s.wrapped = httplog.Middleware(s.mux, loglib.Logger)
@@ -102,7 +107,7 @@ func NewAPIServer(
 func checkRelayAuth() func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cfg := config.AppConfig
+			cfg := config.Get()
 			if cfg != nil && cfg.Relay.APIKey != "" {
 				key := r.Header.Get("Authorization")
 				if len(key) > 7 && key[:7] == "Bearer " {
@@ -1106,10 +1111,7 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	// 默认值跟随 config.json 的 preferred_cli（单一来源），改 preferred_cli 后评估 CLI 自动跟随
 	if req.CliType == "" {
-		req.CliType = config.AppConfig.PreferredCLI
-		if req.CliType == "" {
-			req.CliType = "claude"
-		}
+		req.CliType = preferredCLI()
 	}
 	if req.Model == "" {
 		req.Model = evalDefaultModel(req.CliType)
@@ -1160,10 +1162,7 @@ func (s *APIServer) handleExecutionEvaluateChain(w http.ResponseWriter, r *http.
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	// 默认值跟随 config.json 的 preferred_cli（单一来源）
 	if req.CliType == "" {
-		req.CliType = config.AppConfig.PreferredCLI
-		if req.CliType == "" {
-			req.CliType = "claude"
-		}
+		req.CliType = preferredCLI()
 	}
 	if req.Model == "" {
 		req.Model = evalDefaultModel(req.CliType)
@@ -1540,7 +1539,7 @@ func (s *APIServer) handleDirShortcutOpenTerminal(w http.ResponseWriter, r *http
 	if termType == "" {
 		termType = shortcuts.DefaultTerminal()
 	}
-	cfg := config.AppConfig
+	cfg := config.Get()
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
@@ -1610,7 +1609,7 @@ func (s *APIServer) handleTerminalDetect(w http.ResponseWriter, r *http.Request)
 
 // handleModelList 返回模型列表（从 config.json 加载）
 func (s *APIServer) handleModelList(w http.ResponseWriter, r *http.Request) {
-	cfg := config.AppConfig
+	cfg := config.Get()
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
@@ -1621,7 +1620,7 @@ func (s *APIServer) handleModelList(w http.ResponseWriter, r *http.Request) {
 
 // handleGetConfig 返回当前配置（从 config.json 读取）
 func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
-	cfg := config.AppConfig
+	cfg := config.Get()
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
@@ -1646,6 +1645,14 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleSetConfig 统一入口：更新 config.json 中的偏好和部署配置，回写文件
 // 任意字段非空（非零）即覆盖；bool/int 字段 0/false 也合法（用 ptr 区分"未设"）
+//
+// 安全语义（修复 Issue 2 + 3）：
+//  1. 校验和"是否要改"先于修改：所有写入字段都必须先通过校验，
+//     校验失败返 4xx 不改任何东西。
+//  2. copy-on-write 修改：fn 内只改副本，全局其它 reader 仍看旧值，
+//     没有"半改状态"被读到。
+//  3. Save 失败回滚：磁盘写失败时内存回滚到原始快照，
+//     不会出现"内存已改 / 磁盘未改"的不一致窗口。
 func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	logger.Infow("set config")
 	var req struct {
@@ -1660,29 +1667,27 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 		// 部署级
 		TerminalType      string            `json:"terminal_type"`
 		TerminalPath      string            `json:"terminal_path"`
-		ModelDefaults     map[string]string `json:"model_defaults"`     // cli_type -> 执行默认 model
+		ModelDefaults     map[string]string `json:"model_defaults"`      // cli_type -> 执行默认 model
 		EvalModelDefaults map[string]string `json:"eval_model_defaults"` // cli_type -> 评估默认 model
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	cfg := config.AppConfig
+	cfg := config.Get()
 	if cfg == nil {
 		writeErr(w, http.StatusInternalServerError, "config not initialized")
 		return
 	}
-	changed := false
 
-	// 用户偏好（字符串）
+	// === 第一阶段：校验（不动 cfg）===
+	// 任何 4xx 都直接返，不进入修改阶段。
 	if req.DefaultTerminal != nil {
 		v := *req.DefaultTerminal
 		if v != "" && !shortcuts.IsSupportedTerminal(v) {
 			writeErr(w, http.StatusBadRequest, "unsupported terminal type: "+v)
 			return
 		}
-		cfg.DefaultTerminal = v
-		changed = true
 	}
 	if req.PreferredCLI != nil {
 		v := *req.PreferredCLI
@@ -1690,72 +1695,138 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "unsupported cli: "+v+" (supported: claude, cbc)")
 			return
 		}
-		cfg.PreferredCLI = config.NormalizeCLI(v)
-		changed = true
 	}
-	if req.AichatDefaultCLI != nil {
-		cfg.AichatDefaultCLI = *req.AichatDefaultCLI
-		changed = true
-	}
-	if req.TodoMDPath != nil {
-		cfg.TodoMDPath = *req.TodoMDPath
-		changed = true
-	}
-	// 用户偏好（bool）
-	if req.AILoopEnabled != nil {
-		cfg.AILoopEnabled = *req.AILoopEnabled
-		changed = true
-	}
-	if req.SchedulerEnabled != nil {
-		cfg.SchedulerEnabled = *req.SchedulerEnabled
-		changed = true
-	}
-	if req.DangerouslySkipPermissions != nil {
-		cfg.DangerouslySkipPermissions = *req.DangerouslySkipPermissions
-		changed = true
-	}
-
-	// 部署级
 	if req.TerminalType != "" {
 		// 注：default_type 已上移到顶层 DefaultTerminal；此处 TerminalType 仅用于与 TerminalPath 配对更新类型路径
-		if _, ok := cfg.Terminal.Types[req.TerminalType]; ok {
-			// 类型已存在，下面的 TerminalPath 会更新其 path 字段
-		} else {
+		if _, ok := cfg.Terminal.Types[req.TerminalType]; !ok {
 			writeErr(w, http.StatusBadRequest, "unknown terminal type: "+req.TerminalType)
 			return
 		}
+	}
+
+	// === 第二阶段：决定是否真要改 ===
+	// ModelDefaults/EvalModelDefaults 需 cliType 在 cfg.Models 里才标 changed；
+	// 其它 nil/空值不算"请求改"，避免没必要的 Save。
+	changed := false
+	if req.DefaultTerminal != nil {
+		changed = true
+	}
+	if req.PreferredCLI != nil {
+		changed = true
+	}
+	if req.AichatDefaultCLI != nil {
+		changed = true
+	}
+	if req.TodoMDPath != nil {
+		changed = true
+	}
+	if req.AILoopEnabled != nil {
+		changed = true
+	}
+	if req.SchedulerEnabled != nil {
+		changed = true
+	}
+	if req.DangerouslySkipPermissions != nil {
+		changed = true
+	}
+	if req.TerminalType != "" {
 		changed = true
 	}
 	if req.TerminalPath != "" && req.TerminalType != "" {
-		if typeDef, ok := cfg.Terminal.Types[req.TerminalType]; ok {
-			typeDef.Path = req.TerminalPath
-			cfg.Terminal.Types[req.TerminalType] = typeDef
-			changed = true
-		}
+		changed = true
 	}
 	if req.ModelDefaults != nil {
-		for cliType, model := range req.ModelDefaults {
-			if group, ok := cfg.Models[cliType]; ok {
-				group.Default = model
-				cfg.Models[cliType] = group
+		for cliType := range req.ModelDefaults {
+			if _, ok := cfg.Models[cliType]; ok {
 				changed = true
+				break
 			}
 		}
 	}
-	if req.EvalModelDefaults != nil {
-		for cliType, model := range req.EvalModelDefaults {
-			if group, ok := cfg.Models[cliType]; ok {
-				group.EvalDefault = model
-				cfg.Models[cliType] = group
+	if !changed && req.EvalModelDefaults != nil {
+		for cliType := range req.EvalModelDefaults {
+			if _, ok := cfg.Models[cliType]; ok {
 				changed = true
+				break
 			}
 		}
 	}
 
-	if changed {
-		if err := config.Save(); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
+	if !changed {
+		// 没字段需要改（可能全空 / 全是未支持的 cli_type / 默认值相同）。
+		// 直接返 ok，不动 AppConfig 也不写盘。
+		writeJSON(w, map[string]string{"status": "ok"})
+		return
+	}
+
+	// === 第三阶段：copy-on-write 修改 + Save（失败自动回滚）===
+	_, err := config.SetAndSave(func(c *config.Config) {
+		// 用户偏好（字符串）
+		if req.DefaultTerminal != nil {
+			c.DefaultTerminal = *req.DefaultTerminal
+		}
+		if req.PreferredCLI != nil {
+			c.PreferredCLI = config.NormalizeCLI(*req.PreferredCLI)
+		}
+		if req.AichatDefaultCLI != nil {
+			c.AichatDefaultCLI = *req.AichatDefaultCLI
+		}
+		if req.TodoMDPath != nil {
+			c.TodoMDPath = *req.TodoMDPath
+		}
+		// 用户偏好（bool）
+		if req.AILoopEnabled != nil {
+			c.AILoopEnabled = *req.AILoopEnabled
+		}
+		if req.SchedulerEnabled != nil {
+			c.SchedulerEnabled = *req.SchedulerEnabled
+		}
+		if req.DangerouslySkipPermissions != nil {
+			c.DangerouslySkipPermissions = *req.DangerouslySkipPermissions
+		}
+		// 部署级：TerminalPath
+		if req.TerminalPath != "" && req.TerminalType != "" {
+			if typeDef, ok := c.Terminal.Types[req.TerminalType]; ok {
+				typeDef.Path = req.TerminalPath
+				c.Terminal.Types[req.TerminalType] = typeDef
+			}
+		}
+		// 部署级：ModelDefaults / EvalModelDefaults（仅 cliType 已存在时生效）
+		if req.ModelDefaults != nil {
+			for cliType, model := range req.ModelDefaults {
+				if group, ok := c.Models[cliType]; ok {
+					group.Default = model
+					c.Models[cliType] = group
+				}
+			}
+		}
+		if req.EvalModelDefaults != nil {
+			for cliType, model := range req.EvalModelDefaults {
+				if group, ok := c.Models[cliType]; ok {
+					group.EvalDefault = model
+					c.Models[cliType] = group
+				}
+			}
+		}
+	})
+	if err != nil {
+		// Save 失败：内存已自动回滚，告知客户端即可。
+		writeErr(w, http.StatusInternalServerError, "save config failed: "+err.Error())
+		return
+	}
+
+	// 配置已落盘：广播给所有 WS 客户端，让其他 tab 即时同步 UI
+	// （AI 自治开关/调度器开关等热改场景下，用户在一个 tab 改了，另一个
+	// tab 打开任务详情弹窗时就能看到最新状态，不用重新加载整个页面）。
+	// 重新读一次 Get() 拿刚 SetAndSave 后的最新值（cfg 是 SetAndSave 之前的快照）。
+	if s.hub != nil {
+		if newCfg := config.Get(); newCfg != nil {
+			s.hub.Broadcast(wsmsg.ChannelConfig, map[string]any{
+				"event":             "config_changed",
+				"ai_loop_enabled":   newCfg.AILoopEnabled,
+				"scheduler_enabled": newCfg.SchedulerEnabled,
+				"preferred_cli":     newCfg.PreferredCLI,
+			})
 		}
 	}
 	writeJSON(w, map[string]string{"status": "ok"})
@@ -1946,10 +2017,7 @@ func (s *APIServer) handleAILoopStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleGetPreferredCLI 读优先 CLI。前端"默认 CLI" tab 调。
 func (s *APIServer) handleGetPreferredCLI(w http.ResponseWriter, r *http.Request) {
-	v := config.NormalizeCLI(config.AppConfig.PreferredCLI)
-	if v == "" {
-		v = "claude"
-	}
+	v := preferredCLI()
 	writeJSON(w, map[string]any{"value": v})
 }
 
@@ -1967,14 +2035,15 @@ func (s *APIServer) handleSetPreferredCLI(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusBadRequest, "unsupported cli type: "+req.Value+" (supported: claude, cbc)")
 		return
 	}
-	v := config.NormalizeCLI(req.Value)
-	if config.AppConfig == nil {
+	if config.Get() == nil {
 		writeErr(w, http.StatusInternalServerError, "config not initialized")
 		return
 	}
-	config.AppConfig.PreferredCLI = v
-	if err := config.Save(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+	v := config.NormalizeCLI(req.Value)
+	if _, err := config.SetAndSave(func(c *config.Config) {
+		c.PreferredCLI = v
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "save config failed: "+err.Error())
 		return
 	}
 	logger.Infow("set preferred_cli", "value", v)
@@ -1983,10 +2052,10 @@ func (s *APIServer) handleSetPreferredCLI(w http.ResponseWriter, r *http.Request
 
 // --- Todo.md ---
 
-// todoPath 集中读 todo_md_path，统一走 config.AppConfig（单一来源）
+// todoPath 集中读 todo_md_path，统一走 config.Get()（单一来源 + 线程安全）
 func todoPath() string {
-	if config.AppConfig != nil {
-		return config.AppConfig.TodoMDPath
+	if cfg := config.Get(); cfg != nil {
+		return cfg.TodoMDPath
 	}
 	return ""
 }
@@ -2103,13 +2172,14 @@ func (s *APIServer) handleTodoPathSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if config.AppConfig == nil {
+	if config.Get() == nil {
 		writeErr(w, http.StatusInternalServerError, "config not initialized")
 		return
 	}
-	config.AppConfig.TodoMDPath = req.Path
-	if err := config.Save(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+	if _, err := config.SetAndSave(func(c *config.Config) {
+		c.TodoMDPath = req.Path
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "save config failed: "+err.Error())
 		return
 	}
 	writeJSON(w, map[string]string{"path": req.Path})
@@ -2169,10 +2239,10 @@ func parseInt(s string, def int) int {
 // 单一来源：config.json（ai_loop_enabled 顶层字段）。
 // 3 个 handler 入口（handleTaskReevaluate / RunLoop / Learn）每次请求都查，Save() 后下一次请求生效。
 func (s *APIServer) aiLoopEnabled() bool {
-	if config.AppConfig == nil {
-		return false
+	if cfg := config.Get(); cfg != nil {
+		return cfg.AILoopEnabled
 	}
-	return config.AppConfig.AILoopEnabled
+	return false
 }
 
 func errStr(err error) string {
@@ -2182,12 +2252,23 @@ func errStr(err error) string {
 	return err.Error()
 }
 
+// preferredCLI 读 preferred_cli（线程安全），空则返 "claude"。
+// 单一来源是 config.json 顶层 PreferredCLI；并发安全由 Snapshot/Get 保证。
+func preferredCLI() string {
+	if cfg := config.Get(); cfg != nil {
+		if v := config.NormalizeCLI(cfg.PreferredCLI); v != "" {
+			return v
+		}
+	}
+	return "claude"
+}
+
 // evalDefaultModel 评估入口 model 为空时的 fallback 链。
 // 优先级：Models[cli].EvalDefault（评估专用）→ Models[cli].Default（执行默认）→ "sonnet"
 // 注：调用方应先保证 cliType 非空（已 fallback 到 PreferredCLI/"claude"）。
 func evalDefaultModel(cliType string) string {
-	if config.AppConfig != nil {
-		if group, ok := config.AppConfig.Models[cliType]; ok {
+	if cfg := config.Get(); cfg != nil {
+		if group, ok := cfg.Models[cliType]; ok {
 			if group.EvalDefault != "" {
 				return group.EvalDefault
 			}
@@ -2314,7 +2395,7 @@ func main() {
 		logger.Errorf("[config] load failed: %v, using defaults", err)
 		cfg = config.DefaultConfig()
 	}
-	config.AppConfig = cfg
+	config.Set(cfg)
 
 	// 支持 -config 指定配置文件路径
 	cfgPath := flag.String("config", "", "path to config.json")
@@ -2466,7 +2547,7 @@ func (s *APIServer) handleTaskEvalHistory(w http.ResponseWriter, r *http.Request
 // handleTaskReevaluate 用新模型重新评估最新 execution。
 func (s *APIServer) handleTaskReevaluate(w http.ResponseWriter, r *http.Request) {
 	if !s.aiLoopEnabled() {
-		writeErr(w, http.StatusForbidden, "AI 自治能力未启用（设 AI_LOOP_ENABLED=1 或 config.json ai_loop.enabled=true）")
+		writeErr(w, http.StatusForbidden, "AI 自治能力未启用：在自动化页「高级设置」中开启，或设 config.json 顶层 ai_loop_enabled=true")
 		return
 	}
 	id := r.PathValue("id")
@@ -2478,10 +2559,7 @@ func (s *APIServer) handleTaskReevaluate(w http.ResponseWriter, r *http.Request)
 	json.NewDecoder(r.Body).Decode(&req)
 	// 默认值跟随 config.json 的 preferred_cli（单一来源）
 	if req.CliType == "" {
-		req.CliType = config.AppConfig.PreferredCLI
-		if req.CliType == "" {
-			req.CliType = "claude"
-		}
+		req.CliType = preferredCLI()
 	}
 	if req.Model == "" {
 		req.Model = evalDefaultModel(req.CliType)
@@ -2506,7 +2584,7 @@ func (s *APIServer) handleTaskReevaluate(w http.ResponseWriter, r *http.Request)
 // 60s 双重矛盾让长任务必死）。Sync 版本已移除。
 func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 	if !s.aiLoopEnabled() {
-		writeErr(w, http.StatusForbidden, "AI 自治能力未启用（设 AI_LOOP_ENABLED=1 或 config.json ai_loop.enabled=true）")
+		writeErr(w, http.StatusForbidden, "AI 自治能力未启用：在自动化页「高级设置」中开启，或设 config.json 顶层 ai_loop_enabled=true")
 		return
 	}
 	id := r.PathValue("id")
@@ -2532,15 +2610,24 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 		req.MaxIterations = 3
 	}
 	if req.CliType == "" {
-		req.CliType = config.AppConfig.PreferredCLI
-		if req.CliType == "" {
-			req.CliType = "claude"
-		}
+		req.CliType = preferredCLI()
 	}
 	models := []string{req.Model}
 	if req.Model == "haiku" || req.Model == "" {
 		models = []string{"haiku", "sonnet", "opus"}
 	}
+
+	// 任务级去重：同一 task 不能并发跑两个 run-loop 循环。
+	// 否则 WS 推两组 iteration_started/iteration_done 事件，前端进度条错乱，
+	// 数据库也会被并发写入同一 task 的多条 execution 记录。
+	s.mu.Lock()
+	if s.runLoops[id] {
+		s.mu.Unlock()
+		writeErr(w, http.StatusConflict, "run-loop already running for this task; wait for current loop to finish")
+		return
+	}
+	s.runLoops[id] = true
+	s.mu.Unlock()
 
 	// 立即返回 202，让 client 不要再阻塞等循环跑完。
 	writeJSON(w, map[string]interface{}{
@@ -2555,7 +2642,14 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 	// - iteration_done: claude + evaluator 都跑完（带 score/exit_code）
 	// - loop_done: 达到阈值/最大迭代/被 build 失败中断
 	// - loop_error: 整个 goroutine panic
-	go s.runLoopBackground(id, req, models)
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.runLoops, id)
+			s.mu.Unlock()
+		}()
+		s.runLoopBackground(id, req, models)
+	}()
 }
 
 // runLoopBackground 是 handleTaskRunLoop 的后台执行体，单独拆出来便于测试和
@@ -2688,9 +2782,14 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 }
 
 // handleTaskLearn 对完成任务触发自我学习，从执行记录生成经验写入 experiences 表。
+//
+// CLI/模型选择（与 handleTaskRunLoop / handleTaskReevaluate 对齐"单一来源"原则）：
+//   - 请求 body 可传 {"cli_type":"claude|cbc","model":"<可选>"}，缺省走 preferred_cli
+//   - 缺省 model 优先 EvalDefault（评估专用，便宜），兜底 "haiku"。
+//     反思任务不需要 opus/sonnet 那种强力模型，固定走 haiku 控制成本。
 func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 	if !s.aiLoopEnabled() {
-		writeErr(w, http.StatusForbidden, "AI 自治能力未启用（设 AI_LOOP_ENABLED=1 或 config.json ai_loop.enabled=true）")
+		writeErr(w, http.StatusForbidden, "AI 自治能力未启用：在自动化页「高级设置」中开启，或设 config.json 顶层 ai_loop_enabled=true")
 		return
 	}
 	id := r.PathValue("id")
@@ -2709,6 +2808,33 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 	if prompt == "" {
 		prompt = task.Title
 	}
+	// body 是可选的（前端简单按钮调用可能不发 body）
+	var req struct {
+		CliType string `json:"cli_type"`
+		Model   string `json:"model"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req) // 解析失败忽略，走默认
+	}
+	cliType := req.CliType
+	if cliType == "" {
+		cliType = preferredCLI()
+	}
+	if !config.IsValidCLI(cliType) {
+		cliType = "claude"
+	}
+	model := req.Model
+	if model == "" {
+		// learn 是反思任务，用便宜模型：EvalDefault → "haiku" 兜底
+		if cfg := config.Get(); cfg != nil {
+			if group, ok := cfg.Models[cliType]; ok && group.EvalDefault != "" {
+				model = group.EvalDefault
+			}
+		}
+		if model == "" {
+			model = "haiku"
+		}
+	}
 	go func() {
 		reflectPrompt := fmt.Sprintf(`你是 xworkbench 的自我学习模块。请分析任务执行记录，提取可复用经验。
 
@@ -2724,16 +2850,22 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 			}
 			return s[:n] + "...(truncated)"
 		}(exec.Output, 2000))
-		skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
+		// 学习反思是后台跑，不需要交互确认；用户开了 DangerouslySkipPermissions
+		// 时给 claude 加 --dangerously-skip-permissions（与 handleTaskRun 一致）。
+		// 变参类型 ...func(*runner.buildOpts) 在外部包不可见，直接内联展开：
+		skipPerm := false
+		if cfg := config.Get(); cfg != nil {
+			skipPerm = cfg.DangerouslySkipPermissions
+		}
 		var (
 			cmd     []string
 			stdin   string
 			cleanup func()
 		)
-		if skip {
-			cmd, stdin, cleanup, _ = runner.BuildCommand("claude", "haiku", "", reflectPrompt, runner.WithSkipPermissions())
+		if skipPerm {
+			cmd, stdin, cleanup, _ = runner.BuildCommand(cliType, model, "", reflectPrompt, runner.WithSkipPermissions())
 		} else {
-			cmd, stdin, cleanup, _ = runner.BuildCommand("claude", "haiku", "", reflectPrompt)
+			cmd, stdin, cleanup, _ = runner.BuildCommand(cliType, model, "", reflectPrompt)
 		}
 		if cleanup == nil {
 			return
@@ -2750,7 +2882,7 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 			s.expDB.Create(exp)
 		}
 	}()
-	writeJSON(w, map[string]string{"status": "learning", "task_id": id})
+	writeJSON(w, map[string]string{"status": "learning", "task_id": id, "cli_type": cliType, "model": model})
 }
 
 func parseLearnOutput(output string, task *backend.Task, exec *backend.Execution) *backend.Experience {

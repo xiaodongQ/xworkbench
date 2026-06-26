@@ -26,10 +26,10 @@ func newEvalTestServer(t *testing.T) *APIServer {
 	}
 	// AI 自治能力默认开启（config.json 单一来源），以便 run-loop/reevaluate/learn
 	// 现有测试能走完整逻辑。如某个测试需要验证"未启用返 403"路径，单独重设 config.AppConfig。
-	if config.AppConfig == nil {
-		config.AppConfig = config.DefaultConfig()
+	if config.Get() == nil {
+		config.Set(config.DefaultConfig())
 	}
-	config.AppConfig.AILoopEnabled = true
+	config.Update(func(c *config.Config) { c.AILoopEnabled = true })
 	s := &APIServer{
 		db:      backend.NewTaskRepo(db),
 		dirDB:   backend.NewDirShortcutRepo(db),
@@ -39,6 +39,8 @@ func newEvalTestServer(t *testing.T) *APIServer {
 	}
 	// running map 默认初始化（continue/evaluate 类 handler 会用）
 	s.running = map[string]context.CancelFunc{}
+	// runLoops map 默认初始化（run-loop 任务级去重用）
+	s.runLoops = map[string]bool{}
 	return s
 }
 

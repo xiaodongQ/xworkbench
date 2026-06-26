@@ -41,12 +41,11 @@ func newEvalDefaultTestServer(t *testing.T) (*APIServer, *http.ServeMux) {
 // TestEvalDefault_PutConfig 验证 PUT /api/config 接受 eval_model_defaults 字段，
 // 写入 AppConfig.Models[cli].EvalDefault，且 GET /api/config + /api/models 都返回正确。
 func TestEvalDefault_PutConfig(t *testing.T) {
-	// 隔离 AppConfig：保存原值，测后恢复
-	orig := config.AppConfig
-	t.Cleanup(func() { config.AppConfig = orig })
+	// 隔离 AppConfig：保存原值快照，测后恢复（深拷贝，不受字段修改影响）
+	t.Cleanup(config.TestSnapshotAndRestore())
 
 	// 重置 AppConfig 到默认值，避免其他测试污染
-	config.AppConfig = config.DefaultConfig()
+	config.Set(config.DefaultConfig())
 
 	_, mux := newEvalDefaultTestServer(t)
 
@@ -57,7 +56,7 @@ func TestEvalDefault_PutConfig(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("PUT status=%d body=%s", w.Code, w.Body.String())
 	}
-	if got := config.AppConfig.Models["claude"].EvalDefault; got != "opus" {
+	if got := config.Get().Models["claude"].EvalDefault; got != "opus" {
 		t.Errorf("after PUT, claude.EvalDefault=%q, want %q", got, "opus")
 	}
 
@@ -98,11 +97,10 @@ func TestEvalDefault_PutConfig(t *testing.T) {
 // TestEvalDefault_FallbackChain 验证未传 eval_default 时，PUT 仅改 model_defaults
 // 不会影响 eval_default（独立保存）。
 func TestEvalDefault_FallbackChain(t *testing.T) {
-	orig := config.AppConfig
-	t.Cleanup(func() { config.AppConfig = orig })
-	config.AppConfig = config.DefaultConfig()
+	t.Cleanup(config.TestSnapshotAndRestore())
+	config.Set(config.DefaultConfig())
 	// 初始：claude.eval_default = haiku (默认)
-	if got := config.AppConfig.Models["claude"].EvalDefault; got == "" {
+	if got := config.Get().Models["claude"].EvalDefault; got == "" {
 		t.Fatal("precondition: claude.EvalDefault should be set in default config")
 	}
 
@@ -116,54 +114,59 @@ func TestEvalDefault_FallbackChain(t *testing.T) {
 		t.Fatalf("PUT status=%d", w.Code)
 	}
 	// model_defaults 改了
-	if got := config.AppConfig.Models["claude"].Default; got != "opus" {
+	if got := config.Get().Models["claude"].Default; got != "opus" {
 		t.Errorf("claude.Default=%q, want %q", got, "opus")
 	}
 	// eval_default 保持不变（独立字段）
-	if got := config.AppConfig.Models["claude"].EvalDefault; got == "" {
+	if got := config.Get().Models["claude"].EvalDefault; got == "" {
 		t.Errorf("claude.EvalDefault should be preserved (独立于 model_defaults)")
 	}
 }
 
 // TestEvalDefault_FallbackHelper 验证 helper 函数：未设 → Default → "sonnet" 三级 fallback。
 func TestEvalDefault_FallbackHelper(t *testing.T) {
-	orig := config.AppConfig
-	t.Cleanup(func() { config.AppConfig = orig })
+	t.Cleanup(config.TestSnapshotAndRestore())
 
 	t.Run("eval_default_set", func(t *testing.T) {
-		config.AppConfig = config.DefaultConfig()
-		cl := config.AppConfig.Models["claude"]
-		cl.EvalDefault = "opus"
-		config.AppConfig.Models["claude"] = cl
+		config.Set(config.DefaultConfig())
+		config.Update(func(c *config.Config) {
+			cl := c.Models["claude"]
+			cl.EvalDefault = "opus"
+			c.Models["claude"] = cl
+		})
 		if got := evalDefaultModel("claude"); got != "opus" {
 			t.Errorf("evalDefaultModel(claude)=%q, want %q", got, "opus")
 		}
 	})
 
 	t.Run("eval_default_empty_falls_back_to_default", func(t *testing.T) {
-		config.AppConfig = config.DefaultConfig()
-		cl := config.AppConfig.Models["claude"]
-		cl.EvalDefault = ""
-		cl.Default = "sonnet"
-		config.AppConfig.Models["claude"] = cl
+		config.Set(config.DefaultConfig())
+		config.Update(func(c *config.Config) {
+			cl := c.Models["claude"]
+			cl.EvalDefault = ""
+			cl.Default = "sonnet"
+			c.Models["claude"] = cl
+		})
 		if got := evalDefaultModel("claude"); got != "sonnet" {
 			t.Errorf("evalDefaultModel(claude)=%q, want %q (fallback to default)", got, "sonnet")
 		}
 	})
 
 	t.Run("both_empty_falls_back_to_sonnet", func(t *testing.T) {
-		config.AppConfig = config.DefaultConfig()
-		cl := config.AppConfig.Models["claude"]
-		cl.EvalDefault = ""
-		cl.Default = ""
-		config.AppConfig.Models["claude"] = cl
+		config.Set(config.DefaultConfig())
+		config.Update(func(c *config.Config) {
+			cl := c.Models["claude"]
+			cl.EvalDefault = ""
+			cl.Default = ""
+			c.Models["claude"] = cl
+		})
 		if got := evalDefaultModel("claude"); got != "sonnet" {
 			t.Errorf("evalDefaultModel(claude)=%q, want %q (last resort fallback)", got, "sonnet")
 		}
 	})
 
 	t.Run("unknown_cli_falls_back_to_sonnet", func(t *testing.T) {
-		config.AppConfig = config.DefaultConfig()
+		config.Set(config.DefaultConfig())
 		if got := evalDefaultModel("nonexistent"); got != "sonnet" {
 			t.Errorf("evalDefaultModel(nonexistent)=%q, want %q", got, "sonnet")
 		}

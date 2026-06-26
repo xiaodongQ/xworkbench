@@ -6,13 +6,116 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
-// AppConfig 全局应用配置
-var AppConfig *Config
+// AppConfig 全局应用配置指针（向后兼容 + 测试 setup 用）。
+//
+// ⚠️ 直接读写 AppConfig.X 字段在生产代码里不安全（HTTP handler 与后台
+// goroutine 并发）。生产代码应走 Snapshot()/Get()/Update()/SetAndSave()
+// 之一，路径内部已加锁 + copy-on-write。
+//
+// 测试代码（同一进程顺序执行、不会并发）可以直接用 AppConfig 设初值。
+var (
+	AppConfigMu sync.RWMutex
+	AppConfig   *Config
+)
+
+// Get 返回当前配置原指针（线程安全）。调用方应在锁内只读访问，**不要**
+// 修改返回值字段——会绕过锁。需要修改请用 Update/SetAndSave。
+func Get() *Config {
+	AppConfigMu.RLock()
+	defer AppConfigMu.RUnlock()
+	return AppConfig
+}
+
+// Set 整体替换配置（线程安全）。写路径在 init/Load/LoadFromPath/Update 等场景用。
+func Set(c *Config) {
+	AppConfigMu.Lock()
+	defer AppConfigMu.Unlock()
+	AppConfig = c
+}
+
+// Snapshot 返回当前配置的深拷贝。调用方修改返回值不会影响全局，适合
+// 一次性"读多字段"或"读后加工"的场景。
+func Snapshot() *Config {
+	AppConfigMu.RLock()
+	defer AppConfigMu.RUnlock()
+	if AppConfig == nil {
+		return nil
+	}
+	cp := *AppConfig
+	return &cp
+}
+
+// Update 以 copy-on-write 方式修改配置：fn 收到当前快照副本，fn 修改完后
+// 整个替换 AppConfig，期间其它 goroutine 通过 Snapshot/Get 始终看到一致状态。
+func Update(fn func(c *Config)) *Config {
+	AppConfigMu.Lock()
+	defer AppConfigMu.Unlock()
+	if AppConfig == nil {
+		AppConfig = DefaultConfig()
+	}
+	cp := *AppConfig
+	fn(&cp)
+	AppConfig = &cp
+	return AppConfig
+}
+
+// SetAndSave 是 handleSetConfig 等"改完要落盘"场景的安全封装：
+//
+//  1. copy-on-write 修改内存（不会半改状态被读到）
+//  2. Save() 落盘
+//  3. 若 Save 失败：回滚内存（拷贝原始快照，原样写回 AppConfig）
+//
+// 返回最终生效的 *Config + Save 错误。调用方应在 Save 失败时把内存回滚
+// 状态告知用户（API 500）。
+func SetAndSave(fn func(c *Config)) (*Config, error) {
+	AppConfigMu.Lock()
+	original := AppConfig
+	if original == nil {
+		original = DefaultConfig()
+	}
+	cp := *original
+	fn(&cp)
+	AppConfig = &cp
+	AppConfigMu.Unlock()
+
+	if err := Save(); err != nil {
+		// Save 失败：内存回滚到 original
+		AppConfigMu.Lock()
+		AppConfig = original
+		AppConfigMu.Unlock()
+		return original, err
+	}
+	return AppConfig, nil
+}
+
+// TestSnapshotAndRestore 返回一个 restore 函数，调用时把 AppConfig 恢复到
+// 调用时刻的状态（深拷贝）。用法：
+//
+//	func TestXxx(t *testing.T) {
+//	    t.Cleanup(config.TestSnapshotAndRestore())
+//	    config.Update(...) 或 config.Set(...)
+//	}
+//
+// 这比 `orig := config.AppConfig; defer config.AppConfig = orig` 更安全：
+// 后者只恢复指针不恢复字段内容（helper 中途修改过就翻车）。
+func TestSnapshotAndRestore() func() {
+	snap := Snapshot()
+	return func() {
+		if snap == nil {
+			return
+		}
+		Set(snap)
+	}
+}
 
 // configFilePath 记录最近一次加载的配置文件路径，供 Save() 使用
-var configFilePath string
+var (
+	configFilePathMu sync.RWMutex
+	configFilePath   string
+)
 
 // Config 全局应用配置（单一来源：config.json）
 //
@@ -87,17 +190,24 @@ type ModelOption struct {
 // Load 加载配置（自动找路径或用默认）
 // Save 将当前 AppConfig 写回 config.json
 func Save() error {
-	if AppConfig == nil {
+	// 读 AppConfig 用 RLock。Marshal 期间我们仍持有 RLock，其它 goroutine
+	// 可以继续读但不能写——保证序列化过程中 Config 字段不变。
+	AppConfigMu.RLock()
+	current := AppConfig
+	AppConfigMu.RUnlock()
+	configFilePathMu.RLock()
+	path := configFilePath
+	configFilePathMu.RUnlock()
+	if current == nil {
 		return nil
 	}
-	path := configFilePath
 	if path == "" {
 		path = configPath()
 	}
 	if path == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(AppConfig, "", "  ")
+	data, err := json.MarshalIndent(current, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -113,7 +223,7 @@ func Load() (*Config, error) {
 	return loadFromFile(path, cfg)
 }
 
-// LoadFromPath 从指定路径加载配置，覆盖全局 AppConfig
+// LoadFromPath 从指定路径加载配置，覆盖全局 AppConfig（线程安全）
 func LoadFromPath(path string) error {
 	if path == "" {
 		return nil
@@ -123,8 +233,10 @@ func LoadFromPath(path string) error {
 	if err != nil {
 		return err
 	}
-	AppConfig = loaded
+	Set(loaded) // 走锁
+	configFilePathMu.Lock()
 	configFilePath = path
+	configFilePathMu.Unlock()
 	return nil
 }
 

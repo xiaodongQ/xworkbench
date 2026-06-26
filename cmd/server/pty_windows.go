@@ -40,8 +40,8 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	logger.Infof("pty: ws upgraded tab_id=%q", tabID)
 
 	cliType := ""
-	if config.AppConfig != nil {
-		cliType = config.AppConfig.AichatDefaultCLI
+	if cfg := config.Get(); cfg != nil {
+		cliType = cfg.AichatDefaultCLI
 	}
 	if cliType == "" {
 		cliType = "claude"
@@ -209,11 +209,10 @@ func determineAICmd(cliType, ctxDir string) string {
 	}
 }
 
-
 // FindPTY stub for Windows — PTY sessions not yet implemented.
 
 // PTYSession stub for Windows build.
-type PTYSession struct {}
+type PTYSession struct{}
 
 // WriteInput stub for Windows.
 func (s *PTYSession) WriteInput(input string) error { return nil }
