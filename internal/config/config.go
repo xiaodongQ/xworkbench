@@ -25,6 +25,7 @@ type Config struct {
 	PreferredCLI     string `json:"preferred_cli,omitempty"` // claude | cbc；空=默认 claude
 	AILoopEnabled    bool   `json:"ai_loop_enabled"`
 	AichatDefaultCLI string `json:"aichat_default_cli,omitempty"` // codex/cbc/shell/claude
+	DangerouslySkipPermissions bool `json:"dangerously_skip_permissions"` // 完全放开 CLI 权限：跳过 --allowedTools、改为 --dangerously-skip-permissions；默认 false，开启后 AI 可执行任意命令
 	TodoMDPath       string `json:"todo_md_path,omitempty"`
 	SchedulerEnabled bool   `json:"scheduler_enabled"`
 
@@ -224,6 +225,7 @@ func DefaultConfig() *Config {
 		DefaultTerminal:  "wezterm",
 		PreferredCLI:     "claude",
 		AichatDefaultCLI: "claude",
+		DangerouslySkipPermissions: false,
 		Terminal: TerminalConfig{
 			DetectPaths: map[string][]string{
 				"wezterm": {"/Applications/WezTerm.app/Contents/MacOS/WezTerm"},

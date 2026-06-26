@@ -32,6 +32,10 @@ import (
 // shell 类型不再用 `sh -c "<prompt>"` 形式 — 那样会让 prompt 中含的
 // `;` / `&` / `|` / `$()` 等被 shell 二次解析，等于 shell 注入。
 // 改用临时脚本文件（一次写入，文件名安全），执行解释器直接喂文件。
+//
+// skipPermissions=true 时（仅 claude / cbc）会移除 --allowedTools，
+// 改为追加 --dangerously-skip-permissions，表示 CLI 跳过后续所有权限确认。
+// shell 类型不受该选项影响（shell 本身没有权限概念）。
 func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)) (cmd []string, stdin string, cleanup func(), err error) {
 	logger.Logger.Debugw("runner: BuildCommand", "type", typ, "model", model, "prompt_chars", len(prompt))
 	o := &buildOpts{
@@ -44,7 +48,10 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 	switch typ {
 	case "claude":
 		cmd := []string{"claude", "-p"}
-		if len(o.allowedTools) > 0 {
+		if o.skipPermissions {
+			// 完全放开：不传 --allowedTools，改传 --dangerously-skip-permissions
+			cmd = append(cmd, "--dangerously-skip-permissions")
+		} else if len(o.allowedTools) > 0 {
 			cmd = append(cmd, "--allowedTools", strings.Join(o.allowedTools, ","))
 		}
 		cmd = append(cmd, "--output-format", "json")
@@ -82,7 +89,10 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 			}
 		}
 		cmd := []string{bin, "-p"}
-		if len(o.allowedTools) > 0 {
+		if o.skipPermissions {
+			// 完全放开：不传 --allowedTools，改传 --dangerously-skip-permissions
+			cmd = append(cmd, "--dangerously-skip-permissions")
+		} else if len(o.allowedTools) > 0 {
 			cmd = append(cmd, "--allowedTools", strings.Join(o.allowedTools, ","))
 		}
 		cmd = append(cmd, "--output-format", "json")
@@ -194,10 +204,11 @@ func WithAllowedTools(tools ...string) func(*buildOpts) {
 }
 
 type buildOpts struct {
-	actionReport bool
-	allowedTools []string
-	useStdin     bool // 默认走 stdin（避免 Windows 8191 字符限制 + shell 注入）；传 WithoutStdin() 可走 cmd 末尾
-	resumeUUID   string
+	actionReport    bool
+	allowedTools    []string
+	useStdin        bool // 默认走 stdin（避免 Windows 8191 字符限制 + shell 注入）；传 WithoutStdin() 可走 cmd 末尾
+	resumeUUID      string
+	skipPermissions bool // 完全放开：改用 --dangerously-skip-permissions，跳过 --allowedTools（仅 claude/cbc 生效）
 }
 
 // WithStdin prompt 通过 stdin 传递（评估用，避免命令行参数过长）。
@@ -205,3 +216,9 @@ func WithStdin() func(*buildOpts) { return func(o *buildOpts) { o.useStdin = tru
 
 // WithResume 使用 --resume <uuid> 继续之前的会话。
 func WithResume(uuid string) func(*buildOpts) { return func(o *buildOpts) { o.resumeUUID = uuid } }
+
+// WithSkipPermissions 启用 --dangerously-skip-permissions，撤销 --allowedTools 白名单。
+// 调用方需根据配置决定是否传入；启用后 AI 可执行任意命令、读写任意文件，慎用。
+func WithSkipPermissions() func(*buildOpts) {
+	return func(o *buildOpts) { o.skipPermissions = true }
+}

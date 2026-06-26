@@ -675,9 +675,23 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			"remote_host", ds.RemoteHost, "remote_user", ds.RemoteUser)
 	}
 
-	// 构造命令（带可选 --resume）
-	cmd, stdin, cleanup, err := runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt,
-		runner.WithResume(req.ResumeSessionID))
+	// 构造命令（带可选 --resume；可选 --dangerously-skip-permissions）
+	skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
+	var (
+		cmd     []string
+		stdin   string
+		cleanup func()
+	)
+	if skip {
+		cmd, stdin, cleanup, err = runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt,
+			runner.WithResume(req.ResumeSessionID),
+			runner.WithSkipPermissions(),
+		)
+	} else {
+		cmd, stdin, cleanup, err = runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt,
+			runner.WithResume(req.ResumeSessionID),
+		)
+	}
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -996,8 +1010,22 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 	if model == "" {
 		model = orig.Model
 	}
-	cmd, stdin, cleanup, err := runner.BuildCommand(cliType, model, "", req.Prompt,
-		runner.WithResume(orig.ResumeSessionID))
+	skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
+	var (
+		cmd     []string
+		stdin   string
+		cleanup func()
+	)
+	if skip {
+		cmd, stdin, cleanup, err = runner.BuildCommand(cliType, model, "", req.Prompt,
+			runner.WithResume(orig.ResumeSessionID),
+			runner.WithSkipPermissions(),
+		)
+	} else {
+		cmd, stdin, cleanup, err = runner.BuildCommand(cliType, model, "", req.Prompt,
+			runner.WithResume(orig.ResumeSessionID),
+		)
+	}
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -1605,6 +1633,7 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"aichat_default_cli": cfg.AichatDefaultCLI,
 		"todo_md_path":       cfg.TodoMDPath,
 		"scheduler_enabled":  cfg.SchedulerEnabled,
+		"dangerously_skip_permissions": cfg.DangerouslySkipPermissions,
 		// 部署级配置
 		"relay": cfg.Relay,
 		"terminal": map[string]interface{}{
@@ -1627,6 +1656,7 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 		AichatDefaultCLI *string `json:"aichat_default_cli,omitempty"`
 		TodoMDPath       *string `json:"todo_md_path,omitempty"`
 		SchedulerEnabled *bool   `json:"scheduler_enabled,omitempty"`
+		DangerouslySkipPermissions *bool `json:"dangerously_skip_permissions,omitempty"`
 		// 部署级
 		TerminalType      string            `json:"terminal_type"`
 		TerminalPath      string            `json:"terminal_path"`
@@ -1678,6 +1708,10 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SchedulerEnabled != nil {
 		cfg.SchedulerEnabled = *req.SchedulerEnabled
+		changed = true
+	}
+	if req.DangerouslySkipPermissions != nil {
+		cfg.DangerouslySkipPermissions = *req.DangerouslySkipPermissions
 		changed = true
 	}
 
@@ -2558,7 +2592,18 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 			"iteration": i + 1, "model": model,
 		})
 
-		cmd, stdin, cleanup, err := runner.BuildCommand(req.CliType, model, "", req.Prompt)
+		skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
+		var (
+			cmd     []string
+			stdin   string
+			cleanup func()
+			err     error
+		)
+		if skip {
+			cmd, stdin, cleanup, err = runner.BuildCommand(req.CliType, model, "", req.Prompt, runner.WithSkipPermissions())
+		} else {
+			cmd, stdin, cleanup, err = runner.BuildCommand(req.CliType, model, "", req.Prompt)
+		}
 		if err != nil {
 			step := Step{Iteration: i + 1, Model: model, Error: err.Error()}
 			history = append(history, step)
@@ -2679,7 +2724,17 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 			}
 			return s[:n] + "...(truncated)"
 		}(exec.Output, 2000))
-		cmd, stdin, cleanup, _ := runner.BuildCommand("claude", "haiku", "", reflectPrompt)
+		skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
+		var (
+			cmd     []string
+			stdin   string
+			cleanup func()
+		)
+		if skip {
+			cmd, stdin, cleanup, _ = runner.BuildCommand("claude", "haiku", "", reflectPrompt, runner.WithSkipPermissions())
+		} else {
+			cmd, stdin, cleanup, _ = runner.BuildCommand("claude", "haiku", "", reflectPrompt)
+		}
 		if cleanup == nil {
 			return
 		}
