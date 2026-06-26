@@ -203,11 +203,27 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 }
 
 func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
-	cmd, stdin, cleanup, err := runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
-		runner.WithStdin(),
-		runner.WithActionReport(),
-		runner.WithAllowedTools("Bash", "Write", "Edit", "Read"),
+	// 是否完全放开 CLI 权限（根据配置开关注定，默认关闭）
+	skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
+	var (
+		cmd     []string
+		stdin   string
+		cleanup func()
+		err     error
 	)
+	if skip {
+		cmd, stdin, cleanup, err = runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
+			runner.WithStdin(),
+			runner.WithActionReport(),
+			runner.WithSkipPermissions(),
+		)
+	} else {
+		cmd, stdin, cleanup, err = runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
+			runner.WithStdin(),
+			runner.WithActionReport(),
+			runner.WithAllowedTools("Bash", "Write", "Edit", "Read", "Grep"),
+		)
+	}
 	if err != nil {
 		logger.Logger.Errorw("scheduler: build command failed", "task", t.Name, "err", err)
 		_ = s.repo.UpdateAfterRun(t.ID, "build_error", "")

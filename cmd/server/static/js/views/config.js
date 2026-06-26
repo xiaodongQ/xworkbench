@@ -53,6 +53,7 @@ function switchCfgTab(tab) {
   document.querySelectorAll('.cfg-preview-area').forEach(el => el.innerHTML = '');
   if (tab === 'default_cli') {
     loadPreferredCLI();
+    loadSkipPerm();
   } else {
     refreshExportSummary();
   }
@@ -275,6 +276,94 @@ async function savePreferredCLI() {
     status.textContent = `已保存: ${v} · 来源: config.json`;
   } catch (e) {
     status.textContent = '保存失败：' + e.message;
+  }
+}
+
+// ===== 完全放开 CLI 权限开关（启用人机验证：勾选+点击「启用」才能打开） =====
+async function loadSkipPerm() {
+  const status = document.getElementById('skip-perm-status');
+  const checkbox = document.getElementById('skip-perm-toggle');
+  const confirmBtn = document.getElementById('skip-perm-confirm-btn');
+  const toggleRow = document.getElementById('skip-perm-toggle-row');
+  try {
+    const r = await fetchJSON(API + '/api/config');
+    const enabled = !!r.dangerously_skip_permissions;
+    checkbox.checked = enabled;
+    if (enabled) {
+      // 已启用：checkbox 可点（关闭不需要二次验证）
+      toggleRow.style.opacity = '1';
+      toggleRow.style.cursor = 'pointer';
+      checkbox.disabled = false;
+      confirmBtn.style.display = 'none';
+      status.textContent = '已启用 · 后果自担';
+      status.style.color = 'var(--exception)';
+    } else {
+      // 未启用：checkbox 禁用，只有"启用"按钮可以触发
+      toggleRow.style.opacity = '0.5';
+      toggleRow.style.cursor = 'not-allowed';
+      checkbox.disabled = true;
+      confirmBtn.style.display = '';
+      status.textContent = '未启用 · 默认安全状态';
+      status.style.color = 'var(--text-secondary)';
+    }
+  } catch (e) {
+    status.textContent = '加载失败：' + e.message;
+  }
+}
+
+// 点击 checkbox：已启用时 -> 直接关闭；未启用时 -> 拒绝（必须走按钮）
+async function onSkipPermToggleChange(checked) {
+  const status = document.getElementById('skip-perm-status');
+  const checkbox = document.getElementById('skip-perm-toggle');
+  if (!checked) {
+    // 用户尝试关闭 -> 允许（不需要二次验证）
+    await setSkipPerm(false);
+    return;
+  }
+  // 用户尝试开启 -> 拒绝，要求走 confirmSkipPermEnable
+  checkbox.checked = false;
+  alert('开启该项需要点击下方的红色“启用”按钮并确认风险。');
+}
+
+async function confirmSkipPermEnable() {
+  const riskText = [
+    '将允许 AI 执行任意 Bash 命令、读写任意路径、跳过所有权限确认。',
+    '',
+    '后果包括但不限于：',
+    '  · 误删 / 误改项目文件（含 .git、配置、数据）',
+    '  · 发送任意网络请求（可能消耗额度 / 泄露隐私）',
+    '  · 启动后台进程 / 占用资源',
+    '  · 调试 / 评价失误导致不可逆操作',
+    '',
+    '评估员（evaluator）不受该开关影响。',
+    '',
+    '请确认你已了解上述风险。'
+  ].join('\n');
+  const confirmed = confirm('⚠️ 启用 --dangerously-skip-permissions\n\n' + riskText + '\n\n是否继续？');
+  if (!confirmed) return;
+  await setSkipPerm(true);
+}
+
+async function setSkipPerm(enabled) {
+  const status = document.getElementById('skip-perm-status');
+  const checkbox = document.getElementById('skip-perm-toggle');
+  const toggleRow = document.getElementById('skip-perm-toggle-row');
+  const confirmBtn = document.getElementById('skip-perm-confirm-btn');
+  status.textContent = enabled ? '启用中…' : '关闭中…';
+  status.style.color = 'var(--text-secondary)';
+  try {
+    await fetchJSON(API + '/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dangerously_skip_permissions: enabled }),
+    });
+    // 重新拉取以同步 UI
+    await loadSkipPerm();
+  } catch (e) {
+    status.textContent = (enabled ? '启用' : '关闭') + '失败：' + e.message;
+    status.style.color = 'var(--exception)';
+    // 回滚 checkbox
+    checkbox.checked = !enabled;
   }
 }
 

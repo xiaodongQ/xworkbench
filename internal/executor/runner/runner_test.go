@@ -98,6 +98,95 @@ func TestBuildCommandClaudeWithActionReport(t *testing.T) {
 	}
 }
 
+func TestBuildCommandClaudeSkipPermissions(t *testing.T) {
+	got, stdin, cleanup, err := BuildCommand("claude", "sonnet", "", "hello", WithSkipPermissions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleanup != nil {
+		t.Errorf("cleanup should be nil")
+	}
+	want := []string{"claude", "-p", "--dangerously-skip-permissions", "--output-format", "json", "--model", "sonnet"}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	// skip 模式下不应同时出现 --allowedTools
+	for _, arg := range got {
+		if arg == "--allowedTools" {
+			t.Errorf("--allowedTools must NOT appear when skipPermissions=true, got: %v", got)
+		}
+	}
+	if stdin != "hello" {
+		t.Errorf("stdin = %q, want %q", stdin, "hello")
+	}
+}
+
+func TestBuildCommandCbcSkipPermissions(t *testing.T) {
+	got, stdin, cleanup, err := BuildCommand("cbc", "opus", "", "写 hello", WithSkipPermissions())
+	if err != nil {
+		t.Skip("cbc/codebuddy not in PATH:", err)
+	}
+	if cleanup != nil {
+		t.Errorf("cleanup should be nil")
+	}
+	if got[0] != "cbc" && got[0] != "codebuddy" {
+		t.Errorf("got[0] = %q, want cbc or codebuddy", got[0])
+	}
+	if got[1] != "-p" {
+		t.Errorf("got[1] = %q, want -p", got[1])
+	}
+	// 包含 --dangerously-skip-permissions，不包含 --allowedTools
+	hasSkip := false
+	hasAllowed := false
+	for _, a := range got {
+		if a == "--dangerously-skip-permissions" {
+			hasSkip = true
+		}
+		if a == "--allowedTools" {
+			hasAllowed = true
+		}
+	}
+	if !hasSkip {
+		t.Errorf("--dangerously-skip-permissions not found: %v", got)
+	}
+	if hasAllowed {
+		t.Errorf("--allowedTools must NOT appear when skipPermissions=true: %v", got)
+	}
+	if stdin != "写 hello" {
+		t.Errorf("stdin = %q, want %q", stdin, "写 hello")
+	}
+}
+
+func TestBuildCommandSkipOverridesExplicitAllowedTools(t *testing.T) {
+	// WithAllowedTools 后再 WithSkipPermissions，skip 应胜出
+	got, _, _, err := BuildCommand("claude", "haiku", "", "x",
+		WithAllowedTools("Bash", "Read"),
+		WithSkipPermissions(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range got {
+		if a == "--allowedTools" {
+			t.Errorf("--allowedTools should be overridden by skipPermissions: %v", got)
+		}
+	}
+	hasSkip := false
+	for _, a := range got {
+		if a == "--dangerously-skip-permissions" {
+			hasSkip = true
+		}
+	}
+	if !hasSkip {
+		t.Errorf("--dangerously-skip-permissions not found: %v", got)
+	}
+}
+
 func TestBuildCommandShellNoActionReport(t *testing.T) {
 	got, _, cleanup, err := BuildCommand("shell", "", "", "echo hi", WithActionReport())
 	if err != nil {
