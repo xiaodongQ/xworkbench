@@ -4,10 +4,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-OUT="${OUT:-./dist}"
-rm -rf "$OUT"
-mkdir -p "$OUT/bin"
-
 # 检测当前平台
 case "$(uname -s)" in
   Darwin*)  os=darwin ;;
@@ -21,17 +17,28 @@ ext=""
 [[ "$os" == "windows" ]] && ext=".exe"
 bin_name="xworkbench-${os}-${arch}${ext}"
 
+# 产物目录：dist/xworkbench_YYYYMMDD
+date_tag=$(date +%Y%m%d)
+pkg_dir="xworkbench_${date_tag}"
+OUT="${OUT:-./dist}/${pkg_dir}"
+rm -rf "$OUT"
+mkdir -p "$OUT/bin" "$OUT/data" "$OUT/scripts"
+
 # 1. 编译当前平台
 echo "==> 编译 ${os}/${arch}..."
 GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
   go build -ldflags "-s -w" -trimpath \
   -o "$OUT/bin/$bin_name" ./cmd/server
 
-# 2. 拷贝配置文件和脚本
+# 2. 拷贝配置文件、脚本和数据目录（与仓库结构保持一致）
 echo "==> 拷贝配置文件和脚本..."
 cp config.json "$OUT/"
-cp scripts/run.sh "$OUT/run.sh"
-chmod +x "$OUT/run.sh"
+cp scripts/run.sh "$OUT/scripts/"
+chmod +x "$OUT/scripts/run.sh"
+
+# 拷贝 Windows 启动脚本
+cp run.bat "$OUT/" 2>/dev/null || true
+cp run.ps1 "$OUT/" 2>/dev/null || true
 
 # 3. 生成 README
 cat > "$OUT/README.md" << EOF
@@ -43,17 +50,17 @@ cat > "$OUT/README.md" << EOF
 
 ### macOS / Linux
 \`\`\`bash
-./run.sh              # 启动（默认 :8902）
-./run.sh --stop       # 停止
-./run.sh --status     # 查看状态
-./run.sh --log        # 查看日志
+./scripts/run.sh        # 启动（默认 :8902）
+./scripts/run.sh --stop # 停止
+./scripts/run.sh --status # 查看状态
+./scripts/run.sh --log   # 查看日志
 \`\`\`
 
 ### Windows
 \`\`\`cmd
-bin\\xworkbench-windows-amd64.exe -config config.json
+run.bat   # 启动（需安装 Git Bash）
+run.ps1   # 或使用 PowerShell
 \`\`\`
-（Windows 下没有 run.sh 等价脚本，自行起停 / 用任务管理器 / 写自己的 .bat）
 
 然后浏览器打开 http://localhost:8902
 
@@ -61,10 +68,14 @@ bin\\xworkbench-windows-amd64.exe -config config.json
 
 \`\`\`
 .
-├── run.sh            # 启停脚本（macOS / Linux）
-├── config.json       # 配置文件
-├── bin/
+├── bin/                # 程序目录
 │   └── $bin_name
+├── data/               # 数据目录（运行时创建数据库）
+├── scripts/            # 脚本目录
+│   └── run.sh
+├── config.json         # 配置文件
+├── run.bat             # Windows 启动脚本
+├── run.ps1             # PowerShell 启动脚本
 └── README.md
 \`\`\`
 
@@ -74,21 +85,21 @@ bin\\xworkbench-windows-amd64.exe -config config.json
 
 ## 数据
 
-- 数据：\`data/xworkbench.db\`（首次启动自动创建）
-- 日志：\`bin/xworkbench.log\`
+- 数据库：\`data/xworkbench.db\`（首次启动自动创建）
+- 日志：\`data/logs/\`
 EOF
 
-# 4. 打包（产物放 dist/ 内部，dist 本身就是发布包）
-# --exclude 排除目标归档自身（避免 bsdtar "Can't add archive to itself" 误报）
+# 4. 打包（对 xworkbench_日期 目录打包）
 echo "==> 打包..."
-pkg="xworkbench-${os}-${arch}.$([ "$os" == "windows" ] && echo "zip" || echo "tar.gz")"
+dist_dir="$(dirname "$OUT")"
+pkg_file="${pkg_dir}-${os}-${arch}.$([ "$os" == "windows" ] && echo "zip" || echo "tar.gz")"
 if [[ "$os" == "windows" ]]; then
-  (cd "$OUT" && zip -r "$pkg" . > /dev/null)
+  (cd "$dist_dir" && zip -r "$pkg_file" "$pkg_dir" > /dev/null)
 else
-  tar czf "$OUT/$pkg" -C "$OUT" --exclude="$pkg" .
+  tar czf "$dist_dir/$pkg_file" -C "$dist_dir" "$pkg_dir"
 fi
 
 echo
-echo "==> 输出：$OUT/$pkg"
-echo "==> dist 目录结构："
-find "$OUT" -type f | sort
+echo "==> 输出：$dist_dir/$pkg_file"
+echo "==> 产物目录结构："
+find "$OUT" -type f -o -type d | sort
