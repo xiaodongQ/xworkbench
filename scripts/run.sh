@@ -295,9 +295,24 @@ start() {
   local pid=$!
   sleep 1
 
-  if is_process_alive "$pid"; then
+  # 检查启动是否成功
+  # 注意：Git Bash on Windows 下 nohup 启动后台进程时，$! 捕获的是 shell 包装进程的 PID，
+  # 而非实际二进制进程的 PID。shell 包装进程很快退出，因此不能依赖 is_process_alive。
+  # 改为检测端口是否被监听来判断启动是否成功。
+  local started=0
+  local actual_pid=""
+  for i in 1 2 3 4 5 6 7 8; do
+    sleep 0.5
+    actual_pid=$(find_pid_by_port)
+    if [ -n "$actual_pid" ]; then
+      started=1
+      break
+    fi
+  done
+
+  if [ "$started" -eq 1 ]; then
     local end_time=$(date +%s)
-    echo "${GREEN}✓ 启动成功${NC}  pid=$pid"
+    echo "${GREEN}✓ 启动成功${NC}  pid=$actual_pid"
     echo "  耗时：$((end_time - start_time))s"
     echo
     echo "  浏览器：${CYAN}http://localhost${ADDR}${NC}"
