@@ -21,6 +21,38 @@ cd xworkbench
 
 > 配置文件：`./config.json`（可选，默认配置已包含终端类型和模型列表）
 
+## 配置
+
+`config.json` 用来覆盖 [internal/config/config.go](internal/config/config.go) 里 `DefaultConfig()` 给出的默认值。**它本身在 `.gitignore`**，不入库；本仓库分发 `config.json.template` 模板。
+
+**首次使用**：
+
+```bash
+# 1. 复制模板为本地配置
+cp config.json.template config.json
+
+# 2. 按需修改（常见项见下表）
+vim config.json
+```
+
+或者直接走 UI：系统配置 Tab → 改完点保存（自动写本地 `config.json`，不需要手动编辑）。
+
+**字段速览**（完整 schema 见模板文件，每行 `_comment` 字段标注了用途）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `default_terminal` | string | 默认终端类型（wezterm / wt / gnome 等），空=系统检测 |
+| `preferred_cli` | string | 全局优先 CLI（`claude` / `cbc`），影响新建任务的默认 `command_type` |
+| `ai_loop_enabled` | bool | AI 自治能力开关（run-loop / reevaluate / learn 后端能力）|
+| `aichat_default_cli` | string | AI 对话 Tab 新 Tab 默认起哪个 CLI（codex/cbc/shell/claude）|
+| `dangerously_skip_permissions` | bool | AI 任务完全放开 CLI 权限（用 `--dangerously-skip-permissions`），**慎用** |
+| `todo_md_path` | string | todo widget 读取的 todo.md 路径，空=不读 |
+| `scheduler_enabled` | bool | 上次调度器运行状态（启动时自动恢复）|
+| `relay.api_key` | string | 代理接口认证 token；空=关闭认证；生产环境务必改成强随机串 |
+| `terminal.types.<key>` | object | 自定义终端类型定义（`bin` / `args` / `name` / `plate`）|
+| `models.<cli>.default` | string | 任务执行的默认模型（用户创建任务 / 调度器用）|
+| `models.<cli>.eval_default` | string | AI 评估员默认模型（独立于 default），未设时 fallback 到 default |
+
 ## 6 大功能
 
 ### 1. 网页链接
