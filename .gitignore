@@ -14,3 +14,5 @@ cmd/server/*.exe
 /xworkbench
 /xworkbench.exe
 nohup.out
+# Claude Code 本机配置（per-user 工具状态，不入库）
+.claude/
