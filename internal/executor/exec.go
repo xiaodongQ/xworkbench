@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/logger"
+	"github.com/xiaodongQ/xworkbench/internal/paths"
 )
 
 
@@ -24,6 +25,20 @@ type Result struct {
 	CmdStr   string
 	ExitCode int
 	Err      error // 启动/等待过程中的错误（如 ctx 超时）
+}
+
+// RunInSandbox 是 Run 的便捷包装：把 CWD 强制为 AI 任务沙盒目录
+//（paths.AISandboxDir()，默认 data/ai-sandbox/）。
+//
+// 用于所有由 claude/cbc/codex 调起的 AI 任务（手动跑、继续对话、run-loop、
+// learn、evaluator 等）。这样 AI 调 Write 工具写的代码/中间产物只落在
+// data/ai-sandbox/ 下，不会污染源码树（data/ 已在 .gitignore）。
+//
+// 不用 RunInSandbox 的场景：
+//   - 调度器任务（用户配置了 t.WorkingDir，让它用 WorkingDir 跑）
+//   - PTY 交互（用户主动在终端里 cd 到别处）
+func RunInSandbox(ctx context.Context, cmd []string, stdin string, onChunk func(string)) (*Result, error) {
+	return Run(ctx, cmd, paths.AISandboxDir(), stdin, onChunk)
 }
 
 // Run 启动子进程并流式回调 stdout/stderr。ctx 取消会 kill 子进程。

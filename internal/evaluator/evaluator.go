@@ -161,7 +161,7 @@ func Evaluate(ctx context.Context, exec *backend.Execution, taskPrompt, cliType,
 	}
 	ctx2, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	res, runErr := executor.Run(ctx2, cmd, "", stdin, nil)
+	res, runErr := executor.RunInSandbox(ctx2, cmd, stdin, nil)
 	if runErr != nil && res == nil {
 		return nil, fmt.Errorf("run: %w", runErr)
 	}

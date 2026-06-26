@@ -23,6 +23,17 @@ func ResolveDBPath() string {
 	return ensureParent("data/xworkbench.db")
 }
 
+// AISandboxDir 返回 AI 任务沙盒目录的绝对路径（默认 data/ai-sandbox/）。
+//
+// 所有由 claude/cbc 调起 AI 任务时的 CWD 都应该用这个目录：
+//   - 隔离 AI 任务生成的代码、中间产物到 data/ 下，源码树（internal/ 等）保持干净
+//   - data/ 已在 .gitignore，AI 写文件不会被误 commit
+//
+// 路径父目录会自动 MkdirAll 0755。
+func AISandboxDir() string {
+	return ensureParent("data/ai-sandbox")
+}
+
 func ensureParent(p string) string {
 	_ = os.MkdirAll(filepath.Dir(p), 0o755)
 	return p

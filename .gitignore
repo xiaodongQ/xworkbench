@@ -21,3 +21,8 @@ nohup.out
 # 源码目录污染 build。AI 任务 CWD 是仓库根，必须显式隔离防止再写入）
 internal/sum/
 internal/twosum/
+
+# AI 沙盒（data/ai-sandbox/）—— 所有 AI 任务的 CWD 都在这里。
+# 已被 data/ 涵盖，这里加显式条目做文档/防漏；claude/cbc 写出来的代码、
+# 中间产物都落这里，永远不会被误 commit
+data/ai-sandbox/

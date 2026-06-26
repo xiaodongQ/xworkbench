@@ -771,7 +771,8 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		if sshCfg != nil {
 			res, runErr = executor.RunSSHViaConfig(ctx, *sshCfg, cmd, stdin, chunkCB)
 		} else {
-			res, runErr = executor.Run(ctx, cmd, "", stdin, chunkCB)
+			// AI 任务 CWD 走沙盒（data/ai-sandbox/），避免 AI 写文件污染源码树
+			res, runErr = executor.RunInSandbox(ctx, cmd, stdin, chunkCB)
 		}
 		status := backend.TaskStatusArchived
 		if res != nil && res.ExitCode != 0 {
@@ -1064,7 +1065,7 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		if cleanup != nil {
 			defer cleanup()
 		}
-		res, _ := executor.Run(ctx, cmd, "", stdin, func(chunk string) {
+		res, _ := executor.RunInSandbox(ctx, cmd, stdin, func(chunk string) {
 			s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 				"execution_id": exec.ID,
 				"chunk":        chunk,
@@ -2712,7 +2713,8 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 		s.execDB.Create(exec)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		res, runErr := executor.Run(ctx, cmd, "", stdin, nil)
+		// run-loop 里的 AI 调用走沙盒
+		res, runErr := executor.RunInSandbox(ctx, cmd, stdin, nil)
 		cancel()
 
 		// cleanup 是 runner 提供的资源回收（cbc/shell 类型的临时脚本文件），
@@ -2873,7 +2875,8 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 		defer cleanup()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		res, _ := executor.Run(ctx, cmd, "", stdin, nil)
+		// learn 反思 prompt 调 claude 也走沙盒
+		res, _ := executor.RunInSandbox(ctx, cmd, stdin, nil)
 		if res == nil || res.ExitCode != 0 {
 			return
 		}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
+	"github.com/xiaodongQ/xworkbench/internal/hub"
 )
 
 // TestHandleExecutionContinue_CommandContainsPrompt 验证继续对话新 exec 的
@@ -24,6 +25,10 @@ func TestHandleExecutionContinue_CommandContainsPrompt(t *testing.T) {
 		config.Set(config.DefaultConfig())
 	}
 	s := newEvalTestServer(t)
+	// handler 的 background goroutine 调 s.hub.Broadcast 推 chunk/done 事件，
+	// 必须给一个真实 hub 否则 nil pointer panic。CWD=AI 沙盒后 claude 真的
+	// 会跑，chunk 回调会触发，nil hub 立即爆。
+	s.hub = hub.New()
 	t.Cleanup(func() { config.Update(func(c *config.Config) { c.AILoopEnabled = false }) })
 	config.Update(func(c *config.Config) { c.AILoopEnabled = true })
 	mux := http.NewServeMux()
