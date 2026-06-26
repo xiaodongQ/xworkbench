@@ -185,41 +185,57 @@ function showDirSettingsModal() {
   document.getElementById('dir-settings-modal').classList.remove('hidden');
 }
 function closeDirSettingsModal() { document.getElementById('dir-settings-modal').classList.add('hidden'); }
+// 终端检测的代际计数器：每次 onDirTermTypeChange 自增，避免 stale 的 detect 结果
+// 覆盖当前 select 对应的 path input（race 防护）
+let _dirDetectGen = 0;
 function onDirTermTypeChange() {
   // 切换类型时显示该类型已保存的路径
+  const gen = ++_dirDetectGen;
   const type = document.getElementById('dir-settings-terminal-select').value.toLowerCase();
+  const pathInput = document.getElementById('dir-settings-terminal-path');
+  const pathDiv = document.getElementById('dir-term-detected-path');
   fetchJSON('/api/config').then(data => {
+    // 回调期间用户又切了 select → 丢弃 stale 结果
+    if (gen !== _dirDetectGen) return;
     const typeDef = data.terminal.types[type];
-    const pathInput = document.getElementById('dir-settings-terminal-path');
     if (typeDef?.path) {
       pathInput.value = typeDef.path;
-      document.getElementById('dir-term-detected-path').textContent = '已保存: ' + typeDef.path;
-      document.getElementById('dir-term-detected-path').style.color = 'var(--archived)';
+      pathDiv.textContent = '已保存: ' + typeDef.path;
+      pathDiv.style.color = 'var(--archived)';
     } else {
       pathInput.value = '';
-      document.getElementById('dir-term-detected-path').textContent = '点击"检测"查找可用路径';
-      document.getElementById('dir-term-detected-path').style.color = 'var(--text-secondary)';
+      pathDiv.textContent = '点击"检测"查找可用路径';
+      pathDiv.style.color = 'var(--text-secondary)';
     }
   });
-  detectDirTerminalPath();
+  detectDirTerminalPath(gen);
 }
-async function detectDirTerminalPath() {
+async function detectDirTerminalPath(gen) {
+  // gen 参数可选：显式传入则复用 onDirTermTypeChange 的代际计数；否则自增
+  if (gen === undefined) gen = ++_dirDetectGen;
   const type = document.getElementById('dir-settings-terminal-select').value;
   const pathDiv = document.getElementById('dir-term-detected-path');
+  const pathInput = document.getElementById('dir-settings-terminal-path');
   pathDiv.textContent = '检测中...';
   pathDiv.style.color = 'var(--text-secondary)';
   try {
     const r = await fetch('/api/terminals/detect?type=' + encodeURIComponent(type));
     const data = await r.json();
+    // race 防护：fetch 回来后如果代际已变（用户切了 select）或 select 当前值变了，
+    // 则本结果已 stale，丢弃，避免污染当前 select 对应的 path input。
+    if (gen !== _dirDetectGen) return;
+    const curType = document.getElementById('dir-settings-terminal-select').value;
+    if (curType.toLowerCase() !== type.toLowerCase()) return;
     if (data.path) {
       pathDiv.textContent = data.path;
       pathDiv.style.color = 'var(--archived)';
-      document.getElementById('dir-settings-terminal-path').value = data.path;
+      pathInput.value = data.path;
     } else {
       pathDiv.textContent = '未找到 ' + type + '，请手动填写路径';
       pathDiv.style.color = 'var(--exception)';
     }
   } catch (e) {
+    if (gen !== _dirDetectGen) return;
     pathDiv.textContent = '检测失败：' + e.message;
     pathDiv.style.color = 'var(--exception)';
   }
