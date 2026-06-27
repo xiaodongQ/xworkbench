@@ -419,6 +419,8 @@ function viewTask(id) {
   loadTaskEvents();
   // AI 自治：加载开关状态、决定是否显示 AI 自治区块
   if (typeof loadAILoopStatus === 'function') loadAILoopStatus();
+  // 加载执行历史
+  loadTaskExecHistory(t.id);
 }
 
 async function editTask(id) {
@@ -914,5 +916,98 @@ async function learnFromTask() {
     _aiLoopProgressShow('❌ ' + e.message);
     _aiLoopErrorHandler(e);
   }
+}
+
+// ─── 任务详情执行历史 分页状态 ───
+var _taskExecList = [];       // 当前任务所有 executions
+var _taskExecPage = 1;        // 当前页（1-based）
+var _taskExecPageSize = 10;   // 每页条数
+var _taskExecTaskId = '';     // 当前加载的任务 ID
+
+// loadTaskExecHistory 由 viewTask 末尾调用
+async function loadTaskExecHistory(taskId) {
+  _taskExecTaskId = taskId;
+  _taskExecPage = 1;
+  try {
+    _taskExecList = await fetchJSON(API + '/api/tasks/' + taskId + '/executions');
+  } catch (e) {
+    _taskExecList = [];
+  }
+  renderTaskExecHistory();
+}
+
+function renderTaskExecHistory() {
+  const container = document.getElementById('task-exec-history');
+  const listEl = document.getElementById('task-exec-history-list');
+  const infoEl = document.getElementById('task-exec-history-info');
+  const pageEl = document.getElementById('task-exec-history-page');
+  const prevBtn = document.getElementById('task-exec-prev');
+  const nextBtn = document.getElementById('task-exec-next');
+  if (!container) return;
+
+  const total = _taskExecList.length;
+  const totalPages = Math.max(1, Math.ceil(total / _taskExecPageSize));
+  if (_taskExecPage > totalPages) _taskExecPage = totalPages;
+
+  if (total === 0) {
+    container.classList.remove('hidden');
+    listEl.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;text-align:center;padding:12px">暂无执行记录</div>';
+    infoEl.textContent = '';
+    pageEl.textContent = '';
+    prevBtn.classList.add('hidden');
+    nextBtn.classList.add('hidden');
+    return;
+  }
+
+  container.classList.remove('hidden');
+  infoEl.textContent = `共 ${total} 条，第 ${_taskExecPage}/${totalPages} 页`;
+
+  const start = (_taskExecPage - 1) * _taskExecPageSize;
+  const pageItems = _taskExecList.slice(start, start + _taskExecPageSize);
+
+  const statusIcon = { success:'●', failed:'✗', running:'⏳', timeout:'⏱', cancelled:'—', build_error:'⚠' };
+  const statusColor = { success:'#22c55e', failed:'#ef4444', running:'#eab308', timeout:'#9ca3af', cancelled:'#9ca3af', build_error:'#f97316' };
+
+  listEl.innerHTML = pageItems.map(function(e) {
+    const icon = statusIcon[e.status] || '?';
+    const color = statusColor[e.status] || '#9ca3af';
+    const dur = e.completed_at && e.started_at
+      ? (Math.round((new Date(e.completed_at) - new Date(e.started_at)) / 100) / 10) + 's'
+      : (e.started_at ? '运行中' : '—');
+    const date = e.started_at ? new Date(e.started_at).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+    const score = e.evaluation_score != null ? 'score=' + Number(e.evaluation_score).toFixed(1) : '未评';
+    const cli = e.cli_type || 'claude';
+    const model = e.model || '';
+    return '<div onclick="jumpToExecDetail(' + e.id + ')" style="cursor:pointer;padding:6px 8px;border-radius:4px;margin-bottom:4px;background:var(--hover);font-size:12px;display:flex;gap:8px;align-items:center">' +
+      '<span style="color:' + color + ';flex-shrink:0">' + icon + '</span>' +
+      '<span style="color:var(--text-secondary);flex-shrink:0">' + cli + (model ? ' / ' + model : '') + '</span>' +
+      '<span style="color:var(--text-secondary);flex-shrink:0">' + dur + '</span>' +
+      '<span style="color:var(--text-secondary);flex-shrink:0">' + date + '</span>' +
+      '<span style="margin-left:auto;color:var(--text-secondary)">' + score + '</span>' +
+    '</div>';
+  }).join('');
+
+  prevBtn.classList.toggle('hidden', _taskExecPage <= 1);
+  nextBtn.classList.toggle('hidden', _taskExecPage >= totalPages);
+  pageEl.textContent = '';
+}
+
+function prevTaskExecs() {
+  if (_taskExecPage > 1) { _taskExecPage--; renderTaskExecHistory(); }
+}
+
+function nextTaskExecs() {
+  const totalPages = Math.ceil(_taskExecList.length / _taskExecPageSize);
+  if (_taskExecPage < totalPages) { _taskExecPage++; renderTaskExecHistory(); }
+}
+
+function jumpToExecDetail(execId) {
+  switchTab('automation');
+  // automation Tab 加载完会调 loadRecentExecutions，等待一下再打开详情
+  setTimeout(function() {
+    if (typeof viewExecutionDetail === 'function') {
+      viewExecutionDetail(execId);
+    }
+  }, 100);
 }
 
