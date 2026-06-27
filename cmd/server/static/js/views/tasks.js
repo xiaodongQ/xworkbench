@@ -411,12 +411,11 @@ function viewTask(id) {
     renderTaskExpChips();
   }
   document.getElementById('task-modal').classList.remove('hidden');
-  loadTaskComments(t.id);
-  // 对话历史：预加载计数，body 默认折叠，点 ▶ 才展开
+  // 对话历史 / 活动历史 / 评论区块（HTML 未完成，guard 防止崩溃）
+  try { loadTaskComments(t.id); } catch(e) { console.warn('loadTaskComments:', e.message); }
   _taskConvLoaded = false;
-  loadTaskConversation();
-  // 活动历史：预加载计数，body 默认折叠，点 ▶ 才展开
-  loadTaskEvents();
+  try { loadTaskConversation(); } catch(e) { console.warn('loadTaskConversation:', e.message); }
+  try { loadTaskEvents(); } catch(e) { console.warn('loadTaskEvents:', e.message); }
   // AI 自治：加载开关状态、决定是否显示 AI 自治区块
   if (typeof loadAILoopStatus === 'function') loadAILoopStatus();
   // 加载执行历史
@@ -555,7 +554,7 @@ async function loadTaskConversation() {
   const taskId = document.getElementById('task-id').value;
   if (!taskId) return;
   const body = document.getElementById('task-conversation-body');
-  body.innerHTML = '<div style="padding:8px;color:var(--text-secondary);font-size:12px">加载中...</div>';
+  if (!body) return;
   try {
     const execs = await fetchJSON('/api/tasks/' + taskId + '/executions');
     _taskConvLoaded = true;
@@ -724,7 +723,7 @@ async function loadTaskEvents() {
   const taskId = document.getElementById('task-id').value;
   if (!taskId) return;
   const body = document.getElementById('task-events-body');
-  body.innerHTML = '<div style="padding:8px;color:var(--text-secondary);font-size:12px">加载中...</div>';
+  if (!body) return;
   try {
     const events = await fetchJSON('/api/tasks/' + taskId + '/events?limit=50');
     renderTaskEvents(events || []);
