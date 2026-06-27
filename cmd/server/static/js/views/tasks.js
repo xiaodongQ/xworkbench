@@ -977,7 +977,7 @@ function renderTaskExecHistory() {
     const score = e.evaluation_score != null ? 'score=' + Number(e.evaluation_score).toFixed(1) : '未评';
     const cli = e.cli_type || 'claude';
     const model = e.model || '';
-    return '<div onclick="jumpToExecDetail(' + e.id + ')" style="cursor:pointer;padding:6px 8px;border-radius:4px;margin-bottom:4px;background:var(--hover);font-size:12px;display:flex;gap:8px;align-items:center">' +
+    return '<div onclick="jumpToExecDetail(\'' + e.id + '\')" style="cursor:pointer;padding:6px 8px;border-radius:4px;margin-bottom:4px;background:var(--hover);font-size:12px;display:flex;gap:8px;align-items:center">' +
       '<span style="color:' + color + ';flex-shrink:0">' + icon + '</span>' +
       '<span style="color:var(--text-secondary);flex-shrink:0">' + cli + (model ? ' / ' + model : '') + '</span>' +
       '<span style="color:var(--text-secondary);flex-shrink:0">' + dur + '</span>' +
