@@ -977,7 +977,7 @@ function renderTaskExecHistory() {
     const score = e.evaluation_score != null ? 'score=' + Number(e.evaluation_score).toFixed(1) : '未评';
     const cli = e.cli_type || 'claude';
     const model = e.model || '';
-    return '<div onclick="jumpToExecDetail(\'' + e.id + '\')" title="点击查看执行详情" style="cursor:pointer;padding:6px 8px;border-radius:4px;margin-bottom:4px;background:var(--hover);font-size:12px;display:flex;gap:8px;align-items:center">' +
+    return '<div class="task-exec-item" data-tip="点击查看执行详情" onclick="jumpToExecDetail(\'' + e.id + '\')" style="cursor:pointer;padding:6px 8px;border-radius:4px;margin-bottom:4px;background:var(--hover);font-size:12px;display:flex;gap:8px;align-items:center">' +
       '<span style="color:' + color + ';flex-shrink:0">' + icon + '</span>' +
       '<span style="color:var(--text-secondary);flex-shrink:0">' + cli + (model ? ' / ' + model : '') + '</span>' +
       '<span style="color:var(--text-secondary);flex-shrink:0">' + dur + '</span>' +
@@ -985,6 +985,27 @@ function renderTaskExecHistory() {
       '<span style="color:var(--text-secondary);margin-left:8px">' + score + '</span>' +
     '</div>';
   }).join('');
+
+  // 鼠标跟随 tooltip
+  var tooltip = document.getElementById('task-exec-tooltip');
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.id = 'task-exec-tooltip';
+    tooltip.style.cssText = 'position:fixed;z-index:9999;background:#333;color:#fff;font-size:11px;padding:4px 8px;border-radius:4px;pointer-events:none;opacity:0;transition:opacity 0.1s';
+    document.body.appendChild(tooltip);
+  }
+  listEl.onmousemove = function(e) {
+    var tip = e.target.closest('.task-exec-item');
+    if (tip) {
+      tooltip.textContent = tip.dataset.tip;
+      tooltip.style.left = (e.clientX + 12) + 'px';
+      tooltip.style.top = (e.clientY - 28) + 'px';
+      tooltip.style.opacity = '1';
+    }
+  };
+  listEl.onmouseleave = function() {
+    tooltip.style.opacity = '0';
+  };
 
   prevBtn.classList.toggle('hidden', _taskExecPage <= 1);
   nextBtn.classList.toggle('hidden', _taskExecPage >= totalPages);
