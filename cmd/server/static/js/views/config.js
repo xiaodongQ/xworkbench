@@ -52,6 +52,17 @@ function switchCfgTab(tab) {
   _cfgPreviewCache = null;
   document.querySelectorAll('.cfg-preview-area').forEach(el => el.innerHTML = '');
   if (tab === 'default_cli') {
+    // 恢复「高级设置」的折叠状态（用户上次主动展开/收起；首次进入默认收起）
+    const details = document.getElementById('skip-perm-details');
+    if (details && !details._toggleBound) {
+      const saved = localStorage.getItem('cfg-skip-perm-open');
+      details.open = saved === '1';
+      // 折叠状态变化时存到 localStorage（用户主动展开/收起都记；只绑一次避免重复触发）
+      details.addEventListener('toggle', () => {
+        localStorage.setItem('cfg-skip-perm-open', details.open ? '1' : '0');
+      });
+      details._toggleBound = true;
+    }
     loadPreferredCLI();
     loadSkipPerm();
   } else {
@@ -285,6 +296,7 @@ async function loadSkipPerm() {
   const checkbox = document.getElementById('skip-perm-toggle');
   const confirmBtn = document.getElementById('skip-perm-confirm-btn');
   const toggleRow = document.getElementById('skip-perm-toggle-row');
+  const summaryBadge = document.getElementById('skip-perm-summary-badge');
   try {
     const r = await fetchJSON(API + '/api/config');
     const enabled = !!r.dangerously_skip_permissions;
@@ -297,6 +309,7 @@ async function loadSkipPerm() {
       confirmBtn.style.display = 'none';
       status.textContent = '已启用 · 后果自担';
       status.style.color = 'var(--exception)';
+      if (summaryBadge) { summaryBadge.textContent = '(已启用)'; summaryBadge.style.color = 'var(--exception)'; }
     } else {
       // 未启用：checkbox 禁用，只有"启用"按钮可以触发
       toggleRow.style.opacity = '0.5';
@@ -305,6 +318,7 @@ async function loadSkipPerm() {
       confirmBtn.style.display = '';
       status.textContent = '未启用 · 默认安全状态';
       status.style.color = 'var(--text-secondary)';
+      if (summaryBadge) { summaryBadge.textContent = '(未启用)'; summaryBadge.style.color = 'var(--text-secondary)'; }
     }
   } catch (e) {
     status.textContent = '加载失败：' + e.message;
