@@ -1003,10 +1003,16 @@ function nextTaskExecs() {
 
 function jumpToExecDetail(execId) {
   switchTab('automation');
-  // automation Tab 加载完会调 loadRecentExecutions，等待一下再打开详情
-  setTimeout(function() {
+  // 等待 viewExecutionDetail 可用（automation.js 加载完成后才存在）
+  var attempts = 0;
+  var interval = setInterval(function() {
+    attempts++;
     if (typeof viewExecutionDetail === 'function') {
+      clearInterval(interval);
       viewExecutionDetail(execId);
+    } else if (attempts > 50) { // 最多等 5 秒
+      clearInterval(interval);
+      console.error('[jumpToExecDetail] viewExecutionDetail not found after 5s');
     }
   }, 100);
 }
