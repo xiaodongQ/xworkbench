@@ -269,7 +269,7 @@ async function loadScheduled() {
   el.innerHTML = `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th>最近执行</th><th>操作</th></tr></thead><tbody>` + list.map(s => {
     const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
     const nextRun = (s.enabled && s.next_run_at)
-      ? `<div style="font-size:10px;color:var(--info);margin-top:2px">⏰ 下次 ${esc(new Date(s.next_run_at).toLocaleString())}</div>`
+      ? `<span style="font-size:10px;color:var(--info);margin-left:4px">⏰${esc(new Date(s.next_run_at).toLocaleString())}</span>`
       : '';
     const baseStatus = s.last_status || 'pending';
     // running 检测：last_execution_id 对应的 execution 没有 completed_at
@@ -278,21 +278,21 @@ async function loadScheduled() {
       statusBadge = '<span class="s-status" style="background:var(--info,#3b82f6);color:#fff">运行中</span>';
     }
     const enabledBadge = s.enabled ? '' : ' <span style="color:#f59e0b;font-size:11px;font-weight:600">(已禁用)</span>';
-    const toggleLabel = s.enabled ? '⏸ 停用' : '▶ 启用';
+    const toggleLabel = s.enabled ? '⏸' : '▶';
     const toggleBtnClass = s.enabled ? 'btn btn-small' : 'btn btn-small btn-primary';
     return `<tr>
       <td>
         <span class="edit-icon" onclick="editScheduled('${s.id}')" title="编辑" style="cursor:pointer;margin-right:6px;color:var(--text-secondary);font-size:14px">✏️</span>
         <strong>${esc(s.name)}</strong>${enabledBadge}
       </td>
-      <td><code>${esc(s.cron_expr)}</code></td>
-      <td>${esc(s.command_type)}${s.model?' / '+esc(s.model):''}</td>
+      <td style="font-size:11px"><code>${esc(s.cron_expr)}</code></td>
+      <td style="font-size:11px">${esc(s.command_type)}${s.model?' / '+esc(s.model):''}</td>
       <td>${statusBadge}</td>
-      <td style="font-size:11px;color:var(--text-secondary);vertical-align:top">${lastRun}${nextRun}</td>
-      <td>
-        <button class="${toggleBtnClass}" onclick="toggleScheduled('${s.id}', ${s.enabled})" title="${s.enabled ? '停止调度' : '启用调度'}">${toggleLabel}</button>
-        <button class="btn btn-small" onclick="runScheduled('${s.id}')">▶ 执行</button>
-        <button class="btn btn-small" onclick="deleteScheduled('${s.id}')">删除</button>
+      <td style="font-size:11px;color:var(--text-secondary);white-space:nowrap">${lastRun}${nextRun}</td>
+      <td style="white-space:nowrap">
+        <button class="${toggleBtnClass}" style="padding:2px 6px" onclick="toggleScheduled('${s.id}', ${s.enabled})" title="${s.enabled ? '停止调度' : '启用调度'}">${toggleLabel}</button>
+        <button class="btn btn-small" style="padding:2px 6px" onclick="runScheduled('${s.id}')">▶</button>
+        <button class="btn btn-small" style="padding:2px 6px" onclick="deleteScheduled('${s.id}')">删</button>
       </td>
     </tr>`;
   }).join('') + '</tbody></table>';
@@ -468,25 +468,25 @@ async function loadRecentExecutions() {
       }
       const indent = depth > 0 ? 'margin-left:' + (depth * 20) + 'px;border-left:2px solid var(--border);padding-left:8px;' : '';
       const rowStyle = isEvaluating
-        ? 'display:flex;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;align-items:center;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6;' + indent
-        : 'display:flex;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;align-items:center;' + indent;
+        ? 'display:flex;gap:6px;padding:5px 6px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;flex-wrap:nowrap;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6;' + indent
+        : 'display:flex;gap:6px;padding:5px 6px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;flex-wrap:nowrap;' + indent;
       const title = esc(e.task_title || e.scheduled_task_title || e.command || "(无标题)");
       const cmdTip = e.command ? esc(e.command.slice(0, 200)) : '';
       const hasKids = groupMap[e.id] && groupMap[e.id].children.length > 0;
       const toggle = hasKids
-        ? `<span id="exec-toggle-${e.id}" onclick="toggleExecGroup('${e.id}')" style="cursor:pointer;color:var(--text-secondary);font-size:14px" title="展开/折叠会话链">▶</span>`
-        : '<span style="width:14px;display:inline-block"></span>';
+        ? `<span id="exec-toggle-${e.id}" onclick="toggleExecGroup('${e.id}')" style="cursor:pointer;color:var(--text-secondary);font-size:14px;flex-shrink:0" title="展开/折叠会话链">▶</span>`
+        : '<span style="width:14px;flex-shrink:0;display:inline-block"></span>';
       const groupIcon = hasKids ? '💬' : src;
       const groupTitle = hasKids ? `<b>[会话链 ${groupMap[e.id].children.length + 1} 轮]</b> ` : '';
       return `<div style="${rowStyle}" data-exec-id="${e.id}">
         ${toggle}
-        <span title="${e.source}">${groupIcon}</span>
-        <span style="color:var(--text-secondary);font-family:monospace">${dt}</span>
-        <span style="flex:1;max-width:500px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${groupTitle}${title}</span>${cmdTip ? `<span title="命令: ${cmdTip}" style="margin-left:4px;font-size:11px;color:#60a5fa">ⓘ</span>` : ''}
-        <span style="font-size:11px;color:${statusColor}" title="${statusTitle}">${statusIcon}</span>
+        <span style="flex-shrink:0" title="${e.source}">${groupIcon}</span>
+        <span style="color:var(--text-secondary);font-family:monospace;flex-shrink:0;width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dt}</span>
+        <span style="flex:1;min-width:0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${groupTitle}${title}</span>${cmdTip ? `<span title="命令: ${cmdTip}" style="margin-left:4px;font-size:11px;color:#60a5fa;flex-shrink:0">ⓘ</span>` : ''}
+        <span style="font-size:11px;color:${statusColor};flex-shrink:0;width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${statusTitle}">${statusIcon}</span>
         ${evalBadge}
-        <button class="btn btn-small" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
-        <button class="btn btn-small" onclick="runEvaluation('${e.id}')" title="AI 评估" style="${isEvaluating?'opacity:0.5;cursor:wait':''}">${isEvaluating?'⏳':'📊'}</button>
+        <button class="btn btn-small" style="flex-shrink:0;padding:2px 6px" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
+        <button class="btn btn-small" style="flex-shrink:0;padding:2px 6px" onclick="runEvaluation('${e.id}')" title="AI 评估" style="${isEvaluating?'opacity:0.5;cursor:wait':''}">${isEvaluating?'⏳':'📊'}</button>
         ${(() => {
           // 「取消」按钮只在 execution 已卡住 ≥1 分钟时显示：
           // 任务刚启动时（短任务通常几秒~几分钟内完成）不需要这个手动恢复入口，
@@ -496,7 +496,7 @@ async function loadRecentExecutions() {
           const startedMs = e.started_at ? new Date(e.started_at).getTime() : 0;
           const ageMs = Date.now() - startedMs;
           if (ageMs < 60000) return '';
-          return `<button class="btn btn-small" onclick="cancelExecution('${e.id}')" title="已运行 ${Math.floor(ageMs/60000)} 分钟仍未完成，点击取消（强制结束）" style="background:var(--warning);color:#fff;border-color:var(--warning)">⚠ 取消</button>`;
+          return `<button class="btn btn-small" style="flex-shrink:0;padding:2px 6px;background:var(--warning);color:#fff;border-color:var(--warning)" onclick="cancelExecution('${e.id}')" title="已运行 ${Math.floor(ageMs/60000)} 分钟仍未完成，点击取消（强制结束）">⚠ 取消</button>`;
         })()}
       </div>
       <div id="exec-group-${e.id}" style="display:none">${(groupMap[e.id]?.children || []).map(c => renderRow(c, depth + 1)).join('')}</div>`;
