@@ -286,7 +286,7 @@ async function loadScheduled() {
         <strong>${esc(s.name)}</strong>${enabledBadge}
       </td>
       <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.command_type)}"><code>${esc(s.cron_expr)}</code></td>
-      <td>${esc(s.command_type)}<br${s.model ? ' style="color:var(--text-secondary)"' : ''}>${s.model ? esc(s.model) : ''}</td>
+      <td>${esc(s.command_type)}<br${s.model ? ' style="color:#60a5fa;font-size:10px"' : ''}>${s.model ? esc(s.model) : ''}</td>
       <td>${statusBadge}</td>
       <td style="font-size:11px;color:var(--text-secondary);vertical-align:top">${lastRun}${nextRun}</td>
       <td>
@@ -444,16 +444,16 @@ async function loadRecentExecutions() {
         statusIcon = '⏳'; statusColor = 'var(--info,#3b82f6)';
         statusTitle = '执行中…（尚未 Finish）';
       } else if (e.status === 'success' || e.exit_code === 0) {
-        statusIcon = '✓'; statusColor = 'var(--archived)';
+        statusIcon = '✓'; statusColor = '#4ade80';
         statusTitle = e.status ? `status=${e.status}, exit_code=0` : 'exit_code=0';
       } else if (e.status === 'timeout') {
-        statusIcon = '⏱ 超时'; statusColor = 'var(--warning)';
+        statusIcon = '⏱ 超时'; statusColor = '#fb923c';
         statusTitle = '执行超时（10/30 min）';
       } else if (e.status === 'cancelled') {
-        statusIcon = '⊘ 已取消'; statusColor = 'var(--text-secondary)';
+        statusIcon = '⊘ 已取消'; statusColor = '#9ca3af';
         statusTitle = '用户主动取消';
       } else {
-        statusIcon = '✗ ' + e.exit_code; statusColor = 'var(--exception)';
+        statusIcon = '✗ ' + e.exit_code; statusColor = '#f87171';
         statusTitle = `status=${e.status || 'failed'}, exit_code=${e.exit_code}`;
       }
       if (isEvaluating) {
