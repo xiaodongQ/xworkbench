@@ -1001,6 +1001,7 @@ function nextTaskExecs() {
 }
 
 function jumpToExecDetail(execId) {
+  console.log('[jumpToExecDetail] execId:', execId, typeof execId);
   switchTab('automation');
   // 等待 viewExecutionDetail 可用（automation.js 加载完成后才存在）
   var attempts = 0;
