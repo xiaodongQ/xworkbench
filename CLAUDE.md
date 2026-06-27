@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 存储 | SQLite,纯 Go `modernc.org/sqlite`(无 CGO) |
 | HTTP | Go 1.22+ stdlib `mux`(path pattern 匹配,如 `GET /api/tasks/{id}`) |
 | WebSocket | `gorilla/websocket` |
-| PTY | `creack/pty`(Unix 真 PTY;Windows ConPTY stub 返回 503) |
+| PTY | `creack/pty`(Unix 真 PTY;Windows ConPTY) |
 | 调度 | `robfig/cron/v3`(进程内,跨平台,不依赖 OS scheduler) |
 | 前端 | vanilla JS + CSS(无框架,1 HTML + 6 view JS + widgets + api) |
 | 嵌入资源 | `//go:embed index.html static`(F5 刷新即生效,无 hash 缓存) |
@@ -348,7 +348,7 @@ E2E_BASE_URL=http://x:9001 ./scripts/e2e.sh fast   # 跑远端 server
 5. **prompt 注入 markdown 限制**:raw string literal 不能用 \` 转义反引号,要么用 `'` 替代,要么 string concat。
 6. **static 文件 embed**:`//go:embed index.html static` 编译时打包进二进制。改完前端代码必须 `./scripts/build.sh` 重新编译,光 go run 不行(开发用 `go run` 也是 embed 当前目录的)。
 7. ~~**aichat_default_cli 不在 config.json**~~:已迁移,所有偏好(包含 `aichat_default_cli`)都在 `config.json` 顶层,改走 `PUT /api/config`(body: `{"aichat_default_cli":"claude"}`)。`/api/settings/*` 路由已全部移除。
-8. **PTY 跨平台**:macOS/Linux 真 PTY(`creack/pty`),Windows ConPTY stub 返回 503。`pty.go` 用 `//go:build !windows` 隔离,`pty_windows.go` 是 stub。
+8. **PTY 跨平台**:macOS/Linux 真 PTY(`creack/pty`),Windows ConPTY。`pty.go` 用 `//go:build !windows` 隔离,`pty_windows.go` 是 Windows ConPTY 实现。
 9. **gofmt 一定要跑**:Go 1.25 工具链强约束,CI 会卡。
 
 ## 14. 关键文件清单(修改时优先看)

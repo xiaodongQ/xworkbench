@@ -81,5 +81,5 @@ func Run(ctx context.Context, cmd []string, onChunk func(string)) (*Result, erro
 |---|---|---|
 | 子进程创建 | `exec.CommandContext` | 同上，自动用 `CreateProcess` |
 | 终止 | `SIGKILL` | `TerminateProcess` |
-| PTY | ✅ creack/pty | ❌ stub（503） |
+| PTY | ✅ creack/pty | ✅ ConPTY |
 | Shell 命令 | `sh -c "..."` | 调 `cmd /c "..."`（后续可加） |

@@ -94,7 +94,7 @@ vim config.json
 |---|---|---|---|---|
 | macOS | ✅ 真 PTY | ✅ | ✅ | ✅ Finder |
 | Linux | ✅ 真 PTY | ✅ | ✅ | ✅ xdg-open |
-| Windows | ✅ ConPTY | ⚠️ stub | ✅ | ✅ explorer |
+| Windows | ✅ ConPTY | ✅ | ✅ | ✅ explorer |
 
 ## 快速命令
 
