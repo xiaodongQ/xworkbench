@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 
@@ -84,17 +85,21 @@ func AITaskRoot() string {
 	return "data/ai-task-dir"
 }
 
-// AITaskDir 返回单个 AI 任务的输出子目录：<root>/<taskID>/
+// AITaskDir 返回单个 AI 任务的输出子目录：<root>/<YYYY-MM-DD>/<taskID>/
 //
-// 每次 AI 任务执行都拿到独立子目录（taskID 通常取 backend.Task.ID / Execution.ID），
-// 好处：
+// 按本地日期分层（一天一目录），避免根目录下 UUID 子目录无限堆积：
 //   - 多任务并发写文件互不干扰
 //   - 出错时清理某个 taskID 子目录即可
+//   - 按日期归档便于回溯/批量清理（如「清理 30 天前的 AI 产物」按日期目录删除即可）
 //   - 前端可以展示"这次执行产生了哪些文件"
+//
+// taskID 通常取 backend.Task.ID / Execution.ID。
+// 日期用本地时区（time.Now()），对应用户实际操作时间而非 UTC 跨日。
 //
 // 自动 MkdirAll 0755。
 func AITaskDir(taskID string) string {
-	p := filepath.Join(AITaskRoot(), taskID)
+	dateDir := time.Now().Format("2006-01-02")
+	p := filepath.Join(AITaskRoot(), dateDir, taskID)
 	_ = os.MkdirAll(p, 0o755)
 	return p
 }

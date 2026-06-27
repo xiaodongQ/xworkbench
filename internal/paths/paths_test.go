@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestResolveDBPath_DBPathOverride(t *testing.T) {
@@ -76,11 +77,12 @@ func TestAITaskRoot_Default(t *testing.T) {
 }
 
 func TestAITaskDir_AppendsTaskID(t *testing.T) {
-	// 验证 AITaskDir(taskID) 在 root 下追加 taskID 子目录
+	// 验证 AITaskDir(taskID) 在 root/<today>/ 下追加 taskID 子目录
 	tmp := t.TempDir()
 	t.Setenv("AI_TASK_ROOT", tmp)
 	got := AITaskDir("task-123")
-	want := filepath.Join(tmp, "task-123")
+	dateDir := time.Now().Format("2006-01-02")
+	want := filepath.Join(tmp, dateDir, "task-123")
 	if got != want {
 		t.Errorf("AITaskDir() = %q, want %q", got, want)
 	}
