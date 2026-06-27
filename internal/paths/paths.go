@@ -96,12 +96,13 @@ func AITaskRoot() string {
 // taskID 通常取 backend.Task.ID / Execution.ID。
 // 日期用本地时区（time.Now()），对应用户实际操作时间而非 UTC 跨日。
 //
-// 自动 MkdirAll 0755。
+// ⚠️ 不自动 MkdirAll：任务没生成文件产物时不应留下空目录。实际目录由
+// claude/cbc 的 Write/Edit 工具在写第一个文件时通过 OS 自动创建父目录
+//（AI 用绝对路径，OS 负责建中间目录）。如果 AI 完全不写文件，就不该
+// 有 taskID 子目录产生。
 func AITaskDir(taskID string) string {
 	dateDir := time.Now().Format("2006-01-02")
-	p := filepath.Join(AITaskRoot(), dateDir, taskID)
-	_ = os.MkdirAll(p, 0o755)
-	return p
+	return filepath.Join(AITaskRoot(), dateDir, taskID)
 }
 
 // ErrEmpty 等价于 "no path configured"，保留为占位 errors sentinel 以便测试。

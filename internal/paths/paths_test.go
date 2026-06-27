@@ -77,7 +77,8 @@ func TestAITaskRoot_Default(t *testing.T) {
 }
 
 func TestAITaskDir_AppendsTaskID(t *testing.T) {
-	// 验证 AITaskDir(taskID) 在 root/<today>/ 下追加 taskID 子目录
+	// 验证 AITaskDir(taskID) 返回 root/<today>/<taskID> 路径，**不**创建目录
+	//（任务没生成文件时不应留空目录；实际目录由 AI CLI 写文件时自动建）
 	tmp := t.TempDir()
 	t.Setenv("AI_TASK_ROOT", tmp)
 	got := AITaskDir("task-123")
@@ -86,8 +87,8 @@ func TestAITaskDir_AppendsTaskID(t *testing.T) {
 	if got != want {
 		t.Errorf("AITaskDir() = %q, want %q", got, want)
 	}
-	// 验证目录已创建
-	if _, err := os.Stat(want); err != nil {
-		t.Errorf("AITaskDir() should mkdir %q: %v", want, err)
+	// 验证目录**未**创建（AITaskDir 是惰性的）
+	if _, err := os.Stat(want); !os.IsNotExist(err) {
+		t.Errorf("AITaskDir() should NOT auto-mkdir %q, but it exists or other err: %v", want, err)
 	}
 }
