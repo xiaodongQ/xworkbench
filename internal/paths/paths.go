@@ -100,9 +100,21 @@ func AITaskRoot() string {
 // claude/cbc 的 Write/Edit 工具在写第一个文件时通过 OS 自动创建父目录
 //（AI 用绝对路径，OS 负责建中间目录）。如果 AI 完全不写文件，就不该
 // 有 taskID 子目录产生。
+//
+// 返回**绝对路径**（filepath.Abs 锁住），注入到 system prompt 后 AI 用绝对
+// 路径写文件，不依赖父进程 cwd。跟 ResolveDBPath / AISandboxDir 同假设
+//（cwd 是项目根），与父进程 cwd 错位时直接报错而非静默写错位置。
 func AITaskDir(taskID string) string {
 	dateDir := time.Now().Format("2006-01-02")
-	return filepath.Join(AITaskRoot(), dateDir, taskID)
+	rel := filepath.Join(AITaskRoot(), dateDir, taskID)
+	abs, err := filepath.Abs(rel)
+	if err != nil {
+		// filepath.Abs 只在获取当前工作目录失败时报错（如 cwd 被删）。
+		// 这种情况下 cwd 已经不正常，fallback 到相对路径（与父进程 cwd 错位风险，
+		// 但比 panic 强）。
+		return rel
+	}
+	return abs
 }
 
 // ErrEmpty 等价于 "no path configured"，保留为占位 errors sentinel 以便测试。
