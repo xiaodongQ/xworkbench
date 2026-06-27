@@ -1289,8 +1289,16 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 	if limit <= 0 {
 		limit = 20
 	}
-	q := `SELECT id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid,status
-	        FROM executions WHERE task_id=? ORDER BY started_at DESC LIMIT ?`
+	// LEFT JOIN evaluations 取最近一次分数；SELECT 加 cli_type
+	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.prompt,e.model,e.cli_type,
+	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,e.status,
+	             (SELECT ev.score FROM evaluations ev
+	                WHERE ev.execution_id = e.id
+	                ORDER BY ev.created_at DESC LIMIT 1) AS eval_score,
+	             (SELECT COUNT(*) FROM evaluations ev WHERE ev.execution_id = e.id) AS eval_count
+	        FROM executions e
+	        WHERE e.task_id=?
+	        ORDER BY e.started_at DESC LIMIT ?`
 	rows, err := r.db.Query(q, taskID, limit)
 	if err != nil {
 		return nil, err
@@ -1299,14 +1307,23 @@ func (r *ExecutionRepo) ListByTask(taskID string, limit int) ([]*Execution, erro
 	var out []*Execution
 	for rows.Next() {
 		var e Execution
-		var taskID, schedID, model, output, errOut, resumeUUID, prompt, status sql.NullString
+		var taskID, schedID, model, output, errOut, resumeUUID, prompt, status, cliType sql.NullString
 		var completedAt sql.NullTime
-		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
-			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &status); err != nil {
+		var evalScore sql.NullFloat64
+		var evalCount int
+		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model, &cliType,
+			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &status, &evalScore,
+			&evalCount); err != nil {
 			return nil, err
 		}
+		if evalScore.Valid {
+			v := evalScore.Float64
+			e.EvaluationScore = &v
+		}
+		e.EvalCount = evalCount
 		e.TaskID = taskID.String
 		e.ScheduledTaskID = schedID.String
+		e.CliType = cliType.String
 		e.Prompt = prompt.String
 		e.Model = model.String
 		e.Output = output.String
