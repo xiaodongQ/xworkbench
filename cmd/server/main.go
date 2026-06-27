@@ -624,10 +624,11 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		prompt = req.Prompt
 	} else {
 		// 没用 body.prompt,自动从 task + 多 experience 组装
-		// 修复：用 BuildTaskPrompt（完整版，含经验库）而非 BuildTaskPromptShort（不含经验）
-		// 原因：手动任务执行与 agent claim 一致需把经验库喂给 AI CLI
+		// 修复：用 BuildTaskPromptWithOutput（含经验库 + 输出目录约定）而非 BuildTaskPromptShort（不含经验）
+		// 原因：手动任务执行与 agent claim 一致需把经验库喂给 AI CLI；
+		// 同时 system prompt 显式告诉 AI「把生成的文件写到 data/ai-task-dir/<task_id>/」
 		exps := s.loadExperiencesForTask(task)
-		prompt = taskpkg.BuildTaskPrompt(task, exps...)
+		prompt = taskpkg.BuildTaskPromptWithOutput(task, paths.AITaskDir(id), exps...)
 		if prompt == "" {
 			logger.Warnw("task run rejected: empty prompt after BuildTaskPrompt",
 				"task_id", id,
@@ -691,10 +692,12 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		cmd, stdin, cleanup, err = runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt,
 			runner.WithResume(req.ResumeSessionID),
 			runner.WithSkipPermissions(),
+			runner.WithActionReport(),
 		)
 	} else {
 		cmd, stdin, cleanup, err = runner.BuildCommand(req.CommandType, req.Model, "", req.Prompt,
 			runner.WithResume(req.ResumeSessionID),
+			runner.WithActionReport(),
 		)
 	}
 	if err != nil {
@@ -772,7 +775,9 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			res, runErr = executor.RunSSHViaConfig(ctx, *sshCfg, cmd, stdin, chunkCB)
 		} else {
 			// AI 任务 CWD 走沙盒（data/ai-sandbox/），避免 AI 写文件污染源码树
-			res, runErr = executor.RunInSandbox(ctx, cmd, stdin, chunkCB)
+			// CWD = 项目根（继承父进程），让 AI 能 ls/Read 项目文件；
+			// system prompt 已约定写文件到 data/ai-task-dir/<task_id>/（BuildTaskPromptWithOutput 拼接）。
+			res, runErr = executor.Run(ctx, cmd, "", stdin, chunkCB)
 		}
 		status := backend.TaskStatusArchived
 		if res != nil && res.ExitCode != 0 {
@@ -1016,6 +1021,14 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 	if model == "" {
 		model = orig.Model
 	}
+	// 拼上输出目录约定：让 AI 知道继续对话时写文件往 data/ai-task-dir/<taskID>/ 落
+	// （原 exec 已有 taskID；非 task 来源的 exec 用 orig.TaskID 为空 → 不拼）
+	// 用 buildPrompt 而非直接改 req.Prompt，保留 req.Prompt 作为「用户原始输入」
+	// 存到 exec.Prompt 字段用于前端显示。
+	buildPrompt := req.Prompt
+	if orig.TaskID != "" {
+		buildPrompt = req.Prompt + fmt.Sprintf(taskpkg.OutputDirHintTpl, paths.AITaskDir(orig.TaskID))
+	}
 	skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
 	var (
 		cmd     []string
@@ -1023,13 +1036,15 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		cleanup func()
 	)
 	if skip {
-		cmd, stdin, cleanup, err = runner.BuildCommand(cliType, model, "", req.Prompt,
+		cmd, stdin, cleanup, err = runner.BuildCommand(cliType, model, "", buildPrompt,
 			runner.WithResume(orig.ResumeSessionID),
 			runner.WithSkipPermissions(),
+			runner.WithActionReport(),
 		)
 	} else {
-		cmd, stdin, cleanup, err = runner.BuildCommand(cliType, model, "", req.Prompt,
+		cmd, stdin, cleanup, err = runner.BuildCommand(cliType, model, "", buildPrompt,
 			runner.WithResume(orig.ResumeSessionID),
+			runner.WithActionReport(),
 		)
 	}
 	if err != nil {
@@ -1065,7 +1080,9 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		if cleanup != nil {
 			defer cleanup()
 		}
-		res, _ := executor.RunInSandbox(ctx, cmd, stdin, func(chunk string) {
+		// CWD = 项目根（继承父进程），让 AI 能 ls/Read 项目文件；
+		// system prompt 已约定写文件到 data/ai-task-dir/<task_id>/（BuildTaskPromptWithOutput 拼接）。
+		res, _ := executor.Run(ctx, cmd, "", stdin, func(chunk string) {
 			s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 				"execution_id": exec.ID,
 				"chunk":        chunk,
@@ -2687,6 +2704,8 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 			"iteration": i + 1, "model": model,
 		})
 
+		// 拼上输出目录约定：让 AI 知道 run-loop 写文件往 data/ai-task-dir/<taskID>/ 落
+		loopPrompt := req.Prompt + fmt.Sprintf(taskpkg.OutputDirHintTpl, paths.AITaskDir(taskID))
 		skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
 		var (
 			cmd     []string
@@ -2695,9 +2714,9 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 			err     error
 		)
 		if skip {
-			cmd, stdin, cleanup, err = runner.BuildCommand(req.CliType, model, "", req.Prompt, runner.WithSkipPermissions())
+			cmd, stdin, cleanup, err = runner.BuildCommand(req.CliType, model, "", loopPrompt, runner.WithSkipPermissions(), runner.WithActionReport())
 		} else {
-			cmd, stdin, cleanup, err = runner.BuildCommand(req.CliType, model, "", req.Prompt)
+			cmd, stdin, cleanup, err = runner.BuildCommand(req.CliType, model, "", loopPrompt, runner.WithActionReport())
 		}
 		if err != nil {
 			step := Step{Iteration: i + 1, Model: model, Error: err.Error()}
@@ -2714,7 +2733,8 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		// run-loop 里的 AI 调用走沙盒
-		res, runErr := executor.RunInSandbox(ctx, cmd, stdin, nil)
+		// run-loop: CWD = 项目根（继承父进程），AI 可访问项目文件
+		res, runErr := executor.Run(ctx, cmd, "", stdin, nil)
 		cancel()
 
 		// cleanup 是 runner 提供的资源回收（cbc/shell 类型的临时脚本文件），
@@ -2865,9 +2885,9 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 			cleanup func()
 		)
 		if skipPerm {
-			cmd, stdin, cleanup, _ = runner.BuildCommand(cliType, model, "", reflectPrompt, runner.WithSkipPermissions())
+			cmd, stdin, cleanup, _ = runner.BuildCommand(cliType, model, "", reflectPrompt, runner.WithSkipPermissions(), runner.WithActionReport())
 		} else {
-			cmd, stdin, cleanup, _ = runner.BuildCommand(cliType, model, "", reflectPrompt)
+			cmd, stdin, cleanup, _ = runner.BuildCommand(cliType, model, "", reflectPrompt, runner.WithActionReport())
 		}
 		if cleanup == nil {
 			return
@@ -2875,8 +2895,8 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 		defer cleanup()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		// learn 反思 prompt 调 claude 也走沙盒
-		res, _ := executor.RunInSandbox(ctx, cmd, stdin, nil)
+		// learn 反思 prompt 调 claude，CWD = 项目根
+		res, _ := executor.Run(ctx, cmd, "", stdin, nil)
 		if res == nil || res.ExitCode != 0 {
 			return
 		}
@@ -3030,9 +3050,10 @@ func (s *APIServer) handleTaskClaim(w http.ResponseWriter, r *http.Request) {
 	task, _ := s.db.Get(taskID)
 	task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
 	experiences := s.loadExperiencesForTask(task)
-	// 预生成 agent 可直接用的完整 prompt（含 task 三要素 + 经验库内容）
+	// 预生成 agent 可直接用的完整 prompt（含 task 三要素 + 经验库内容 + 输出目录约定）
 	// agent 端无需自己拼 prompt，直接调 claude CLI 时把这个字段作为 stdin/参数传入。
-	prompt := taskpkg.BuildTaskPrompt(task, experiences...)
+	// 输出目录约定告诉 agent「把文件写到 data/ai-task-dir/<task_id>/」。
+	prompt := taskpkg.BuildTaskPromptWithOutput(task, paths.AITaskDir(taskID), experiences...)
 	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: taskID, EventType: "claimed",
@@ -3352,7 +3373,8 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 	task, _ := s.db.Get(taskID)
 	task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
 	experiences := s.loadExperiencesForTask(task)
-	prompt := taskpkg.BuildTaskPrompt(task, experiences...)
+	// 输出目录约定告诉 agent「把文件写到 data/ai-task-dir/<task_id>/」
+	prompt := taskpkg.BuildTaskPromptWithOutput(task, paths.AITaskDir(taskID), experiences...)
 	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: taskID, EventType: "claimed_via_priority",

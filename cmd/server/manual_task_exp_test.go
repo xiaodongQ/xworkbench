@@ -12,6 +12,8 @@ import (
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/hub"
+	"github.com/xiaodongQ/xworkbench/internal/paths"
+	taskpkg "github.com/xiaodongQ/xworkbench/internal/task"
 	"go.uber.org/zap"
 )
 
@@ -130,11 +132,10 @@ func TestCreateTask_LegacyCommaStringExperienceID_RecordsBuggyBehavior(t *testin
 }
 
 // TestTaskRunPrompt_IncludesExperiences 验证手动任务执行时 prompt 应含经验库内容。
-// 这是核心 bug：handleTaskRun 用 BuildTaskPromptShort（不含经验），
-// 与函数注释 "知识库注入: ...experience 内容全部注入" 不符。
+// 修复（2026-06）：handleTaskRun 改用 taskpkg.BuildTaskPromptWithOutput（含经验 +
+// 输出目录约定），不再用 BuildTaskPromptShort（不含经验，已删除）。
 //
-// 这里我们用真实 handleTaskRun 走流程（mock runner），验证生成的 prompt
-// 经由 execution 写回 DB 后能被 Get 出来，且含经验库内容。
+// 这里直接调真实的 taskpkg.BuildTaskPromptWithOutput，验证 prompt 含经验库内容。
 func TestTaskRunPrompt_IncludesExperiences(t *testing.T) {
 	s := newManualTaskTestServer(t)
 	expID := seedExperienceB(t, s, "git", "merge-conflict", "rebase",
@@ -154,74 +155,23 @@ func TestTaskRunPrompt_IncludesExperiences(t *testing.T) {
 		t.Fatalf("attach: %v", err)
 	}
 
-	// 用复刻 BuildTaskPromptShort 当前实现（不含经验）来模拟 handleTaskRun 行为
+	// 模拟 handleTaskRun 内部构造 prompt 的逻辑
 	got, _ := s.db.Get(taskID)
-	promptCurrent := buildRunPromptShortCurrent(got) // 当前 bug 行为
+	exps := s.loadExperiencesForTask(got)
+	prompt := taskpkg.BuildTaskPromptWithOutput(got, paths.AITaskDir(taskID), exps...)
 
-	// 验证当前行为确实不含经验
-	if strings.Contains(promptCurrent, "rebase --continue") {
-		t.Fatalf("BuildTaskPromptShort should NOT include experience content currently (this test is the bug repro)\ngot: %s", promptCurrent)
-	}
-	t.Logf("CURRENT (buggy) prompt chars: %d, includes experience? %v", len(promptCurrent), strings.Contains(promptCurrent, "rebase"))
-
-	// 期望修复后：handler 内部构造 prompt 时包含经验库
-	promptFixed := buildRunPromptShortFixed(got, s.loadExperiencesForTask(got))
+	// 验证含经验库内容
 	for _, must := range []string{"git", "merge-conflict", "rebase", "用 git rebase"} {
-		if !strings.Contains(promptFixed, must) {
-			t.Errorf("fixed prompt missing experience content %q\n---prompt---\n%s", must, promptFixed)
+		if !strings.Contains(prompt, must) {
+			t.Errorf("prompt missing experience content %q\n---prompt---\n%s", must, prompt)
 		}
 	}
-}
 
-// buildRunPromptShortCurrent 复刻当前 BuildTaskPromptShort 行为（不含经验）
-func buildRunPromptShortCurrent(t *backend.Task) string {
-	var b strings.Builder
-	if t.Description != "" {
-		b.WriteString(t.Description)
-		b.WriteString("\n\n")
+	// 验证含输出目录约定（2026-06 新增）
+	if !strings.Contains(prompt, "## 输出目录约定") {
+		t.Errorf("prompt missing output dir hint\n---prompt---\n%s", prompt)
 	}
-	if t.Acceptance != "" {
-		b.WriteString("## 验收标准\n")
-		b.WriteString(t.Acceptance)
-		b.WriteString("\n\n")
+	if !strings.Contains(prompt, taskID) {
+		t.Errorf("prompt missing taskID in output dir path\n---prompt---\n%s", prompt)
 	}
-	b.WriteString("## 动作清单格式要求（占位）\n")
-	return b.String()
-}
-
-// buildRunPromptShortFixed 期望修复后的版本（含经验）
-func buildRunPromptShortFixed(t *backend.Task, exps []*backend.Experience) string {
-	var b strings.Builder
-	if t.Description != "" {
-		b.WriteString(t.Description)
-		b.WriteString("\n\n")
-	}
-	if t.Acceptance != "" {
-		b.WriteString("## 验收标准\n")
-		b.WriteString(t.Acceptance)
-		b.WriteString("\n\n")
-	}
-	if len(exps) > 0 {
-		b.WriteString("## 相关经验\n")
-		for i, exp := range exps {
-			if exp == nil {
-				continue
-			}
-			b.WriteString("### ")
-			b.WriteString(exp.Module)
-			b.WriteString(" / ")
-			b.WriteString(exp.Scene)
-			b.WriteString("\n")
-			if exp.Details != "" {
-				b.WriteString(exp.Details)
-				b.WriteString("\n")
-			}
-			if i < len(exps)-1 {
-				b.WriteString("\n")
-			}
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString("## 动作清单格式要求（占位）\n")
-	return b.String()
 }

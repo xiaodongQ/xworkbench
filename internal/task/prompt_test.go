@@ -100,3 +100,34 @@ func TestBuildTaskPrompt_MultiExperience_SkipsNil(t *testing.T) {
 		t.Errorf("index should be 1/2 and 2/2 (nil skipped):\n%s", got)
 	}
 }
+
+// TestBuildTaskPromptWithOutput_AppendsHint 验证 outputDir 非空时拼上输出目录约定段。
+// 用于 handleTaskRun / handleAgentClaim* 等需要 AI 写文件的入口。
+func TestBuildTaskPromptWithOutput_AppendsHint(t *testing.T) {
+	task := &backend.Task{Title: "T", Description: "D"}
+	got := BuildTaskPromptWithOutput(task, "data/ai-task-dir/task-1")
+	if !strings.Contains(got, "## 输出目录约定") {
+		t.Errorf("should contain output dir hint header:\n%s", got)
+	}
+	if !strings.Contains(got, "data/ai-task-dir/task-1") {
+		t.Errorf("should contain output dir path:\n%s", got)
+	}
+	// 原 BuildTaskPrompt 内容应保留
+	if !strings.Contains(got, "T") || !strings.Contains(got, "D") {
+		t.Errorf("should still contain task title/description:\n%s", got)
+	}
+}
+
+// TestBuildTaskPromptWithOutput_EmptyOutputDir 验证 outputDir 为空时退化为 BuildTaskPrompt。
+// 用于 evaluator / learn 等元任务（不需要约定写文件位置）。
+func TestBuildTaskPromptWithOutput_EmptyOutputDir(t *testing.T) {
+	task := &backend.Task{Title: "T", Description: "D"}
+	withEmpty := BuildTaskPromptWithOutput(task, "")
+	base := BuildTaskPrompt(task)
+	if withEmpty != base {
+		t.Errorf("empty outputDir should equal BuildTaskPrompt\n---with empty---\n%s\n---base---\n%s", withEmpty, base)
+	}
+	if strings.Contains(withEmpty, "## 输出目录约定") {
+		t.Errorf("empty outputDir should NOT append output dir hint:\n%s", withEmpty)
+	}
+}

@@ -64,31 +64,31 @@ func appendExpBlock(b *strings.Builder, suffix string, exp *backend.Experience) 
 		b.WriteString(fmt.Sprintf("## 详细内容%s\n%s\n", suffix, exp.Details))
 	}
 }
-// BuildTaskPromptShort 简化版 prompt，只包含：描述 + 验收标准 + 动作清单格式要求。
-// 用于手动任务的 AI 执行，保持命令行简洁。
-func BuildTaskPromptShort(t *backend.Task) string {
-	var b strings.Builder
-	if t.Description != "" {
-		b.WriteString(t.Description)
-		b.WriteString("\n\n")
-	}
-	if t.Acceptance != "" {
-		b.WriteString("## 验收标准\n")
-		b.WriteString(t.Acceptance)
-		b.WriteString("\n\n")
-	}
-	// 动作清单格式要求
-	b.WriteString(ActionReportFormat)
-	return b.String()
-}
 
-// ActionReportFormat 动作清单输出格式要求（供手动任务和评估用）。
-const ActionReportFormat = `## 任务完成后必须输出"动作清单"（便于自动评估）
-请严格按以下 Markdown 格式输出，**必须用真实可执行命令，不允许用 ... 占位符**：
+// OutputDirHintTpl 输出目录约定段模板，导出供外部 caller 拼到 prompt 末尾。
+// 一个 `%s` 占位符表示输出目录绝对路径。
+// 通过 BuildTaskPromptWithOutput 拼到 BuildTaskPrompt 末尾；
+// handleExecutionContinue / runLoopBackground 等用自己的 prompt 时也用本模板。
+const OutputDirHintTpl = `
 
-## 动作清单
-- 命令: <实际执行的命令，完整可复制>
-- 退出码: <命令退出码，无命令填 N/A>
-- 工具调用: <Bash / Read / Write / Edit / 其他 / 无>
-- 验证步骤: <如何确认结果正确，无验证填 N/A>
+## 输出目录约定
+本次任务的输出文件全部写到 ` + "`%s`" + ` 目录（CWD 已设为该目录）：
+- 不要修改源码树（internal/、cmd/、go.mod 等）；只在该目录内读写
+- 命名前缀建议：本次 task 简述 + 文件用途，如 ` + "`feat-foo_test.go`" + `
+- 任务完成后可列出该目录内容便于评估
 `
+
+// BuildTaskPromptWithOutput 在 BuildTaskPrompt 基础上追加「输出目录约定」段。
+// 用于所有由 claude/cbc 调起、需要 AI 写文件的 task 入口（手动、继续对话、run-loop）。
+//
+// outputDir 为空时退化为 BuildTaskPrompt（向后兼容：evaluator、learn 等元任务
+// 不需要输出约定）。
+//
+// outputDir 通常传 paths.AITaskDir(taskID)（每个 task 独立子目录，多任务并发写互不干扰）。
+func BuildTaskPromptWithOutput(t *backend.Task, outputDir string, exps ...*backend.Experience) string {
+	base := BuildTaskPrompt(t, exps...)
+	if outputDir == "" {
+		return base
+	}
+	return base + fmt.Sprintf(OutputDirHintTpl, outputDir)
+}
