@@ -982,7 +982,7 @@ function renderTaskExecHistory() {
       '<span style="color:var(--text-secondary);flex-shrink:0">' + cli + (model ? ' / ' + model : '') + '</span>' +
       '<span style="color:var(--text-secondary);flex-shrink:0">' + dur + '</span>' +
       '<span style="color:var(--text-secondary);flex-shrink:0">' + date + '</span>' +
-      '<span style="margin-left:auto;color:var(--text-secondary)">' + score + '</span>' +
+      '<span style="color:var(--text-secondary);margin-left:8px">' + score + '</span>' +
     '</div>';
   }).join('');
 
