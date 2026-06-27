@@ -56,6 +56,7 @@ function switchCfgTab(tab) {
     // 展开/收起状态每次进 Tab 都按后端 dangerously_skip_permissions 决定，
     // 不记 localStorage（避免「展开过但已关闭」这种过期状态）。
     loadPreferredCLI();
+    loadModelDefaults();
     loadSkipPerm();
   } else {
     refreshExportSummary();
@@ -256,27 +257,81 @@ async function loadPreferredCLI() {
   }
 }
 
-async function savePreferredCLI() {
+// loadModelDefaults 加载 4 个模型下拉（claude/cbc 的执行/评估默认）。
+// 用 buildModelOptions / getDefaultModel / getEvalDefaultModel 复用 CLI_MODELS 缓存。
+async function loadModelDefaults() {
+  // 确保 CLI_MODELS 已加载（api.js 全局缓存）
+  if (!window.CLI_MODELS || !window.CLI_MODELS.claude) {
+    await loadCLIModels();
+  }
+  for (const cli of ['claude', 'cbc']) {
+    const sel = document.getElementById('cfg-default-' + cli);
+    if (sel) {
+      sel.innerHTML = buildModelOptions(cli);
+      const def = getDefaultModel(cli);
+      sel.value = (def && sel.querySelector('option[value="' + def + '"]'))
+        ? def
+        : (sel.options[0] ? sel.options[0].value : '');
+    }
+    const evalSel = document.getElementById('cfg-eval-default-' + cli);
+    if (evalSel) {
+      evalSel.innerHTML = buildModelOptions(cli);
+      const evalDef = getEvalDefaultModel(cli);
+      evalSel.value = (evalDef && evalSel.querySelector('option[value="' + evalDef + '"]'))
+        ? evalDef
+        : (evalSel.options[0] ? evalSel.options[0].value : '');
+    }
+  }
+}
+
+// saveDefaultCLI 一次提交：preferred_cli + 4 个模型默认值。
+// 替代旧的 savePreferredCLI（只写 preferred_cli）。
+async function saveDefaultCLI() {
   const checked = document.querySelector('input[name="cfg-pref-cli"]:checked');
   if (!checked) { alert('请先选一个 CLI'); return; }
-  const v = checked.value;
+  const preferredCli = checked.value;
+  const claudeDefault = document.getElementById('cfg-default-claude').value;
+  const cbcDefault = document.getElementById('cfg-default-cbc').value;
+  const claudeEval = document.getElementById('cfg-eval-default-claude').value;
+  const cbcEval = document.getElementById('cfg-eval-default-cbc').value;
+  // 防御：后端 handleSetConfig 收到空字符串会覆盖 Models[cli].Default 为空，
+  // 4 个 select 都有 fallback（loadModelDefaults），理论上不会空，但兜底校验一下
+  if (!claudeDefault || !cbcDefault || !claudeEval || !cbcEval) {
+    alert('模型默认值不能为空');
+    return;
+  }
   const status = document.getElementById('cfg-pref-cli-status');
   status.textContent = '保存中…';
   try {
     await fetchJSON(API + '/api/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ preferred_cli: v }),
+      body: JSON.stringify({
+        preferred_cli: preferredCli,
+        model_defaults: { claude: claudeDefault, cbc: cbcDefault },
+        eval_model_defaults: { claude: claudeEval, cbc: cbcEval },
+      }),
     });
-    // 同步更新全局缓存，让任务页运行 modal 的默认值跟着变
-    window._preferredCLI = v;
+    // 同步本地缓存：preferred_cli 同步到 window._preferredCLI
+    window._preferredCLI = preferredCli;
+    // 4 个模型默认值同步到 CLI_MODELS（其他页面 getDefaultModel 直接用缓存）
+    if (window.CLI_MODELS) {
+      if (CLI_MODELS.claude) {
+        CLI_MODELS.claude.default = claudeDefault;
+        CLI_MODELS.claude.eval_default = claudeEval;
+      }
+      if (CLI_MODELS.cbc) {
+        CLI_MODELS.cbc.default = cbcDefault;
+        CLI_MODELS.cbc.eval_default = cbcEval;
+      }
+    }
     // 同步"评估"下拉（让 eval-cli-select + eval-model-select 跟随 preferred_cli）
     const evalCliSel = document.getElementById('eval-cli-select');
     if (evalCliSel) {
-      evalCliSel.value = v;
+      evalCliSel.value = preferredCli;
       if (typeof onEvalCliChange === 'function') onEvalCliChange();
     }
-    status.textContent = `已保存: ${v} · 来源: config.json`;
+    status.textContent = `已保存 · ${preferredCli} · 执行 claude=${claudeDefault}/cbc=${cbcDefault} · 评估 claude=${claudeEval}/cbc=${cbcEval}`;
   } catch (e) {
     status.textContent = '保存失败：' + e.message;
   }

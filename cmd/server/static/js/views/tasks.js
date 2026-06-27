@@ -275,12 +275,9 @@ function showRunTaskModal(task) {
   document.getElementById('run-task-modal').dataset.taskId = task.id;
   // type 切换时联动 model 是否可选
   typeSel.onchange = toggleRunTaskModelGroup;
-  // model 切换时保存为默认
-  const modelSel = document.getElementById('run-task-model');
-  modelSel.onchange = () => {
-    const type = typeSel.value;
-    if (type !== 'shell') saveDefaultModel(type, modelSel.value);
-  };
+  // 注意：任务运行 modal 的 model onchange 不再调 saveDefaultModel，
+  // 避免任务页选其他模型时污染系统配置的 default。
+  // 任务运行仍然用下拉当前值；重新打开 modal 时下拉重置为系统配置的 default。
 }
 
 // 填充“运行位置”下拉：列出所有绑定了 dir_shortcut 的 agent。

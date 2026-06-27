@@ -32,15 +32,15 @@ function onEvalCliChange() {
   const cli = document.getElementById('eval-cli-select').value;
   const modelSel = document.getElementById('eval-model-select');
   modelSel.innerHTML = buildModelOptions(cli);
-  // 切 CLI 后用评估默认初始化（eval_default → default 兜底）
+  // 切 CLI 后用系统配置的评估默认初始化（eval_default → default 兜底）
   const defaultModel = getEvalDefaultModel(cli);
   if (defaultModel && modelSel.querySelector('option[value="' + defaultModel + '"]')) {
     modelSel.value = defaultModel;
   }
-  // model 切换时保存为评估默认
-  modelSel.onchange = () => {
-    if (cli !== 'shell') saveEvalDefaultModel(cli, modelSel.value);
-  };
+  // 注意：评估页 model 下拉的 onchange 不再调 saveEvalDefaultModel，
+  // 避免评估页选其他模型时污染系统配置的 eval_default。
+  // 评估请求仍然读下拉当前值（getEvalModel() 已在调用），本次评估用新值；
+  // 重新进入评估页/刷新后下拉重置为系统配置的 eval_default。
 }
 
 window.getRefreshSeconds = function() {
@@ -336,10 +336,10 @@ function onSchedTypeChange() {
       modelSel.value = defaultModel;
     }
   }
-  // model 切换时保存为默认
-  modelSel.onchange = () => {
-    if (type !== 'shell') saveDefaultModel(type, modelSel.value);
-  };
+  // 注意：调度任务 modal 的 model onchange 不再调 saveDefaultModel，
+  // 避免调度页选其他模型时污染系统配置的 default。
+  // 调度任务的 model 存在 scheduled_tasks.model 列（stored 字段），
+  // 与全局 default 无关；新建议 task 时下拉用 getDefaultModel(cli) 初始化。
 }
 async function editScheduled(id) {
   const s = await fetchJSON('/api/scheduled/' + id);

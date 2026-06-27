@@ -390,8 +390,39 @@
             <span><strong>cbc</strong> <span style="color:var(--text-secondary);font-size:12px">(Codebuddy / GLM 系模型)</span></span>
           </label>
         </div>
+
+        <!-- 执行/评估默认模型（与 preferred_cli 共享「保存」按钮） -->
+        <div style="margin-top:16px;display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label style="font-size:13px;font-weight:500;display:block;margin-bottom:6px">执行默认模型</label>
+            <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+              <span style="display:flex;gap:6px;align-items:center;font-size:13px">
+                <span style="color:var(--text-secondary)">claude</span>
+                <select id="cfg-default-claude" style="padding:4px 8px"></select>
+              </span>
+              <span style="display:flex;gap:6px;align-items:center;font-size:13px">
+                <span style="color:var(--text-secondary)">cbc</span>
+                <select id="cfg-default-cbc" style="padding:4px 8px"></select>
+              </span>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:13px;font-weight:500;display:block;margin-bottom:6px">评估默认模型</label>
+            <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+              <span style="display:flex;gap:6px;align-items:center;font-size:13px">
+                <span style="color:var(--text-secondary)">claude</span>
+                <select id="cfg-eval-default-claude" style="padding:4px 8px"></select>
+              </span>
+              <span style="display:flex;gap:6px;align-items:center;font-size:13px">
+                <span style="color:var(--text-secondary)">cbc</span>
+                <select id="cfg-eval-default-cbc" style="padding:4px 8px"></select>
+              </span>
+            </div>
+          </div>
+        </div>
+
         <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
-          <button class="btn btn-primary" onclick="savePreferredCLI()">💾 保存</button>
+          <button class="btn btn-primary" onclick="saveDefaultCLI()">💾 保存</button>
           <span id="cfg-pref-cli-status" style="font-size:12px;color:var(--text-secondary)">未保存</span>
         </div>
 
