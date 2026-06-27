@@ -285,8 +285,8 @@ async function loadScheduled() {
         <span class="edit-icon" onclick="editScheduled('${s.id}')" title="编辑" style="cursor:pointer;margin-right:6px;color:var(--text-secondary);font-size:14px">✏️</span>
         <strong>${esc(s.name)}</strong>${enabledBadge}
       </td>
-      <td><code>${esc(s.cron_expr)}</code></td>
-      <td>${esc(s.command_type)}${s.model?' / '+esc(s.model):''}</td>
+      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.command_type)}${s.model?' / '+esc(s.model):''}"><code>${esc(s.cron_expr)}</code></td>
+      <td style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.command_type)}${s.model?' / '+esc(s.model):''}">${esc(s.command_type)}${s.model?' / '+esc(s.model):''}</td>
       <td>${statusBadge}</td>
       <td style="font-size:11px;color:var(--text-secondary);vertical-align:top">${lastRun}${nextRun}</td>
       <td>
