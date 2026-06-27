@@ -717,6 +717,20 @@
       </div>
     </div>
 
+    <!-- 执行历史区块（由 tasks.js 的 loadTaskExecHistory 渲染） -->
+    <div id="task-exec-history" class="hidden" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span style="font-weight:600;font-size:13px">📋 执行历史</span>
+        <span id="task-exec-history-info" style="font-size:11px;color:var(--text-secondary)"></span>
+      </div>
+      <div id="task-exec-history-list" style="max-height:200px;overflow-y:auto"></div>
+      <div id="task-exec-history-pager" style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+        <button class="btn btn-small" id="task-exec-prev" onclick="prevTaskExecs()">← 上一页</button>
+        <span id="task-exec-history-page" style="font-size:11px;color:var(--text-secondary)"></span>
+        <button class="btn btn-small" id="task-exec-next" onclick="nextTaskExecs()">下一页 →</button>
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTaskModal()">取消</button>
       <button id="task-submit-btn" class="btn btn-primary" onclick="submitTask()">创建</button>
