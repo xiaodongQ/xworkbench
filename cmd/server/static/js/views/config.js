@@ -52,21 +52,9 @@ function switchCfgTab(tab) {
   _cfgPreviewCache = null;
   document.querySelectorAll('.cfg-preview-area').forEach(el => el.innerHTML = '');
   if (tab === 'default_cli') {
-    // 恢复「高级设置」的折叠状态
-    // - 用户主动展开/收起：记住到 localStorage
-    // - 已启用 skip-perm：每次进入都强制展开（让用户感知到风险，不允许默默折叠）
-    // - 首次进入（未启用）：默认收起
-    const details = document.getElementById('skip-perm-details');
-    if (details && !details._toggleBound) {
-      details.addEventListener('toggle', () => {
-        // 仅在「未启用」时记录折叠状态；启用时由 loadSkipPerm 强制展开，用户收起也只对未启用场景生效
-        const enabled = details._skipPermEnabled;
-        if (!enabled) {
-          localStorage.setItem('cfg-skip-perm-open', details.open ? '1' : '0');
-        }
-      });
-      details._toggleBound = true;
-    }
+    // 「高级设置」默认收起；只有当 skip-perm 启用时才默认展开。
+    // 展开/收起状态每次进 Tab 都按后端 dangerously_skip_permissions 决定，
+    // 不记 localStorage（避免「展开过但已关闭」这种过期状态）。
     loadPreferredCLI();
     loadSkipPerm();
   } else {
@@ -314,12 +302,9 @@ async function loadSkipPerm() {
       status.textContent = '已启用 · AI 可执行任意操作，请谨慎使用';
       status.style.color = 'var(--exception)';
       if (summaryBadge) { summaryBadge.textContent = '(已启用)'; summaryBadge.style.color = 'var(--exception)'; }
-      // 强制展开高级设置（每次进入都展开，确保用户感知到风险）
+      // 启用：强制展开高级设置（确保用户感知到风险）
       const details = document.getElementById('skip-perm-details');
-      if (details) {
-        details.open = true;
-        details._skipPermEnabled = true;
-      }
+      if (details) details.open = true;
     } else {
       // 未启用：checkbox 禁用，只有"启用"按钮可以触发
       toggleRow.style.opacity = '0.5';
@@ -329,13 +314,9 @@ async function loadSkipPerm() {
       status.textContent = '未启用 · 默认安全状态';
       status.style.color = 'var(--text-secondary)';
       if (summaryBadge) { summaryBadge.textContent = '(未启用)'; summaryBadge.style.color = 'var(--text-secondary)'; }
-      // 未启用：按 localStorage 恢复折叠状态（首次进入默认收起）
+      // 未启用：默认收起（不读 localStorage，避免「展开过但已关闭」这种过期状态）
       const details = document.getElementById('skip-perm-details');
-      if (details) {
-        details._skipPermEnabled = false;
-        const saved = localStorage.getItem('cfg-skip-perm-open');
-        details.open = saved === '1';
-      }
+      if (details) details.open = false;
     }
   } catch (e) {
     status.textContent = '加载失败：' + e.message;
