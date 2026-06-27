@@ -343,7 +343,7 @@ function refreshAdvancedSettingsContainer() {
     if (summaryStatus) { summaryStatus.textContent = '点击查看详情'; summaryStatus.style.color = 'var(--exception)'; }
   } else {
     if (badge) badge.style.display = 'none';
-    if (summaryStatus) { summaryStatus.textContent = '全部安全'; summaryStatus.style.color = 'var(--text-secondary)'; }
+    if (summaryStatus) { summaryStatus.textContent = ''; }
   }
 }
 
