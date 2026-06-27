@@ -302,9 +302,6 @@ async function loadSkipPerm() {
       status.textContent = '已启用 · AI 可执行任意操作，请谨慎使用';
       status.style.color = 'var(--exception)';
       if (summaryBadge) { summaryBadge.textContent = '(已启用)'; summaryBadge.style.color = 'var(--exception)'; }
-      // 启用：强制展开高级设置（确保用户感知到风险）
-      const details = document.getElementById('skip-perm-details');
-      if (details) details.open = true;
     } else {
       // 未启用：checkbox 禁用，只有"启用"按钮可以触发
       toggleRow.style.opacity = '0.5';
@@ -314,13 +311,57 @@ async function loadSkipPerm() {
       status.textContent = '未启用 · 默认安全状态';
       status.style.color = 'var(--text-secondary)';
       if (summaryBadge) { summaryBadge.textContent = '(未启用)'; summaryBadge.style.color = 'var(--text-secondary)'; }
-      // 未启用：默认收起（不读 localStorage，避免「展开过但已关闭」这种过期状态）
-      const details = document.getElementById('skip-perm-details');
-      if (details) details.open = false;
     }
+    // 刷新高级设置容器：决定展开/收起 + 汇总红点
+    refreshAdvancedSettingsContainer();
   } catch (e) {
     status.textContent = '加载失败：' + e.message;
   }
+}
+
+// refreshAdvancedSettingsContainer 根据子项状态决定：
+// 1. 容器是否默认展开（有子项需关注则展开，否则收起）
+// 2. 标题上的「有项需要关注」红点 badge
+//
+// 新增高级设置子项时：把该子项的"需关注判定"加到下面的 childNeedsAttention() 即可。
+function refreshAdvancedSettingsContainer() {
+  const details = document.getElementById('advanced-settings-details');
+  const badge = document.getElementById('advanced-settings-badge');
+  const summaryStatus = document.getElementById('advanced-settings-summary-status');
+  if (!details) return;
+
+  // 收集所有子项的"需关注"状态
+  const children = collectAdvancedSettingsChildren();
+  const attentionCount = children.filter(c => c.needsAttention).length;
+
+  // 默认展开：只要有一个子项需要关注就展开（让用户感知到风险）
+  details.open = attentionCount > 0;
+
+  // 标题红点 + 总结文案
+  if (attentionCount > 0) {
+    if (badge) { badge.style.display = ''; badge.textContent = attentionCount === 1 ? '1 项需要关注' : `${attentionCount} 项需要关注`; }
+    if (summaryStatus) { summaryStatus.textContent = '点击查看详情'; summaryStatus.style.color = 'var(--exception)'; }
+  } else {
+    if (badge) badge.style.display = 'none';
+    if (summaryStatus) { summaryStatus.textContent = '全部安全'; summaryStatus.style.color = 'var(--text-secondary)'; }
+  }
+}
+
+// collectAdvancedSettingsChildren 返回高级设置里所有子项的当前状态。
+// 每项字段：{ id, label, needsAttention }。
+// 新增子项时：在这里 push 一项即可，刷新逻辑会自动汇总。
+function collectAdvancedSettingsChildren() {
+  const children = [];
+  // 子项 1：完全放开 CLI 权限
+  // 从 checkbox 当前 checked 状态判断（最权威，因为 loadSkipPerm 已同步到 UI）
+  const skipPermCheckbox = document.getElementById('skip-perm-toggle');
+  const skipPermEnabled = skipPermCheckbox && skipPermCheckbox.checked;
+  children.push({
+    id: 'skip-perm',
+    label: '完全放开 CLI 权限',
+    needsAttention: !!skipPermEnabled,
+  });
+  return children;
 }
 
 // 点击 checkbox：已启用时 -> 直接关闭；未启用时 -> 拒绝（必须走按钮）

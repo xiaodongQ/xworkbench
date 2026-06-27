@@ -395,31 +395,40 @@
           <span id="cfg-pref-cli-status" style="font-size:12px;color:var(--text-secondary)">未保存</span>
         </div>
 
-        <!-- ⚠️ 高级设置：完全放开 CLI 权限（默认收起，需要点开才看到） -->
-        <details id="skip-perm-details" style="margin-top:20px;border-top:1px dashed var(--border);padding-top:16px">
-          <summary style="cursor:pointer;font-size:13px;color:var(--text-secondary);list-style:revert;user-select:none">
-            <span style="color:var(--exception);font-weight:bold">⚠️ 高级设置</span>
-            · 完全放开 CLI 权限
-            <span id="skip-perm-summary-badge" style="margin-left:8px;font-size:11px;color:var(--text-secondary)"></span>
+        <!-- ⚙️ 高级设置容器（默认收起；展开后里面是若干子项，每项自带状态/说明） -->
+        <details id="advanced-settings-details" style="margin-top:20px;border-top:1px dashed var(--border);padding-top:16px">
+          <summary style="cursor:pointer;font-size:13px;color:var(--text-secondary);list-style:revert;user-select:none;display:flex;align-items:center;gap:8px">
+            <span style="color:var(--text);font-weight:bold">⚙️ 高级设置</span>
+            <span id="advanced-settings-badge" style="display:none;background:var(--exception);color:#fff;font-size:11px;padding:2px 8px;border-radius:10px">有项需要关注</span>
+            <span id="advanced-settings-summary-status" style="font-size:12px;color:var(--text-secondary)"></span>
           </summary>
-          <div style="margin-top:12px;padding:16px;border:1px solid var(--exception);border-radius:6px;background:rgba(220,38,38,0.03)">
-            <p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px">
-              开启后，AI CLI（claude / cbc）的命令将以 <code>--dangerously-skip-permissions</code> 运行，
-              <b style="color:var(--text)">撤销所有 --allowedTools 白名单</b>，AI 可执行任意 Bash 命令、读写任意路径、跳过所有权限确认。
-            </p>
-            <ul style="font-size:12px;color:var(--text-secondary);margin:0 0 12px 0;padding-left:20px">
-              <li>评估员（evaluator）不受此开关影响，始终使用严格白名单</li>
-              <li>shell 类型任务不受影响（shell 本身无权限概念）</li>
-              <li>关闭后立即恢复默认白名单 (<code>Bash,Write,Edit,Read,Grep</code>)</li>
-            </ul>
-            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-              <label id="skip-perm-toggle-row" style="display:flex;gap:8px;align-items:center;cursor:not-allowed;font-size:14px;opacity:0.5">
-                <input type="checkbox" id="skip-perm-toggle" disabled onchange="onSkipPermToggleChange(this.checked)">
-                <span><b>启用 <code>--dangerously-skip-permissions</code></b></span>
-              </label>
-              <button id="skip-perm-confirm-btn" class="btn" style="background:var(--exception);color:#fff;border:none;cursor:pointer;padding:6px 12px;font-size:13px" onclick="confirmSkipPermEnable()">启用</button>
-              <span id="skip-perm-status" style="font-size:12px;color:var(--text-secondary)">未保存</span>
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:12px">
+
+            <!-- 子项：完全放开 CLI 权限 -->
+            <div id="skip-perm-item" style="padding:16px;border:1px solid var(--exception);border-radius:6px;background:rgba(220,38,38,0.03)">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <h4 style="margin:0;font-size:14px">⚠️ 完全放开 CLI 权限</h4>
+                <span id="skip-perm-summary-badge" style="font-size:11px;color:var(--text-secondary)"></span>
+              </div>
+              <p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px">
+                开启后，AI CLI（claude / cbc）的命令将以 <code>--dangerously-skip-permissions</code> 运行，
+                <b style="color:var(--text)">撤销所有 --allowedTools 白名单</b>，AI 可执行任意 Bash 命令、读写任意路径、跳过所有权限确认。
+              </p>
+              <ul style="font-size:12px;color:var(--text-secondary);margin:0 0 12px 0;padding-left:20px">
+                <li>评估员（evaluator）不受此开关影响，始终使用严格白名单</li>
+                <li>shell 类型任务不受影响（shell 本身无权限概念）</li>
+                <li>关闭后立即恢复默认白名单 (<code>Bash,Write,Edit,Read,Grep</code>)</li>
+              </ul>
+              <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+                <label id="skip-perm-toggle-row" style="display:flex;gap:8px;align-items:center;cursor:not-allowed;font-size:14px;opacity:0.5">
+                  <input type="checkbox" id="skip-perm-toggle" disabled onchange="onSkipPermToggleChange(this.checked)">
+                  <span><b>启用 <code>--dangerously-skip-permissions</code></b></span>
+                </label>
+                <button id="skip-perm-confirm-btn" class="btn" style="background:var(--exception);color:#fff;border:none;cursor:pointer;padding:6px 12px;font-size:13px" onclick="confirmSkipPermEnable()">启用</button>
+                <span id="skip-perm-status" style="font-size:12px;color:var(--text-secondary)">未保存</span>
+              </div>
             </div>
+
           </div>
         </details>
       </div>
