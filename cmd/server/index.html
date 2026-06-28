@@ -966,7 +966,7 @@
         <textarea id="exec-detail-cmd" readonly class="code" rows="6" style="font-size:12px;padding:6px 8px;min-height:120px;line-height:1.5;resize:vertical"></textarea>
       </div>
       <div class="form-group" style="margin-bottom:8px">
-        <label style="margin-bottom:4px;font-size:12px">输出 <span class="field-hint">stdout</span></label>
+        <label style="margin-bottom:4px;font-size:12px">输出 <span class="field-hint">stdout</span> <span class="info-icon" data-tooltip="=== AI 答复 ===&#10;AI 实际回复内容（核心）&#10;&#10;--- Claude 执行信息 ---&#10;sessionId: 会话唯一标识符，用于 --resume 继续对话&#10;num_turns: AI 执行总轮次（每调用一次工具算一个 turn）&#10;stop_reason: 结束原因（end_turn=正常/max_turns=达到轮次限制/stop_sequence=遇到停止序列/timeout=超时）&#10;&#10;--- AI 自评动作清单（辅助评估） ---&#10;AI 自报的：执行了哪些命令、退出码、用了什么工具、如何验证">ⓘ</span></label>
         <textarea id="exec-detail-output" readonly class="code" rows="8" style="font-size:12px;white-space:pre-wrap;word-break:break-all;padding:6px 8px;line-height:1.5"></textarea>
       </div>
       <div class="form-group" style="margin-bottom:8px">

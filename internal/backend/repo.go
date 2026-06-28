@@ -1375,6 +1375,41 @@ func (r *ExecutionRepo) ListByResumeUUID(resumeUUID string, limit int) ([]*Execu
 	return out, rows.Err()
 }
 
+// ListRunning 返回所有 status='running' 的执行（孤儿检测：服务器重启后还卡在 running 状态的 exec）。
+// 用于 startup hook 批量 ForceFinish,避免 UI 永久显示「运行中」。
+func (r *ExecutionRepo) ListRunning() ([]*Execution, error) {
+	q := `SELECT id,task_id,scheduled_task_id,source,command,prompt,model,started_at,completed_at,output,error,exit_code,resume_uuid,status
+	        FROM executions WHERE status='running' ORDER BY started_at ASC`
+	rows, err := r.db.Query(q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Execution
+	for rows.Next() {
+		var e Execution
+		var taskID, schedID, model, output, errOut, resumeUuid, prompt, status sql.NullString
+		var completedAt sql.NullTime
+		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
+			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUuid, &status); err != nil {
+			return nil, err
+		}
+		e.TaskID = taskID.String
+		e.ScheduledTaskID = schedID.String
+		e.Model = model.String
+		e.Output = output.String
+		e.Error = errOut.String
+		e.ResumeSessionID = resumeUuid.String
+		e.Prompt = prompt.String
+		e.Status = status.String
+		if completedAt.Valid {
+			e.CompletedAt = &completedAt.Time
+		}
+		out = append(out, &e)
+	}
+	return out, rows.Err()
+}
+
 // ListRecent 返回所有最近执行（无 task 过滤），用于 stats/dashboard。
 func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	if limit <= 0 {

@@ -262,6 +262,21 @@ const _obs = new MutationObserver(bindTooltips);
 _obs.observe(document.getElementById('sidebar') || document.body, {attributes: true, attributeFilter: ['class']});
 bindTooltips();
 
+// 通用 data-tooltip 绑定（非 sidebar 的 ⓘ 等图标也支持）
+function bindGeneralTooltips() {
+  document.querySelectorAll('[data-tooltip]').forEach(el => {
+    if (el.closest('.sidebar')) return; // 跳过 sidebar（已有 bindTooltips 处理）
+    if (el._tooltipBound) return;
+    el._tooltipBound = true;
+    el.addEventListener('mouseenter', () => showTooltip(el));
+    el.addEventListener('mouseleave', hideTooltip);
+    el.addEventListener('focus', () => showTooltip(el));
+    el.addEventListener('blur', hideTooltip);
+  });
+}
+new MutationObserver(bindGeneralTooltips).observe(document.body, {childList: true, subtree: true});
+bindGeneralTooltips();
+
 // ===== Sidebar 收起/展开（localStorage 持久化，默认收起） =====
 function loadSidebar() {
   const collapsed = localStorage.getItem('sf-sidebar-collapsed') !== 'false'; // 默认收起

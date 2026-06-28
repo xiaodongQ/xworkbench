@@ -2547,6 +2547,37 @@ func main() {
 	eventRepo := backend.NewTaskEventRepo(db)
 	cmtRepo := backend.NewTaskCommentRepo(db)
 	execCmtRepo := backend.NewExecutionCommentRepo(db)
+
+	// startup orphan cleanup：扫 status='running' 的执行(上次服务器关闭时还在跑的子进程
+	// 已经随进程退出,这些 exec 在 DB 里永远卡在 running)。统一 ForceFinish 标 cancelled,
+	// 前端不会再看到「永久运行中」的状态,列表/详情里能看到「服务重启时被强制结束」标记。
+	// 不会自动重跑——AI 任务可能有副作用(写文件/网络调用),自动重跑有风险;让用户决定是否手动重跑。
+	if orphans, err := execRepo.ListRunning(); err != nil {
+		logger.Errorw("startup orphan scan failed", "error", err.Error())
+	} else if len(orphans) > 0 {
+		now := time.Now()
+		reason := "orphaned on startup, server restarted while execution was in-flight (force-finished)"
+		finished := 0
+		for _, o := range orphans {
+			if err := execRepo.ForceFinish(o.ID, now, reason); err != nil {
+				logger.Errorw("orphan force-finish failed", "execution_id", o.ID, "task_id", o.TaskID, "error", err.Error())
+				continue
+			}
+			logger.Warnw("orphan execution force-finished on startup", "execution_id", o.ID, "task_id", o.TaskID)
+			// WS 广播 done 事件,连着的客户端能立即看到状态变化
+			h.Broadcast(wsmsg.ChannelExec, map[string]any{
+				"execution_id": o.ID,
+				"task_id":      o.TaskID,
+				"done":         true,
+				"exit_code":    -1,
+				"force":        true,
+				"orphan":       true,
+			})
+			finished++
+		}
+		logger.Warnw("startup orphan cleanup done", "total", len(orphans), "finished", finished)
+	}
+
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
 		linkRepo, dirRepo, schedRepo, evalRepo, agentRepo,
 		eventRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)

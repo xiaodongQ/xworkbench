@@ -235,6 +235,18 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// scheduled_tasks.last_status 值（pending/success/failed/timeout/cancelled/build_error）→ 中文显示。
+// CSS 仍按英文 class 挂颜色（.s-status.success / .s-status.failed），只翻译文本。
+const SCHED_STATUS_TEXT = {
+  pending:     '待运行',
+  success:     '成功',
+  failed:      '失败',
+  timeout:     '超时',
+  cancelled:   '已取消',
+  build_error: '命令错误',
+};
+const schedStatusText = (raw) => SCHED_STATUS_TEXT[raw] || SCHED_STATUS_TEXT.pending;
+
 async function loadScheduledSummary() {
   const list = await fetchJSON('/api/scheduled');
   const el = document.getElementById('scheduled-summary');
@@ -250,7 +262,7 @@ async function loadScheduledSummary() {
     return `<div class="scheduled-item">
       <span class="s-name">${esc(s.name)}${enabledBadge}</span>
       <span class="s-cron">${esc(s.cron_expr)}</span>
-      <span class="s-status ${status}">${status}</span>
+      <span class="s-status ${status}">${schedStatusText(status)}</span>
     </div>`;
   }).join('');
 }
@@ -273,7 +285,7 @@ async function loadScheduled() {
       : '';
     const baseStatus = s.last_status || 'pending';
     // running 检测：last_execution_id 对应的 execution 没有 completed_at
-    let statusBadge = `<span class="s-status ${baseStatus}">${baseStatus}</span>`;
+    let statusBadge = `<span class="s-status ${baseStatus}">${schedStatusText(baseStatus)}</span>`;
     if (s.last_execution_id && execMap[s.last_execution_id] && !execMap[s.last_execution_id].completed_at) {
       statusBadge = '<span class="s-status" style="background:var(--info,#3b82f6);color:#fff">运行中</span>';
     }
@@ -450,8 +462,11 @@ async function loadRecentExecutions() {
         statusIcon = '⏱ 超时'; statusColor = 'var(--warning)';
         statusTitle = '执行超时（10/30 min）';
       } else if (e.status === 'cancelled') {
+        // cancelled 状态涵盖两种来源：① 用户点 ⚠ 取消（手动）；② 服务重启时 ForceFinish（orphan on startup）。
+        // 通过 error 文案区分,前端展示不同 tooltip——orphan 不是用户主动的,不能误导。
+        const isOrphan = e.error && e.error.indexOf('orphaned on startup') >= 0;
         statusIcon = '⊘'; statusColor = 'var(--text-secondary)';
-        statusTitle = '用户主动取消';
+        statusTitle = isOrphan ? '服务重启时被强制结束（orphan on startup）' : '用户主动取消';
       } else {
         statusIcon = '✗ ' + e.exit_code; statusColor = 'var(--exception)';
         statusTitle = `status=${e.status || 'failed'}, exit_code=${e.exit_code}`;
@@ -480,10 +495,14 @@ async function loadRecentExecutions() {
       const cliLabel = e.cli_type ? `[${e.cli_type}]` : '';
       const cliColor = e.cli_type === 'cbc' ? '#8b5cf6' : e.cli_type === 'shell' ? '#10b981' : '#3b82f6';
       const groupTitle = hasKids ? `<b>[会话链 ${groupMap[e.id].children.length + 1} 轮]</b> ` : '';
+      // 来源 tooltip 改成中文,跟图标语义对齐(scheduled→定时任务 / continue→继续对话 / 其他→手动任务)
+      const srcText = e.source === 'scheduled' ? '定时任务' : e.source === 'continue' ? '继续对话' : '手动任务';
+      // 固定列宽占位:groupIcon(20px) + cliLabel(54px) 始终占位,无论有没有 cli_type,
+      // title 起始 x 才能纵向对齐(不然 cli_label 时有时无会偏 50px)。
       return `<div style="${rowStyle}" data-exec-id="${e.id}">
         ${toggle}
-        <span style="flex-shrink:0" title="${e.source}">${groupIcon}</span>
-        ${cliLabel ? `<span style="color:${cliColor};font-size:10px;font-weight:600;flex-shrink:0">${cliLabel}</span>` : ''}
+        <span style="flex-shrink:0;width:20px;text-align:center" title="${srcText}">${groupIcon}</span>
+        <span style="flex-shrink:0;width:54px;font-size:10px;font-weight:600;color:${cliColor};text-align:left">${cliLabel}</span>
         <span style="color:var(--text-secondary);font-family:monospace;flex-shrink:0;width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dt}</span>
         <span style="flex:1;min-width:0;font-size:11px;padding-left:72px;margin-left:-72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${groupTitle}${title}</span>${cmdTip ? `<span title="命令: ${cmdTip}" style="margin-left:4px;font-size:11px;color:#60a5fa;flex-shrink:0">ⓘ</span>` : ''}
         <span style="font-size:11px;color:${statusColor};flex-shrink:0" title="${statusTitle}">${statusIcon}</span>
@@ -587,16 +606,12 @@ async function viewExecutionDetail(id) {
     const nameDisplay = execTitle.length > 40 ? execTitle.slice(0, 40) + '...' : execTitle;
     document.getElementById('exec-detail-title').innerHTML = '';
     // 面包屑：如果该 exec 属于某会话链（resume_uuid 存在），计算并显示「第 K 轮 / 共 N 轮」
+    // 用 id="exec-chain-crumb" 标记,submitContinue 后可单独更新这一格,不用重渲整个 meta。
     let crumb = '';
     if (exec.resume_uuid && exec.task_id) {
       try {
         const siblings = await fetchJSON('/api/tasks/' + exec.task_id + '/executions');
-        const sameChain = (siblings || []).filter(s => s.resume_uuid === exec.resume_uuid)
-          .sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
-        const idx = sameChain.findIndex(s => s.id === exec.id);
-        if (idx >= 0) {
-          crumb = `<span style="margin-left:8px;color:var(--text-secondary);background:var(--hover);padding:1px 6px;border-radius:3px;font-size:11px">会话链 第 ${idx + 1}/${sameChain.length} 轮</span>`;
-        }
+        crumb = buildExecChainCrumb(exec, siblings);
       } catch (_) { /* 面包屑拉取失败不影响主流程 */ }
     }
     document.getElementById('exec-detail-meta').innerHTML =
@@ -625,16 +640,32 @@ async function viewExecutionDetail(id) {
     //——之前一直用灰色，看着跟「关闭」按钮一样没主次，启用后也不够显眼。
     const continueBtn = document.getElementById('exec-continue-btn');
     if (continueBtn) {
-      if (exec.resume_uuid) {
+      // 禁用态判定：① 没有 resume_uuid；② 同会话链（resume_uuid 相同）上存在尚未完成的执行
+      //（包括 exec 自己还在 running,或者之前那轮 continue 还没跑完）。
+      // 避免用户在前一轮对话还没产出结果时就续一轮,session 状态会打架。
+      let blockedReason = null;
+      if (!exec.resume_uuid) {
+        blockedReason = '该执行未生成 session_id，无法继续对话（执行失败或尚未完成）';
+      } else if (exec.task_id) {
+        try {
+          const siblings = await fetchJSON('/api/tasks/' + exec.task_id + '/executions');
+          const chainRunning = (siblings || []).some(s =>
+            s.resume_uuid === exec.resume_uuid &&
+            (s.status === 'running' || !s.completed_at)
+          );
+          if (chainRunning) blockedReason = '该会话链上存在尚未完成的对话，无法继续对话';
+        } catch (_) { /* 拉取失败时按"放行"处理,不影响主流程 */ }
+      }
+      if (blockedReason) {
+        continueBtn.classList.remove('hidden', 'btn-primary');
+        continueBtn.classList.add('btn-secondary');
+        continueBtn.disabled = true;
+        continueBtn.title = blockedReason;
+      } else {
         continueBtn.classList.remove('hidden', 'btn-secondary');
         continueBtn.classList.add('btn-primary');
         continueBtn.disabled = false;
         continueBtn.removeAttribute('title');
-      } else {
-        continueBtn.classList.remove('hidden', 'btn-primary');
-        continueBtn.classList.add('btn-secondary');
-        continueBtn.disabled = true;
-        continueBtn.title = '该执行未生成 session_id，无法继续对话（执行失败或尚未完成）';
       }
     }
     // 拉已有评估（展示所有历史）
@@ -665,6 +696,49 @@ function showContinuePrompt() {
   if (!section || !input) return;
   section.classList.remove('hidden');
   input.focus();
+  // 回车触发提交（一次性绑定,避免反复 show 时累积监听器）
+  if (!input.dataset.enterBound) {
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        submitContinue();
+      }
+    });
+    input.dataset.enterBound = '1';
+  }
+}
+
+// buildExecChainCrumb 纯函数：给定 exec 和其 task 的全部 executions,返回「会话链 第 K/N 轮」HTML。
+// 找不到 idx（exec 不在链里）或参数不全,返回空字符串。
+// span 带 id="exec-chain-crumb",便于 updateExecChainCrumb 原地替换。
+function buildExecChainCrumb(exec, siblings) {
+  if (!exec || !exec.resume_uuid || !exec.task_id) return '';
+  const sameChain = (siblings || []).filter(s => s.resume_uuid === exec.resume_uuid)
+    .sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
+  const idx = sameChain.findIndex(s => s.id === exec.id);
+  if (idx < 0) return '';
+  return `<span id="exec-chain-crumb" style="margin-left:8px;color:var(--text-secondary);background:var(--hover);padding:1px 6px;border-radius:3px;font-size:11px">会话链 第 ${idx + 1}/${sameChain.length} 轮</span>`;
+}
+
+// updateExecChainCrumb 重新拉 exec + 同 task executions,更新 meta 里的「会话链 第 K/N 轮」徽章。
+// 调用时机：submitContinue 提交成功后会话链新增一轮,K/N 都要重算;若以后引入 WS 推送也可复用。
+// 已存在的 #exec-chain-crumb span 会被原地替换,避免重渲整个 meta(里面包含 exit_code/耗时 等其他信息)。
+async function updateExecChainCrumb(execId) {
+  const meta = document.getElementById('exec-detail-meta');
+  if (!meta) return;
+  let exec, siblings;
+  try {
+    exec = await fetchJSON('/api/executions/' + execId);
+    siblings = await fetchJSON('/api/tasks/' + exec.task_id + '/executions');
+  } catch (_) { return; /* 拉取失败不动 UI,保持上次状态 */ }
+  const html = buildExecChainCrumb(exec, siblings);
+  const existing = document.getElementById('exec-chain-crumb');
+  if (existing) {
+    if (html) existing.outerHTML = html;
+    else existing.remove();
+  } else if (html) {
+    meta.insertAdjacentHTML('beforeend', html);
+  }
 }
 
 async function submitContinue() {
@@ -686,6 +760,16 @@ async function submitContinue() {
     // 不立即关 modal：用户刚发的 prompt 重要，要让用户看到反馈。
     // 在 modal 顶部插入一条反馈条带（包含新 exec ID + 点击跳转详情）。
     _showContinueFeedback(newExecId, prompt);
+    // 刷新 exec-detail-modal 里的对话历史 timeline（修 bug：之前只刷 task-modal，
+    // exec-detail-modal 的 timeline 一直停留，跑到结束 modal 重开才"出现"，体验割裂）。
+    if (typeof loadExecConversation === 'function') {
+      loadExecConversation(currentExecId);
+    }
+    // 同步刷新顶部「会话链 第 K/N 轮」面包屑：新 exec 已落库,链长 +1,K 也要重算
+    //（之前要关闭重开 modal 才会刷新,体验割裂）。
+    if (typeof updateExecChainCrumb === 'function') {
+      updateExecChainCrumb(currentExecId);
+    }
     // 若 task-modal 打开着，同步刷新它的对话历史（C 方案：原任务上下文看会话链）
     const taskModal = document.getElementById('task-modal');
     if (taskModal && !taskModal.classList.contains('hidden') && typeof loadTaskConversation === 'function') {
@@ -906,20 +990,34 @@ _startExecAutoRefresh(); // 启动一次，30s 兜底
 
 // renderExecOutput 解析 `claude -p --output-format json` 的输出，提取 result 字段。
 // 非 JSON 格式 fallback 原样返回。
+// 输出结构重排：AI 答复 → 执行信息 → 辅助评估（动作清单）
 function renderExecOutput(raw) {
   if (!raw) return '(无输出)';
   const trimmed = raw.trim();
-  // 尝试解析 session_id/sessionId（用于继续对话）
   const sessionId = extractSessionId(trimmed);
-  // 必须以 { 或 [ 开头才能解析
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return raw;
   let obj;
   try { obj = JSON.parse(trimmed); } catch { return raw; }
   // claude json 输出结构（单对象）
   if (typeof obj.result === 'string') {
-    const lines = [];
-    lines.push(obj.result);
-    // 附加元数据头部（方便人工核查）
+    const resultText = obj.result || '';
+    // 动作清单从 "## 动作清单" 标记开始，后面是 AI 自评内容
+    const actionReportIdx = resultText.indexOf('## 动作清单');
+    let aiReply = resultText;
+    let actionReport = '';
+    if (actionReportIdx !== -1) {
+      aiReply = resultText.slice(0, actionReportIdx).trim();
+      actionReport = resultText.slice(actionReportIdx);
+    }
+
+    const sections = [];
+
+    // 1. AI 答复（最上面，用户最关心）
+    if (aiReply) {
+      sections.push('=== AI 答复 ===\n' + aiReply);
+    }
+
+    // 2. Claude 执行信息
     const meta = [];
     if (sessionId) meta.push(`sessionId=${sessionId}`);
     if (typeof obj.num_turns === 'number') meta.push(`num_turns=${obj.num_turns}`);
@@ -929,10 +1027,15 @@ function renderExecOutput(raw) {
       meta.push(`permission_denials=[${obj.permission_denials.join(',')}]`);
     }
     if (meta.length) {
-      lines.unshift('--- Claude JSON 元数据 ---');
-      lines.unshift(meta.join(' | '));
+      sections.push('--- Claude 执行信息 ---\n' + meta.join(' | '));
     }
-    return lines.join('\n');
+
+    // 3. AI 自评动作清单（辅助评估）
+    if (actionReport) {
+      sections.push('--- AI 自评动作清单（辅助评估） ---\n' + actionReport);
+    }
+
+    return sections.join('\n\n');
   }
   // cbc 分段 JSON 输出（数组），找第一个有 sessionId 的块
   if (Array.isArray(obj)) {
@@ -946,14 +1049,27 @@ function renderExecOutput(raw) {
         }
       }
     }
-    const lines = resultText ? [resultText.trim()] : ['(无result内容)'];
+    const actionReportIdx = resultText.indexOf('## 动作清单');
+    let aiReply = resultText.trim();
+    let actionReport = '';
+    if (actionReportIdx !== -1) {
+      aiReply = resultText.slice(0, actionReportIdx).trim();
+      actionReport = resultText.slice(actionReportIdx);
+    }
+
+    const sections = [];
+    if (aiReply) {
+      sections.push('=== AI 答复 ===\n' + aiReply);
+    }
     const meta = [];
     if (sessionId) meta.push(`sessionId=${sessionId}`);
     if (meta.length) {
-      lines.unshift('--- Claude JSON 元数据 ---');
-      lines.unshift(meta.join(' | '));
+      sections.push('--- Claude 执行信息 ---\n' + meta.join(' | '));
     }
-    return lines.join('\n');
+    if (actionReport) {
+      sections.push('--- AI 自评动作清单（辅助评估） ---\n' + actionReport);
+    }
+    return sections.join('\n\n');
   }
   return raw;
 }
@@ -1071,9 +1187,13 @@ function renderExecConversationTimeline(execs) {
       ? '<span style="background:var(--accent);color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">原始</span>'
       : '<span style="background:#0ea5e9;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px">第' + roundNum + '轮</span>';
     const ts = e.started_at ? new Date(e.started_at).toLocaleString('zh-CN', {hour12: false}) : '';
-    const status = e.exit_code === 0
-      ? '<span style="color:#10b981;font-size:10px">✓</span>'
-      : '<span style="color:var(--exception);font-size:10px">✗</span>';
+    // 状态指示：running 的 exec exit_code 默认 0，会被错画成 ✓，先看 completed_at（2026-06 status 字段也可用）
+    const isRunning = !e.completed_at || e.status === 'running';
+    const status = isRunning
+      ? '<span style="color:var(--info,#3b82f6);font-size:10px" title="运行中…">⏳</span>'
+      : (e.exit_code === 0
+        ? '<span style="color:#10b981;font-size:10px">✓</span>'
+        : '<span style="color:var(--exception);font-size:10px">✗</span>');
     const prompt = e.prompt ? esc(e.prompt) : '<i style="color:var(--text-secondary)">(无prompt)</i>';
     // command 折叠展示
     const cmdId = 'tl-cmd-' + e.id.replace(/[^a-zA-Z0-9]/g, '_');

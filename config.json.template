@@ -1,12 +1,12 @@
 {
   "_comment": "xworkbench 配置模板。复制成 config.json 后按需修改。本文件随仓库分发，config.json 本身在 .gitignore。字段说明见 README.md「配置」章节。",
-  "default_terminal": "wezterm",
+  "default_terminal": "powershell",
   "preferred_cli": "claude",
   "ai_loop_enabled": false,
   "aichat_default_cli": "claude",
   "dangerously_skip_permissions": false,
   "todo_md_path": "",
-  "scheduler_enabled": false,
+  "scheduler_enabled": true,
   "relay": {
     "_comment": "代理接口认证 token。空=关闭认证（仅本机）。非空=Bearer token（也支持 X-API-Key 头）。生产环境请改成一个长随机串。",
     "api_key": "xworkbench"
@@ -42,8 +42,8 @@
       ]
     },
     "cbc": {
-      "default": "glm-5.1",
-      "eval_default": "glm-5.0",
+      "default": "glm-5.0",
+      "eval_default": "deepseek-v4-pro",
       "options": [
         {"value": "glm-5.1",          "label": "GLM-5.1（x1.06）"},
         {"value": "glm-5.0",          "label": "GLM-5.0（x0.80）"},
