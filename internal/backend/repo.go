@@ -1382,7 +1382,7 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	}
 	// LEFT JOIN evaluations 取最近一次分数（每 exec 只关联最新一条）
 	// LEFT JOIN tasks / scheduled_tasks 取标题
-	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.prompt,e.model,
+	q := `SELECT e.id,e.task_id,e.scheduled_task_id,e.source,e.command,e.prompt,e.model,e.cli_type,
 	             e.started_at,e.completed_at,e.output,e.error,e.exit_code,e.resume_uuid,e.status,
 	             (SELECT ev.score FROM evaluations ev
 	                WHERE ev.execution_id = e.id
@@ -1401,11 +1401,11 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	var out []*Execution
 	for rows.Next() {
 		var e Execution
-		var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, prompt, status sql.NullString
+		var taskID, schedID, model, output, errOut, taskTitle, schedTitle, resumeUUID, prompt, status, cliType sql.NullString
 		var completedAt sql.NullTime
 		var evalScore sql.NullFloat64
 		var evalCount int
-		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model,
+		if err := rows.Scan(&e.ID, &taskID, &schedID, &e.Source, &e.Command, &prompt, &model, &cliType,
 			&e.StartedAt, &completedAt, &output, &errOut, &e.ExitCode, &resumeUUID, &status, &evalScore,
 			&evalCount, &taskTitle, &schedTitle); err != nil {
 			return nil, err
@@ -1425,6 +1425,7 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 		e.Error = errOut.String
 		e.ResumeSessionID = resumeUUID.String
 		e.Status = status.String
+		e.CliType = cliType.String
 		if completedAt.Valid {
 			e.CompletedAt = &completedAt.Time
 		}
