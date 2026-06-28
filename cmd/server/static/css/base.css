@@ -196,10 +196,10 @@ body {
 .hidden { display: none !important; }
 
 /* ===== 统计卡 ===== */
-.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-.stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 4px; padding: 20px; }
-.stat-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
-.stat-value { font-size: 32px; font-weight: 600; }
+.stat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 16px; }
+.stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; }
+.stat-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+.stat-value { font-size: 20px; font-weight: 600; }
 .stat-pending .stat-value { color: var(--warning); }
 .stat-in_progress .stat-value { color: var(--primary); }
 .stat-running .stat-value { color: #ea580c; }
@@ -207,17 +207,19 @@ body {
 .stat-archived .stat-value { color: var(--success); }
 .stat-exception .stat-value { color: var(--danger); }
 
-/* ===== 柱状图 ===== */
+/* ===== 折线图 ===== */
 .chart-section { background: var(--card-bg); border: 1px solid var(--border); border-radius: 4px; padding: 20px; margin-bottom: 24px; }
 .chart-title { font-size: 14px; font-weight: 500; margin-bottom: 16px; }
-.chart-bars { display: flex; align-items: flex-end; gap: 8px; height: 80px; }
-.bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.bar {
-  width: 100%; max-width: 32px;
-  background: linear-gradient(to top, #fed7aa, #c2410c);
-  border-radius: 2px 2px 0 0; min-height: 4px;
-}
-.bar-label { font-size: 11px; color: var(--text-secondary); }
+.chart-wrap { position: relative; }
+.chart-svg { display: block; width: 100%; overflow: visible; }
+.chart-grid-line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 4 3; }
+.chart-axis-line { stroke: var(--border); stroke-width: 1; }
+.chart-y-label { font-size: 10px; fill: var(--text-secondary); }
+.chart-dot { fill: #c2410c; cursor: pointer; }
+.chart-dot:hover { fill: #ea580c; r: 6; }
+.chart-polyline { fill: none; stroke: #c2410c; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-area { fill: url(#areaGrad); }
+.chart-tooltip { position: absolute; background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 12px; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.15); white-space: nowrap; }
 
 /* ===== 表格 / 段落 ===== */
 .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }

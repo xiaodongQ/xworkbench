@@ -450,7 +450,7 @@ async function loadRecentExecutions() {
         statusIcon = '⏱ 超时'; statusColor = 'var(--warning)';
         statusTitle = '执行超时（10/30 min）';
       } else if (e.status === 'cancelled') {
-        statusIcon = '⊘ 已取消'; statusColor = 'var(--text-secondary)';
+        statusIcon = '⊘'; statusColor = 'var(--text-secondary)';
         statusTitle = '用户主动取消';
       } else {
         statusIcon = '✗ ' + e.exit_code; statusColor = 'var(--exception)';
@@ -477,13 +477,16 @@ async function loadRecentExecutions() {
         ? `<span id="exec-toggle-${e.id}" onclick="toggleExecGroup('${e.id}')" style="cursor:pointer;color:var(--text-secondary);font-size:14px;flex-shrink:0" title="展开/折叠会话链">▶</span>`
         : '<span style="width:14px;flex-shrink:0;display:inline-block"></span>';
       const groupIcon = hasKids ? '💬' : src;
+      const cliLabel = e.cli_type ? `[${e.cli_type}]` : '';
+      const cliColor = e.cli_type === 'cbc' ? '#f59e0b' : e.cli_type === 'shell' ? '#10b981' : '#3b82f6';
       const groupTitle = hasKids ? `<b>[会话链 ${groupMap[e.id].children.length + 1} 轮]</b> ` : '';
       return `<div style="${rowStyle}" data-exec-id="${e.id}">
         ${toggle}
         <span style="flex-shrink:0" title="${e.source}">${groupIcon}</span>
-        <span style="color:var(--text-secondary);font-family:monospace;flex-shrink:0;width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dt}</span>
-        <span style="flex:1;min-width:0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${groupTitle}${title}</span>${cmdTip ? `<span title="命令: ${cmdTip}" style="margin-left:4px;font-size:11px;color:#60a5fa;flex-shrink:0">ⓘ</span>` : ''}
-        <span style="font-size:11px;color:${statusColor};flex-shrink:0;width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${statusTitle}">${statusIcon}</span>
+        ${cliLabel ? `<span style="color:${cliColor};font-size:10px;font-weight:600;flex-shrink:0">${cliLabel}</span>` : ''}
+        <span style="color:var(--text-secondary);font-family:monospace;flex-shrink:0;width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dt}</span>
+        <span style="flex:1;min-width:0;font-size:11px;padding-left:72px;margin-left:-72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${groupTitle}${title}</span>${cmdTip ? `<span title="命令: ${cmdTip}" style="margin-left:4px;font-size:11px;color:#60a5fa;flex-shrink:0">ⓘ</span>` : ''}
+        <span style="font-size:11px;color:${statusColor};flex-shrink:0" title="${statusTitle}">${statusIcon}</span>
         ${evalBadge}
         <button class="btn btn-small" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
         <button class="btn btn-small" onclick="runEvaluation('${e.id}')" title="AI 评估" style="${isEvaluating?'opacity:0.5;cursor:wait':''}">${isEvaluating?'⏳':'📊'}</button>

@@ -112,6 +112,13 @@ function _setImportResult(tab, html) {
   if (el) el.innerHTML = html;
 }
 
+function _scrollToPreview(tab) {
+  const panel = document.querySelector(`.cfg-tab-panel[data-tab="${tab}"]`);
+  if (!panel) return;
+  const el = panel.querySelector('.cfg-preview-area');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function previewImport(tab) {
   const type = CFG_TYPE_FOR_TAB[tab];
   if (!type) return;
@@ -148,6 +155,7 @@ async function previewImport(tab) {
     });
     _cfgPreviewCache = { type, items, tab };
     renderPreview(tab, result);
+    _scrollToPreview(tab);
   } catch (e) {
     _setImportResult(tab, '');
     alert('预览失败：' + e.message);
@@ -243,6 +251,9 @@ function showImportResult(tab, result) {
     </div>
   `);
   _cfgPreviewCache = null;
+  _scrollToPreview(tab);
+  if (typeof loadDirs === 'function') loadDirs();
+  if (typeof loadLinks === 'function') loadLinks();
 }
 
 // ---- 🤖 默认 CLI ----
@@ -331,7 +342,7 @@ async function saveDefaultCLI() {
       evalCliSel.value = preferredCli;
       if (typeof onEvalCliChange === 'function') onEvalCliChange();
     }
-    status.textContent = `已保存 · ${preferredCli} · 执行 claude=${claudeDefault}/cbc=${cbcDefault} · 评估 claude=${claudeEval}/cbc=${cbcEval}`;
+    status.innerHTML = `已保存 · <span style="color:${preferredCli==='cbc'?'#f59e0b':'#3b82f6'}">${preferredCli}</span> · 执行 <span style="color:#3b82f6">claude</span>=${claudeDefault} <span style="color:#f59e0b">cbc</span>=${cbcDefault} · 评估 <span style="color:#3b82f6">claude</span>=${claudeEval} <span style="color:#f59e0b">cbc</span>=${cbcEval}`;
   } catch (e) {
     status.textContent = '保存失败：' + e.message;
   }

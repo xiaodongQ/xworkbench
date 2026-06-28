@@ -183,7 +183,14 @@
     <div id="recent-list" style="max-height:320px;overflow-y:auto"></div>
 
     <div class="chart-section">
-      <div class="chart-title">任务趋势（近7日）</div>
+      <div class="chart-title" style="display:flex;align-items:center;gap:12px">
+        <span>任务趋势</span>
+        <span id="chart-range-btns" style="display:flex;gap:4px">
+          <button class="btn btn-small" onclick="switchChartRange('7d')" id="btn-range-7d" style="padding:2px 10px;font-size:11px">近7日</button>
+          <button class="btn btn-small" onclick="switchChartRange('1m')" id="btn-range-1m" style="padding:2px 10px;font-size:11px">1个月</button>
+          <button class="btn btn-small" onclick="switchChartRange('6m')" id="btn-range-6m" style="padding:2px 10px;font-size:11px">半年</button>
+        </span>
+      </div>
       <div class="chart-bars" id="chart-bars"></div>
     </div>
   </div>
@@ -383,11 +390,11 @@
         <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
           <label style="display:flex;gap:8px;align-items:center;cursor:pointer;font-size:14px">
             <input type="radio" name="cfg-pref-cli" value="claude">
-            <span><strong>claude</strong> <span style="color:var(--text-secondary);font-size:12px">(默认 · sonnet/haiku/opus)</span></span>
+            <span><strong style="color:#3b82f6">claude</strong> <span style="color:var(--text-secondary);font-size:12px">(默认 · sonnet/haiku/opus)</span></span>
           </label>
           <label style="display:flex;gap:8px;align-items:center;cursor:pointer;font-size:14px">
             <input type="radio" name="cfg-pref-cli" value="cbc">
-            <span><strong>cbc</strong> <span style="color:var(--text-secondary);font-size:12px">(Codebuddy / GLM 系模型)</span></span>
+            <span><strong style="color:#f59e0b">cbc</strong> <span style="color:var(--text-secondary);font-size:12px">(Codebuddy / GLM 系模型)</span></span>
           </label>
         </div>
 
@@ -397,11 +404,11 @@
             <label style="font-size:13px;font-weight:500;display:block;margin-bottom:6px">执行默认模型</label>
             <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
               <span style="display:flex;gap:6px;align-items:center;font-size:13px">
-                <span style="color:var(--text-secondary)">claude</span>
+                <span style="color:#3b82f6;font-weight:600">claude</span>
                 <select id="cfg-default-claude" style="padding:4px 8px"></select>
               </span>
               <span style="display:flex;gap:6px;align-items:center;font-size:13px">
-                <span style="color:var(--text-secondary)">cbc</span>
+                <span style="color:#f59e0b;font-weight:600">cbc</span>
                 <select id="cfg-default-cbc" style="padding:4px 8px"></select>
               </span>
             </div>
@@ -410,11 +417,11 @@
             <label style="font-size:13px;font-weight:500;display:block;margin-bottom:6px">评估默认模型</label>
             <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
               <span style="display:flex;gap:6px;align-items:center;font-size:13px">
-                <span style="color:var(--text-secondary)">claude</span>
+                <span style="color:#3b82f6;font-weight:600">claude</span>
                 <select id="cfg-eval-default-claude" style="padding:4px 8px"></select>
               </span>
               <span style="display:flex;gap:6px;align-items:center;font-size:13px">
-                <span style="color:var(--text-secondary)">cbc</span>
+                <span style="color:#f59e0b;font-weight:600">cbc</span>
                 <select id="cfg-eval-default-cbc" style="padding:4px 8px"></select>
               </span>
             </div>

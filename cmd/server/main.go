@@ -541,6 +541,14 @@ func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 		ArchivedTasks     int `json:"archived_tasks"`
 		ExceptionTasks    int `json:"exception_tasks"`
 		TotalExp          int `json:"total_exp"`
+		DailyStats        []struct {
+			Date  string `json:"date"`
+			Count int    `json:"count"`
+		} `json:"daily_stats"`
+	}
+	range_ := r.URL.Query().Get("range")
+	if range_ == "" {
+		range_ = "7d"
 	}
 	all, _ := s.db.List(backend.TaskFilter{Limit: 10000, Offset: 0})
 	st := Stats{TotalTasks: len(all)}
@@ -557,6 +565,67 @@ func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 		case backend.TaskStatusException:
 			st.ExceptionTasks++
 		}
+	}
+	// 按 range 计算每日/每周统计
+	now := time.Now()
+	var daily map[string]int
+	switch range_ {
+	case "1m":
+		daily = make(map[string]int)
+		for i := 29; i >= 0; i-- {
+			d := now.AddDate(0, 0, -i)
+			daily[d.Format("2006-01-02")] = 0
+		}
+		for _, t := range all {
+			dateStr := t.CreatedAt.Format("2006-01-02")
+			if _, ok := daily[dateStr]; ok {
+				daily[dateStr]++
+			}
+		}
+	case "6m":
+		daily = make(map[string]int)
+		// 按周分组（周一为起始）
+		for i := 25; i >= 0; i-- {
+			d := now.AddDate(0, 0, -i*7)
+			// 调整到本周一
+			weekday := int(d.Weekday())
+			if weekday == 0 {
+				weekday = 7
+			}
+			monday := d.AddDate(0, 0, -(weekday - 1))
+			key := monday.Format("2006-01-02")
+			daily[key] = 0
+		}
+		for _, t := range all {
+			tDate := t.CreatedAt
+			weekday := int(tDate.Weekday())
+			if weekday == 0 {
+				weekday = 7
+			}
+			monday := tDate.AddDate(0, 0, -(weekday - 1))
+			key := monday.Format("2006-01-02")
+			if _, ok := daily[key]; ok {
+				daily[key]++
+			}
+		}
+	default: // "7d"
+		daily = make(map[string]int)
+		for i := 6; i >= 0; i-- {
+			d := now.AddDate(0, 0, -i)
+			daily[d.Format("2006-01-02")] = 0
+		}
+		for _, t := range all {
+			dateStr := t.CreatedAt.Format("2006-01-02")
+			if _, ok := daily[dateStr]; ok {
+				daily[dateStr]++
+			}
+		}
+	}
+	for dateStr, count := range daily {
+		st.DailyStats = append(st.DailyStats, struct {
+			Date  string `json:"date"`
+			Count int    `json:"count"`
+		}{Date: dateStr, Count: count})
 	}
 	exps, _ := s.expDB.Search("")
 	st.TotalExp = len(exps)
