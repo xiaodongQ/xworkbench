@@ -1213,7 +1213,8 @@ func (s *APIServer) handleExecutionEvaluate(w http.ResponseWriter, r *http.Reque
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	// 默认值跟随 config.json 的 preferred_cli（单一来源），改 preferred_cli 后评估 CLI 自动跟随
-	if req.CliType == "" {
+	// evaluator 必须是真实 AI CLI（claude/cbc），shell 不能做评估
+	if req.CliType == "" || !config.IsValidCLI(req.CliType) {
 		req.CliType = preferredCLI()
 	}
 	if req.Model == "" {
@@ -1264,7 +1265,8 @@ func (s *APIServer) handleExecutionEvaluateChain(w http.ResponseWriter, r *http.
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	// 默认值跟随 config.json 的 preferred_cli（单一来源）
-	if req.CliType == "" {
+	// evaluator 必须是真实 AI CLI（claude/cbc），shell 不能做评估
+	if req.CliType == "" || !config.IsValidCLI(req.CliType) {
 		req.CliType = preferredCLI()
 	}
 	if req.Model == "" {
@@ -2692,7 +2694,8 @@ func (s *APIServer) handleTaskReevaluate(w http.ResponseWriter, r *http.Request)
 	var req struct{ CliType, Model string }
 	json.NewDecoder(r.Body).Decode(&req)
 	// 默认值跟随 config.json 的 preferred_cli（单一来源）
-	if req.CliType == "" {
+	// evaluator 必须是真实 AI CLI（claude/cbc），shell 不能做评估
+	if req.CliType == "" || !config.IsValidCLI(req.CliType) {
 		req.CliType = preferredCLI()
 	}
 	if req.Model == "" {
@@ -2821,7 +2824,14 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 		})
 
 		// 拼上输出目录约定：让 AI 知道 run-loop 写文件往 data/ai-task-dir/<taskID>/ 落
-		loopPrompt := req.Prompt + fmt.Sprintf(taskpkg.OutputDirHintTpl, paths.AITaskDir(taskID))
+		// 仅限 claude/cbc（AI 写文件场景）；shell 类型无文件写需求，且 backtick 路径
+		// 在 sh -c "..." 里会被 shell 当作命令执行导致 exit_code=127。
+		var loopPrompt string
+		if req.CliType == "claude" || req.CliType == "cbc" {
+			loopPrompt = req.Prompt + fmt.Sprintf(taskpkg.OutputDirHintTpl, paths.AITaskDir(taskID))
+		} else {
+			loopPrompt = req.Prompt
+		}
 		skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
 		var (
 			cmd     []string
@@ -2884,7 +2894,10 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 			logger.Warnw("run-loop executor failed", "task_id", taskID, "iteration", i+1, "err", runErr.Error())
 		} else {
 			// evaluator 只在执行成功时跑；失败时跳过（避免给 broken execution 打分）
-			if evID, err := evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, req.Prompt, req.CliType, model); err == nil {
+			// evaluator 必须用真实 AI CLI（claude/cbc），不能用任务执行的 cli_type（可能是 shell）
+			evalCLI := preferredCLI()
+			evalModel := evalDefaultModel(req.CliType)
+			if evID, err := evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, req.Prompt, evalCLI, evalModel); err == nil {
 				if evs, _ := s.evalDB.ListByExecution(exec.ID); len(evs) > 0 {
 					step.Score = &evs[0].Score
 				}
@@ -2974,15 +2987,17 @@ func (s *APIServer) handleTaskLearn(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	go func() {
+		taskPrompt := prompt
 		reflectPrompt := fmt.Sprintf(`你是 xworkbench 的自我学习模块。请分析任务执行记录，提取可复用经验。
 
-任务：%s
+任务标题：%s
+任务描述：%s
 命令：%s
 退出码：%d
 输出：%s
 
-输出 JSON：{"module":"<领域>","scene":"<场景>","keywords":"<关键词>","tool_usage":"<使用的工具>","lesson":"<教训，50-200字>","code_snippet":"<可复用代码，可为空>"}
-如果执行失败，重点描述失败原因。`, task.Title, exec.Command, exec.ExitCode, func(s string, n int) string {
+输出 JSON：{"module":"<领域>","scene":"<场景>","keywords":"<关键词>","tool_usage":"<使用的工具>"，"lesson":"<教训，50-200字>","code_snippet":"<可复用代码，可为空>"}
+如果执行失败，重点描述失败原因。`, task.Title, taskPrompt, exec.Command, exec.ExitCode, func(s string, n int) string {
 			if len(s) <= n {
 				return s
 			}
@@ -3042,22 +3057,35 @@ func parseLearnOutput(output string, task *backend.Task, exec *backend.Execution
 			f.Module = "debug"
 		}
 	}
-	if f.Lesson == "" {
+	// Lesson: 优先用 JSON 的 lesson 字段（50-200字反思），fallback 到首行长句
+	lesson := f.Lesson
+	if lesson == "" {
 		lines := strings.Split(strings.TrimSpace(output), "\n")
 		for _, l := range lines {
 			l = strings.TrimSpace(l)
 			if len(l) > 30 {
-				f.Lesson = l
+				lesson = l
 				break
 			}
 		}
+	}
+	// Details: 用 lesson + tool_usage + code_snippet 组装（不要只存 command）
+	details := lesson
+	if f.ToolUsage != "" {
+		details += "\n\n使用的工具：\n" + f.ToolUsage
+	}
+	if f.CodeSnippet != "" {
+		details += "\n\n可复用代码片段：\n" + f.CodeSnippet
+	}
+	if details == "" {
+		details = exec.Command
 	}
 	return &backend.Experience{
 		ID:       uuid.New().String(),
 		Module:   f.Module,
 		Scene:    task.Title,
 		Keywords: f.Keywords,
-		Details:  exec.Command,
+		Details:  details,
 	}
 }
 
