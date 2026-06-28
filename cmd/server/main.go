@@ -802,7 +802,10 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		// 解析 claude -p --output-format json 输出中的 session_id（用于 --resume 继续对话）
 		resumeSessionID := extractResumeSessionID(out)
 		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
-		_ = s.db.UpdateStatus(id, status, "factory-agent")
+		// cancel 场景：handleTaskCancel 已标 task 为 failed，goroutine skip 重复更新
+		if runErr == nil || !strings.Contains(runErr.Error(), "context canceled") {
+			_ = s.db.UpdateStatus(id, status, "factory-agent")
+		}
 		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 			"execution_id": exec.ID,
 			"task_id":      id,
@@ -864,6 +867,12 @@ func (s *APIServer) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cancel()
+	// 立即标 task 为 failed，并广播 ChannelTask 让 tasks Tab 即时刷新
+	_ = s.db.UpdateStatus(id, backend.TaskStatusException, "")
+	s.hub.Broadcast(wsmsg.ChannelTask, map[string]any{
+		"task_id": id,
+		"status":  backend.TaskStatusException,
+	})
 	writeJSON(w, map[string]any{"task_id": id, "cancelled": true})
 }
 
