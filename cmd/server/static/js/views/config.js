@@ -342,7 +342,7 @@ async function saveDefaultCLI() {
       evalCliSel.value = preferredCli;
       if (typeof onEvalCliChange === 'function') onEvalCliChange();
     }
-    status.innerHTML = `已保存 · <span style="color:${preferredCli==='cbc'?'#f59e0b':'#3b82f6'}">${preferredCli}</span> · 执行 <span style="color:#3b82f6">claude</span>=${claudeDefault} <span style="color:#f59e0b">cbc</span>=${cbcDefault} · 评估 <span style="color:#3b82f6">claude</span>=${claudeEval} <span style="color:#f59e0b">cbc</span>=${cbcEval}`;
+    status.innerHTML = `已保存 · <span style="color:${preferredCli==='cbc'?'#8b5cf6':'#3b82f6'}">${preferredCli}</span> · 执行 <span style="color:#3b82f6">claude</span>=${claudeDefault} <span style="color:#8b5cf6">cbc</span>=${cbcDefault} · 评估 <span style="color:#3b82f6">claude</span>=${claudeEval} <span style="color:#8b5cf6">cbc</span>=${cbcEval}`;
   } catch (e) {
     status.textContent = '保存失败：' + e.message;
   }

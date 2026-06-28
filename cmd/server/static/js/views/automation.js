@@ -478,7 +478,7 @@ async function loadRecentExecutions() {
         : '<span style="width:14px;flex-shrink:0;display:inline-block"></span>';
       const groupIcon = hasKids ? '💬' : src;
       const cliLabel = e.cli_type ? `[${e.cli_type}]` : '';
-      const cliColor = e.cli_type === 'cbc' ? '#f59e0b' : e.cli_type === 'shell' ? '#10b981' : '#3b82f6';
+      const cliColor = e.cli_type === 'cbc' ? '#8b5cf6' : e.cli_type === 'shell' ? '#10b981' : '#3b82f6';
       const groupTitle = hasKids ? `<b>[会话链 ${groupMap[e.id].children.length + 1} 轮]</b> ` : '';
       return `<div style="${rowStyle}" data-exec-id="${e.id}">
         ${toggle}
