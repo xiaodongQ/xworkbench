@@ -524,11 +524,15 @@ tr:last-child td { border-bottom: none; }
 
 .scheduled-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
 .scheduled-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
-.scheduled-item .s-name { flex: 1; font-weight: 500; }
-.scheduled-item .s-cron { font-family: monospace; color: var(--text-secondary); font-size: 11px; }
-.scheduled-item .s-status { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--hover); color: var(--text-secondary); }
-.scheduled-item .s-status.success { background: rgba(16, 185, 129, 0.15); color: var(--archived); }
-.scheduled-item .s-status.failed { background: rgba(239, 68, 68, 0.15); color: var(--exception); }
+.s-name { flex: 1; font-weight: 500; }
+.s-cron { font-family: monospace; color: var(--text-secondary); font-size: 11px; }
+.s-status { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--hover); color: var(--text-secondary); }
+.s-status.pending    { background: rgba(202, 138, 4, 0.12); color: #ca8a04; }
+.s-status.success     { background: rgba(16, 185, 129, 0.15); color: var(--archived); }
+.s-status.failed      { background: rgba(239, 68, 68, 0.15); color: var(--exception); }
+.s-status.timeout     { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.s-status.cancelled   { background: rgba(139, 92, 246, 0.12); color: #8b5cf6; }
+.s-status.build_error { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 /* 终端按钮 */

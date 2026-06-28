@@ -932,7 +932,14 @@ func (s *APIServer) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
 	cancel, ok := s.running[id]
 	s.mu.Unlock()
 	if !ok {
-		writeErr(w, http.StatusNotFound, "no running execution for task")
+		// 没有 in-flight goroutine（WS 断连 / 服务重启导致 execution 已结束但 task 状态未同步），
+		// 仍然强制将 task 标为异常，不返回 404（用户需要的是"把我从运行中解救出来"）。
+		_ = s.db.UpdateStatus(id, backend.TaskStatusException, "")
+		s.hub.Broadcast(wsmsg.ChannelTask, map[string]any{
+			"task_id": id,
+			"status":  backend.TaskStatusException,
+		})
+		writeJSON(w, map[string]any{"task_id": id, "cancelled": true, "forced": true})
 		return
 	}
 	cancel()

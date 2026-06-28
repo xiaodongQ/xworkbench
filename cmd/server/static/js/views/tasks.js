@@ -194,7 +194,7 @@ function taskOpsByStatus(t) {
              `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="归档">归档</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'running':
-      return `<button class="btn btn-small" style="flex-shrink:0;background:#94a3b8;color:#fff;opacity:0.5" title="任务执行中，请在自动化页面查看">⚡ 执行中...</button>` +
+      return `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="cancelTask('${id}')" title="强制取消卡住的任务执行（将任务状态置为异常）">⚠ 取消</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'archived':
       return `<button class="btn btn-small" style="flex-shrink:0" onclick="reopenTask('${id}')" title="归档→重新打开回到 pending">↻ 重新打开</button>` +
@@ -221,6 +221,13 @@ async function unclaimTask(id) {
   if (!confirm('确认取消认领？状态会回到 pending，清空 maintainer/started_at/heartbeat。')) return;
   const r = await fetch(API + '/api/tasks/' + id + '/unclaim', {method:'POST'});
   if (!r.ok) { const b = await r.json().catch(() => ({})); alert('取消认领失败：' + (b.error || r.statusText)); return; }
+  reloadCurrentTab();
+}
+
+async function cancelTask(id) {
+  if (!confirm('确认取消该任务的执行？\n\n适用于：WS 断连或服务重启后，执行已结束但页面仍显示"运行中"。点击后任务将标记为异常。')) return;
+  const r = await fetch(API + '/api/tasks/' + id + '/cancel', {method:'POST'});
+  if (!r.ok) { const b = await r.json().catch(() => ({})); alert('取消失败：' + (b.error || r.statusText)); return; }
   reloadCurrentTab();
 }
 
