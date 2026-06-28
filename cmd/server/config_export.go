@@ -119,12 +119,9 @@ func (s *APIServer) handleConfigExport(w http.ResponseWriter, r *http.Request) {
 			}
 			parts = append(parts, fmt.Sprintf(`  "%s": %s`, t, val))
 		}
-		// 给所有字段加前缀逗号，最后一个字段要去掉逗号
-		for i := 2; i < len(parts); i++ {
+		// 给所有字段（除第一个 "{" 外）加前缀逗号，最后一个字段不加
+		for i := 1; i < len(parts)-1; i++ {
 			parts[i] = "," + parts[i]
-		}
-		if len(parts) > 2 {
-			parts[len(parts)-1] = parts[len(parts)-1][1:] // 去掉最后一个的前缀逗号
 		}
 		parts = append(parts, "}")
 		w.Write([]byte("{\n" + strings.Join(parts, "\n") + "\n"))
