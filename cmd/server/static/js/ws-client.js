@@ -113,9 +113,13 @@ function handleExecStream(payload) {
         })
         .catch(err => console.error('[ws-client] fetch exec on done:', err));
     }
-    // 任何 tab 看到 exec done 都刷一下“最近执行”列表
+    // 任何 tab 看到 exec done 都刷一下对应列表
     if (currentTab === 'automation' && typeof loadRecentExecutions === 'function') {
       loadRecentExecutions();
+    }
+    // tasks Tab：手动任务列表也要刷新（任务执行完后状态要从 running 变为 archived/exception）
+    if (currentTab === 'tasks' && typeof loadTasks === 'function') {
+      loadTasks();
     }
   }
 }
