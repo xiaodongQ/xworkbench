@@ -163,13 +163,13 @@
   /* 主内容区 */
   .main {
     margin-left: var(--sidebar-w);
-    padding: 40px 48px 80px;
+    padding: 24px 40px 60px;
     max-width: 900px;
   }
 
   /* 1级导航区块 */
   .section {
-    margin-bottom: 56px;
+    margin-bottom: 32px;
     scroll-margin-top: 40px;
   }
 
@@ -177,11 +177,11 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    font-size: 26px;
+    font-size: 22px;
     font-weight: 700;
     color: var(--text);
-    margin-bottom: 24px;
-    padding-bottom: 16px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
     border-bottom: 2px solid var(--border);
     cursor: pointer;
     user-select: none;
@@ -216,16 +216,16 @@
   /* 功能卡片网格 */
   .feature-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 16px;
-    margin-bottom: 24px;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
   }
 
   .feature-card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
+    border-radius: 10px;
+    padding: 14px;
     transition: all 0.2s;
   }
 
@@ -234,23 +234,23 @@
     box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
   }
 
-  .feature-card .icon { font-size: 28px; margin-bottom: 12px; }
-  .feature-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
-  .feature-card p { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+  .feature-card .icon { font-size: 22px; margin-bottom: 8px; }
+  .feature-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .feature-card p { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
 
   /* 信息说明 */
   .info-block {
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 16px 20px;
-    margin-bottom: 14px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
   }
 
   .info-block h4 {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     color: var(--text);
     display: flex;
     align-items: center;
@@ -259,12 +259,12 @@
 
   .info-block ul {
     list-style: none;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-secondary);
   }
 
   .info-block li {
-    padding: 4px 0;
+    padding: 3px 0;
     padding-left: 16px;
     position: relative;
     line-height: 1.4;
@@ -481,8 +481,8 @@
     background: linear-gradient(135deg, var(--primary-light) 0%, #dbeafe 100%);
     border: 2px solid var(--primary);
     border-radius: 16px;
-    padding: 40px;
-    margin-bottom: 24px;
+    padding: 28px;
+    margin-bottom: 16px;
   }
 
   [data-theme="dark"] .intro-hero {
@@ -490,30 +490,30 @@
   }
 
   .intro-hero h2 {
-    font-size: 28px;
+    font-size: 22px;
     font-weight: 700;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     color: var(--text);
   }
 
   .intro-hero .sub {
-    font-size: 16px;
+    font-size: 14px;
     color: var(--text-secondary);
-    margin-bottom: 20px;
+    margin-bottom: 14px;
   }
 
   .intro-hero .tags {
     display: flex;
-    gap: 12px;
+    gap: 8px;
     flex-wrap: wrap;
   }
 
   .intro-hero .tag {
     background: var(--card);
     border: 1px solid var(--border);
-    padding: 6px 14px;
+    padding: 4px 12px;
     border-radius: 20px;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-secondary);
   }
 
@@ -526,15 +526,15 @@
 
   /* 2级内容区 */
   .sub-section {
-    margin-bottom: 40px;
+    margin-bottom: 24px;
     scroll-margin-top: 40px;
   }
 
   .sub-section-title {
-    font-size: 20px;
+    font-size: 17px;
     font-weight: 700;
-    margin-bottom: 16px;
-    padding-bottom: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
     border-bottom: 1px solid var(--border);
     color: var(--text);
   }
@@ -584,6 +584,7 @@
   <div class="sidebar-header">
     <div class="sidebar-logo"><span>⚡</span> xworkbench</div>
     <div class="sidebar-subtitle">All-in-One 个人工作台 v2</div>
+    <button class="theme-toggle" id="theme-icon" onclick="toggleTheme()">🌙</button>
   </div>
   <nav class="sidebar-nav">
     <div class="nav-group" id="nav-intro">
@@ -652,10 +653,10 @@
         <p class="sub">统一入口：快捷工具 · 任务管理 · 自动化 · AI 对话</p>
         <div class="tags">
           <span class="tag primary">多平台</span>
-          <span class="tag">定时调度</span>
-          <span class="tag">AI 自治</span>
-          <span class="tag">远程 Agent</span>
-          <span class="tag">经验沉淀</span>
+          <span class="tag primary">定时调度</span>
+          <span class="tag primary">AI 自治</span>
+          <span class="tag primary">远程 Agent</span>
+          <span class="tag primary">经验沉淀</span>
         </div>
       </div>
 
@@ -771,6 +772,14 @@
         <div class="screenshot-wrap">
           <img src="screenshots/dashboard-01.png" alt="快捷工具" loading="lazy">
           <div class="screenshot-caption">总览页面左侧：快捷链接、待办事项 widget</div>
+        </div>
+        <div class="screenshot-wrap">
+          <img src="screenshots/08-shortcuts-dir.png" alt="快捷目录" loading="lazy">
+          <div class="screenshot-caption">快捷目录：点击直接在 Finder/xdg-open/explorer 打开本地或远程目录</div>
+        </div>
+        <div class="screenshot-wrap">
+          <img src="screenshots/09-shortcuts-term.png" alt="终端快捷" loading="lazy">
+          <div class="screenshot-caption">终端快捷：点击直接在 WezTerm/Terminal.app 等终端中打开指定目录</div>
         </div>
       </div>
 
