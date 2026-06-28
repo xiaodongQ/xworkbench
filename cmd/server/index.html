@@ -785,7 +785,7 @@
 </div>
 
 <!-- Experience Picker Modal -->
-<div id="exp-picker-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeExpPicker()">
+<div id="exp-picker-modal" class="modal-overlay hidden" >
   <div class="modal" style="max-width:700px">
     <h2>选择经验库 <span style="font-size:12px;color:var(--text-secondary);font-weight:400">（可多选）</span></h2>
     <div class="form-group">
@@ -801,7 +801,7 @@
 </div>
 
 <!-- Exp Modal -->
-<div id="exp-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeExpModal()">
+<div id="exp-modal" class="modal-overlay hidden" >
   <div class="modal">
     <h2 id="exp-modal-title">添加经验</h2>
     <input type="hidden" id="exp-id">
@@ -823,7 +823,7 @@
 </div>
 
 <!-- Link Modal -->
-<div id="link-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeLinkModal()">
+<div id="link-modal" class="modal-overlay hidden" >
   <div class="modal">
     <h2>添加链接</h2>
     <div class="form-group"><label>名称 <span class="field-hint">必填</span></label><input id="link-name" placeholder="如 GitHub"></div>
@@ -837,7 +837,7 @@
 </div>
 
 <!-- Dir Modal -->
-<div id="dir-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeDirModal()">
+<div id="dir-modal" class="modal-overlay hidden" >
   <div class="modal">
     <h2 id="dir-modal-title">添加目录</h2>
     <div class="form-group"><label>类型</label>
@@ -870,7 +870,7 @@
 </div>
 
 <!-- Todo Path Modal -->
-<div id="todo-path-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeTodoPathModal()">
+<div id="todo-path-modal" class="modal-overlay hidden">
   <div class="modal">
     <h2>设置 todo.md 路径</h2>
     <div class="form-group"><label>路径 <span class="field-hint">本地绝对路径</span></label><input id="todo-path-input" placeholder="/Users/me/notes/todo.md"></div>
@@ -883,7 +883,7 @@
 </div>
 
 <!-- Todo Add Modal -->
-<div id="todo-add-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeTodoAddModal()">
+<div id="todo-add-modal" class="modal-overlay hidden">
   <div class="modal">
     <h2>添加待办</h2>
     <div class="form-group"><label>内容 <span class="field-hint">必填</span></label><input id="todo-add-input" placeholder="如 写周报"></div>
@@ -895,7 +895,7 @@
 </div>
 
 <!-- Scheduled Modal -->
-<div id="scheduled-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeScheduledModal()">
+<div id="scheduled-modal" class="modal-overlay hidden" >
   <div class="modal">
     <h2 id="sched-modal-title">新建定时任务</h2>
     <input type="hidden" id="sched-id">
@@ -1012,7 +1012,7 @@
 </div>
 
 <!-- 立即运行 modal:任务执行用,选 command_type + model -->
-<div id="run-task-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeRunTaskModal()">
+<div id="run-task-modal" class="modal-overlay hidden" >
   <div class="modal" style="max-width:480px">
     <h2 style="margin:0 0 12px 0;font-size:16px">立即运行任务</h2>
     <div class="form-group" style="margin-bottom:10px">
@@ -1053,7 +1053,7 @@
 </div>
 
 <!-- 快捷目录设置弹窗 -->
-<div id="dir-settings-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeDirSettingsModal()">
+<div id="dir-settings-modal" class="modal-overlay hidden" >
   <div class="modal" style="max-width:400px">
     <h2 style="margin:0 0 12px 0;font-size:16px">快捷目录设置</h2>
     <div class="form-group">
