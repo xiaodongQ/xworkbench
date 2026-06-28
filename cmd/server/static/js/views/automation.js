@@ -580,7 +580,18 @@ async function viewExecutionDetail(id) {
     document.getElementById('exec-detail-cmd').value = exec.command || '';
     // 解析 claude -p --output-format json：取 result 字段，附带 num_turns 元数据
     const renderedOutput = renderExecOutput(exec.output);
-    document.getElementById('exec-detail-output').value = renderedOutput;
+    // 默认只显示 AI 答复部分，辅助信息可切换展开
+    const aiReplyOnly = extractAIReplyOnly(renderedOutput);
+    const outputEl = document.getElementById('exec-detail-output');
+    outputEl.value = aiReplyOnly;
+    outputEl._fullOutput = renderedOutput;       // 存完整版
+    outputEl._showingFull = false;               // 当前状态
+    const toggle = document.getElementById('exec-output-toggle');
+    if (toggle) {
+      const hasExtra = renderedOutput !== aiReplyOnly;
+      toggle.style.display = hasExtra ? 'inline' : 'none';
+      toggle.textContent = hasExtra ? '▼ 显示全部输出（含 CLI 元数据 + AI 动作清单）' : '';
+    }
     document.getElementById('exec-detail-error').value = exec.error || '';
     const isRunning = !exec.completed_at;
     const ok = !isRunning && exec.exit_code === 0;
@@ -1074,6 +1085,30 @@ function renderExecOutput(raw) {
   return raw;
 }
 
+// extractAIReplyOnly 从 renderExecOutput 的输出中只提取 AI 答复部分，
+// 用于默认折叠显示。
+function extractAIReplyOnly(rendered) {
+  if (!rendered) return rendered;
+  // 第一个 "=== AI 答复 ===\n" 到第一个 "\n\n---" 之前是 AI 答复
+  const match = rendered.match(/^=== AI 答复 ===\n([\s\S]*?)(?=\n\n---)/);
+  return match ? match[0] : rendered;
+}
+
+// toggleExecOutput 切换执行输出的完整/简洁视图。
+function toggleExecOutput(link) {
+  const el = document.getElementById('exec-detail-output');
+  if (!el || !el._fullOutput) return;
+  if (el._showingFull) {
+    el.value = extractAIReplyOnly(el._fullOutput);
+    el._showingFull = false;
+    link.textContent = '▶ 显示全部输出（含 CLI 元数据 + AI 动作清单）';
+  } else {
+    el.value = el._fullOutput;
+    el._showingFull = true;
+    link.textContent = '▼ 收起辅助信息';
+  }
+}
+
 // extractSessionId 从原始输出中提取 session_id（claude）或 sessionId（cbc）。
 function extractSessionId(raw) {
   if (!raw) return null;
@@ -1139,7 +1174,7 @@ function toggleAllExecDetails() {
   _execDetailsExpanded = !_execDetailsExpanded;
   const body = document.getElementById('exec-conversation-body');
   if (!body) return;
-  body.querySelectorAll('pre[id^="tl-cmd-"], pre[id^="tl-out-"]').forEach(el => {
+  body.querySelectorAll('pre[id^="tl-cmd-"], pre[id^="tl-out-"], pre[id^="tl-fullout-"]').forEach(el => {
     if (_execDetailsExpanded) {
       el.classList.remove('hidden');
     } else {
@@ -1201,6 +1236,7 @@ function renderExecConversationTimeline(execs) {
     const hasCmd = e.command && e.command.length > 0;
     // output 默认展开，尝试解析 JSON 提取 result 字段
     const outId = 'tl-out-' + e.id.replace(/[^a-zA-Z0-9]/g, '_');
+    const fullOutId = 'tl-fullout-' + e.id.replace(/[^a-zA-Z0-9]/g, '_');
     let out = e.output ? e.output : '';
     let hasOut = e.output && e.output.length > 0;
     // 尝试解析 JSON，提取 result 字段作为自然语言展示
@@ -1216,6 +1252,10 @@ function renderExecConversationTimeline(execs) {
         // 解析失败，使用原始内容
       }
     }
+    // 从 out 中提取 AI 答复（去掉动作清单），用于默认展示
+    const actionReportIdx = out.indexOf('## 动作清单');
+    const aiReplyForList = actionReportIdx !== -1 ? out.slice(0, actionReportIdx).trim() : out.trim();
+    const hasActionReport = actionReportIdx !== -1;
     // error 折叠展示
     const errId = 'tl-err-' + e.id.replace(/[^a-zA-Z0-9]/g, '_');
     const hasErr = e.error && e.error.length > 0;
@@ -1228,7 +1268,7 @@ function renderExecConversationTimeline(execs) {
           '<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">' + tag + '<span style="color:var(--text-secondary);font-size:10px">' + ts + '</span></div>' +
           '<div style="color:var(--text);font-size:11px;margin-bottom:4px"><b style="color:#0ea5e9">问:</b> ' + prompt + '</div>' +
           (hasCmd ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(){var p=document.getElementById(\'' + cmdId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');}else{p.classList.add(\'hidden\');}})()">▶ 命令</span><pre id="' + cmdId + '" class="hidden" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow-y:auto">' + cmd + '</pre></div>' : '') +
-          (hasOut ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(){var p=document.getElementById(\'' + outId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');}else{p.classList.add(\'hidden\');}})()">▶ 输出</span><pre id="' + outId + '" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:var(--archived)">' + esc(out) + '</pre></div>' : '') +
+          (hasOut ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(){var p=document.getElementById(\'' + outId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');}else{p.classList.add(\'hidden\');}})()">▶ 输出</span><pre id="' + outId + '" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:var(--archived)">' + esc(aiReplyForList) + '</pre>' + (hasActionReport ? '<a href="#" class="action-report-toggle" style="font-size:10px;color:var(--primary);text-decoration:none" onclick="var f=document.getElementById(\'' + fullOutId + '\');var t=this;if(f.classList.contains(\'hidden\')){f.classList.remove(\'hidden\');t.textContent=\'▼ 收起动作清单\';}else{f.classList.add(\'hidden\');t.textContent=\'▶ 含动作清单（辅助评估）\';}return false">▶ 含动作清单（辅助评估）</a><pre id="' + fullOutId + '" class="hidden" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:var(--archived)">' + esc(out) + '</pre>' : '') + '</div>' : '') +
           (hasErr ? '<div style="margin-bottom:4px;color:var(--exception);font-size:10px">✗ 错误: ' + err + '</div>' : '') +
         '</div>' +
       '</div>' +
