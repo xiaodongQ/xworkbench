@@ -148,6 +148,78 @@ func TestHandleTaskLearn_Success(t *testing.T) {
 	}
 }
 
+// TestHandleTaskReevaluate_Success 验证 reevaluate 在 task + execution 都存在时返回 200
+// 并启动后台 evaluator goroutine。handler 不等评估完成(异步模式),只验证入口校验 +
+// 返回体格式(execution_id / status=reevaluating / cli_type / model)。
+func TestHandleTaskReevaluate_Success(t *testing.T) {
+	s := newEvalTestServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/tasks/{id}/reevaluate", s.handleTaskReevaluate)
+
+	task := &backend.Task{ID: "reeval-task-1", Title: "reeval test"}
+	if err := s.db.Create(task); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	exec := &backend.Execution{
+		ID:        "reeval-exec-1",
+		TaskID:    "reeval-task-1",
+		Source:    "manual",
+		Command:   "echo hi",
+		Output:    "hi\n",
+		ExitCode:  0,
+		StartedAt: time.Now(),
+	}
+	if err := s.execDB.Create(exec); err != nil {
+		t.Fatalf("create execution: %v", err)
+	}
+
+	body := `{"cli_type":"claude","model":"haiku"}`
+	req := httptest.NewRequest("POST", "/api/tasks/reeval-task-1/reevaluate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("reevaluate status = %d, want 200, body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp["status"] != "reevaluating" {
+		t.Errorf("status = %v, want \"reevaluating\"", resp["status"])
+	}
+	if resp["execution_id"] != "reeval-exec-1" {
+		t.Errorf("execution_id = %v, want \"reeval-exec-1\"", resp["execution_id"])
+	}
+	if resp["cli_type"] != "claude" {
+		t.Errorf("cli_type = %v, want \"claude\"", resp["cli_type"])
+	}
+	if resp["model"] != "haiku" {
+		t.Errorf("model = %v, want \"haiku\"", resp["model"])
+	}
+}
+
+// TestHandleTaskReevaluate_NoExecution 验证 task 存在但没有任何 execution 时返 400。
+// 这是 reevaluate 独有的失败路径(learn 没有这条,因为它至少要有个 exec 才有意义)。
+func TestHandleTaskReevaluate_NoExecution(t *testing.T) {
+	s := newEvalTestServer(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/tasks/{id}/reevaluate", s.handleTaskReevaluate)
+
+	task := &backend.Task{ID: "reeval-empty-task", Title: "no exec"}
+	s.db.Create(task)
+
+	req := httptest.NewRequest("POST", "/api/tasks/reeval-empty-task/reevaluate", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("reevaluate no-exec code = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleTaskEvalHistory_WithExecutions(t *testing.T) {
 	s := newEvalTestServer(t)
 	mux := http.NewServeMux()

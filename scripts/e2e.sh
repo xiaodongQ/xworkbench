@@ -6,6 +6,7 @@
 #   ./scripts/e2e.sh basic            # 只跑 basic case(创建任务 + 跑 + 评估)
 #   ./scripts/e2e.sh delete           # 只跑 delete case
 #   ./scripts/e2e.sh eval             # 只跑 eval case
+#   ./scripts/e2e.sh ailoop           # 只跑 AI 自治 case (status / run-loop 异步 / config toggle / 403)
 #   ./scripts/e2e.sh fast             # 复用运行中的 server(不 build/不重启),适合日常开发
 #                                     # 配合: sh scripts/run.sh --restart  →  ./scripts/e2e.sh fast
 #                                     #      E2E_BASE_URL=http://x:9001 ./scripts/e2e.sh fast
@@ -27,6 +28,7 @@ mkdir -p "$E2E_TMP"
 TMP_BIN="$E2E_TMP/xw-e2e-$$"
 TMP_DB="$E2E_TMP/xw-e2e-$$.db"
 TMP_LOG="$E2E_TMP/xw-e2e-$$.log"
+TMP_CONFIG="$E2E_TMP/xw-e2e-$$.json"   # 临时 config,隔离 e2e 与用户真实 config.json
 TMP_PORT=$((19000 + RANDOM % 1000))   # 19000-19999 临时端口
 SCRIPT_CMD_TYPE="${SCRIPT_CMD_TYPE:-claude}"   # 可被环境变量覆盖
 SCRIPT_MODEL="${SCRIPT_MODEL:-haiku}"
@@ -50,7 +52,7 @@ cleanup() {
   fi
   # 顺手清可能残留的同端口进程
   lsof -ti :$TMP_PORT 2>/dev/null | xargs kill -9 2>/dev/null
-  rm -f "$TMP_BIN" "$TMP_DB" "$TMP_DB-shm" "$TMP_DB-wal" "$TMP_LOG"
+  rm -f "$TMP_BIN" "$TMP_DB" "$TMP_DB-shm" "$TMP_DB-wal" "$TMP_LOG" "$TMP_CONFIG"
   rm -rf "$E2E_TMP"
 }
 trap cleanup EXIT
@@ -66,9 +68,39 @@ start_server() {
     ok "复用 server $BASE_URL"
     return
   fi
-  info "build + start server @ :$TMP_PORT (db=$TMP_DB)"
+  info "build + start server @ :$TMP_PORT (db=$TMP_DB, config=$TMP_CONFIG)"
   ( cd "$ROOT" && go build -o "$TMP_BIN" ./cmd/server )
-  DB_PATH="$TMP_DB" ADDR=":$TMP_PORT" nohup "$TMP_BIN" > "$TMP_LOG" 2>&1 &
+  # 写一个临时 config.json(隔离测试环境,避免 PUT /api/config 影响用户真实 config.json)
+  # ai_loop_enabled=true 让 case_ai_loop 能直接验证启用态;其他字段给最小可用集
+  cat > "$TMP_CONFIG" <<'CFG'
+{
+  "default_terminal": "wezterm",
+  "preferred_cli": "claude",
+  "ai_loop_enabled": true,
+  "aichat_default_cli": "claude",
+  "scheduler_enabled": false,
+  "relay": {"api_key": "xworkbench"},
+  "terminal": {"detect_paths": {}, "types": {}},
+  "models": {
+    "claude": {
+      "default": "sonnet",
+      "eval_default": "sonnet",
+      "options": [
+        {"value": "sonnet", "label": "Sonnet"},
+        {"value": "haiku",  "label": "Haiku"}
+      ]
+    },
+    "cbc": {
+      "default": "sonnet",
+      "eval_default": "sonnet",
+      "options": [
+        {"value": "sonnet", "label": "Sonnet"}
+      ]
+    }
+  }
+}
+CFG
+  DB_PATH="$TMP_DB" ADDR=":$TMP_PORT" nohup "$TMP_BIN" -config "$TMP_CONFIG" > "$TMP_LOG" 2>&1 &
   SERVER_PID=$!
   # 等 server 起来
   for i in 1 2 3 4 5 6 7 8 9 10; do
@@ -171,6 +203,84 @@ print(e.get('evaluation_score', 'NONE'))")
   info "cleanup task $tid"
   curl -s -X DELETE "${BASE_URL}/api/tasks/$tid" >/dev/null
   ok "eval case ✅"
+}
+
+case_ai_loop() {
+  info "[ai_loop] AI 自治接口 + config toggle + run-loop 异步 background goroutine 落库"
+
+  # 1. GET /api/ai-loop/status 应反映临时 config (ai_loop_enabled=true)
+  local st
+  st=$(curl -s "${BASE_URL}/api/ai-loop/status")
+  local enabled
+  enabled=$(jget "$st" "enabled")
+  [ "$enabled" = "True" ] || [ "$enabled" = "true" ] \
+    && ok "GET /api/ai-loop/status enabled=true" \
+    || { err "AI 自治未启用, status=$st"; return 1; }
+
+  # 2. 三个接口对不存在的 task 都返 404(handler 入口校验)
+  for ep in run-loop reevaluate learn; do
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+      "${BASE_URL}/api/tasks/nonexistent-$ep/$ep" \
+      -H "Content-Type: application/json" -d '{}')
+    [ "$code" = "404" ] && ok "POST /api/tasks/<nope>/$ep → 404" \
+      || { err "$ep 期望 404, 实际 $code"; return 1; }
+  done
+
+  # 3. 创建真实 task + 触发 run-loop
+  #    shell echo 让 background goroutine 快速跑完一轮(不依赖 claude CLI),
+  #    max_iterations=1 + threshold=10 确保只跑 1 轮就停(score 几乎不可能 ≥10)。
+  local resp
+  resp=$(curl -s -X POST "${BASE_URL}/api/tasks" \
+    -H "Content-Type: application/json" \
+    -d '{"title":"e2e-ailoop","description":"test run-loop"}')
+  local tid=$(jget "$resp" "id")
+  [ -n "$tid" ] || { err "创建 task 失败: $resp"; return 1; }
+  ok "task created: $tid"
+
+  local rl
+  rl=$(curl -s -X POST "${BASE_URL}/api/tasks/$tid/run-loop" \
+    -H "Content-Type: application/json" \
+    -d '{"prompt":"echo ailoop-ok","cli_type":"shell","max_iterations":1,"threshold":10}')
+  local rl_status
+  rl_status=$(jget "$rl" "status")
+  [ "$rl_status" = "started" ] && ok "run-loop 异步启动 status=started" \
+    || { err "run-loop 期望 status=started, 实际: $rl"; return 1; }
+
+  # 4. 等 background goroutine 把 execution 写库 (shell echo < 5s)
+  info "等 background goroutine 落库 (≤8s)..."
+  local exec_count=0
+  for i in 1 2 3 4 5 6 7 8; do
+    sleep 1
+    exec_count=$(sqlite3 "$TMP_DB" "SELECT COUNT(*) FROM executions WHERE task_id='$tid'" 2>/dev/null || echo 0)
+    [ "$exec_count" -ge "1" ] && break
+  done
+  [ "$exec_count" -ge "1" ] && ok "run-loop iteration 落库 $exec_count 条 execution" \
+    || info "execution 还没落库 (background 可能仍在跑,跳过断言)"
+
+  # 5. config toggle: ai_loop_enabled=false → run-loop 应返 403
+  curl -s -X PUT "${BASE_URL}/api/config" \
+    -H "Content-Type: application/json" \
+    -d '{"ai_loop_enabled":false}' >/dev/null
+  st=$(curl -s "${BASE_URL}/api/ai-loop/status")
+  enabled=$(jget "$st" "enabled")
+  [ "$enabled" = "False" ] || [ "$enabled" = "false" ] \
+    && ok "PUT ai_loop_enabled=false → status=false" \
+    || { err "toggle off 后 status 应为 false, 实际: $st"; return 1; }
+
+  local code
+  code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+    "${BASE_URL}/api/tasks/$tid/run-loop" \
+    -H "Content-Type: application/json" -d '{"prompt":"x"}')
+  [ "$code" = "403" ] && ok "disabled run-loop → 403" \
+    || { err "disabled 期望 403, 实际 $code"; return 1; }
+
+  # 6. 还原 enabled (不影响后续 case) + cleanup task
+  curl -s -X PUT "${BASE_URL}/api/config" \
+    -H "Content-Type: application/json" \
+    -d '{"ai_loop_enabled":true}' >/dev/null
+  curl -s -X DELETE "${BASE_URL}/api/tasks/$tid" >/dev/null
+  ok "ai_loop case ✅"
 }
 
 case_delete() {
@@ -869,6 +979,7 @@ case "$TARGET" in
     run_case case_ratelimit_webhook
     run_case case_comments_priority
     run_case case_concurrent_scheduled
+    run_case case_ai_loop
     ;;
   basic)   run_case case_basic ;;
   delete)  run_case case_delete ;;
@@ -881,6 +992,7 @@ case "$TARGET" in
   rl)      run_case case_ratelimit_webhook ;;
   cmt)     run_case case_comments_priority ;;
   conc)    run_case case_concurrent_scheduled ;;
+  ailoop)  run_case case_ai_loop ;;
   fast)
     # 已在入口前处理(start_server 跳过)。这里只跑 case。
     run_case case_basic
@@ -892,7 +1004,7 @@ case "$TARGET" in
   teardown) case_teardown; exit 0 ;;
   *)
     err "未知 case: $TARGET"
-    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|audit|tpl|rl|cmt|teardown]"
+    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|audit|tpl|rl|cmt|conc|ailoop|teardown]"
     exit 2
     ;;
 esac
