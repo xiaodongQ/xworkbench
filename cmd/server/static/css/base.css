@@ -527,7 +527,7 @@ tr:last-child td { border-bottom: none; }
 .s-name { flex: 1; font-weight: 500; }
 .s-cron { font-family: monospace; color: var(--text-secondary); font-size: 11px; }
 .s-status { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--hover); color: var(--text-secondary); }
-.s-status.pending    { background: rgba(202, 138, 4, 0.12); color: #ca8a04; }
+.s-status.pending    { background: rgba(37, 99, 235, 0.12); color: var(--primary); }
 .s-status.success     { background: rgba(16, 185, 129, 0.15); color: var(--archived); }
 .s-status.failed      { background: rgba(239, 68, 68, 0.15); color: var(--exception); }
 .s-status.timeout     { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
