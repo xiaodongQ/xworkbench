@@ -1,0 +1,51 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: build (${{ matrix.os }}/${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            ext: tar.gz
+          - os: darwin
+            arch: arm64
+            ext: tar.gz
+          - os: windows
+            arch: amd64
+            ext: zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          VERSION_TAG="${GITHUB_REF#refs/tags/}" ./scripts/make_pack.sh
+          echo "PKG_DIR=xworkbench_${VERSION_TAG#v}" >> $GITHUB_ENV
+
+      - name: upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref }}
+          name: ${{ github.ref }}
+          draft: false
+          prerelease: false
+          files: |
+            ./dist/${{ env.PKG_DIR }}-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

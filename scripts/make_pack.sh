@@ -18,8 +18,11 @@ ext=""
 bin_name="xworkbench-${os}-${arch}${ext}"
 
 # 产物目录：dist/xworkbench_YYYYMMDD
-date_tag=$(date +%Y%m%d)
-pkg_dir="xworkbench_${date_tag}"
+# 支持环境变量 DATE_TAG 覆盖（用于 release 时传入版本号，如 DATE_TAG=1.0.0）
+# 去掉 v 前缀以匹配 Git tag 格式
+version_tag="${DATE_TAG:-$(date +%Y%m%d)}"
+version_tag="${version_tag#v}"
+pkg_dir="xworkbench_${version_tag}"
 OUT="${OUT:-./dist}/${pkg_dir}"
 rm -rf "$OUT"
 mkdir -p "$OUT/bin" "$OUT/data" "$OUT/scripts"
