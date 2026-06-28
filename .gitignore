@@ -26,3 +26,5 @@ internal/twosum/
 # 已被 data/ 涵盖，这里加显式条目做文档/防漏；claude/cbc 写出来的代码、
 # 中间产物都落这里，永远不会被误 commit
 data/ai-sandbox/
+.playwright-cli
+tasks/two-sum/
