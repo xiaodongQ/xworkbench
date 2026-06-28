@@ -43,82 +43,141 @@ func (s *APIServer) handleConfigExport(w http.ResponseWriter, r *http.Request) {
 				typeParam, time.Now().Format("20060102-150405")))
 	}
 
-	var out map[string]json.RawMessage
+	w.Header().Set("Content-Type", "application/json")
+
+	now := fmt.Sprintf(`"%s"`, time.Now().Format(time.RFC3339))
+
 	switch typeParam {
 	case "all":
-		out = map[string]json.RawMessage{
-			"version":         jsonRaw(`"1.0"`),
-			"exported_at":     jsonRaw(fmt.Sprintf(`"%s"`, time.Now().Format(time.RFC3339))),
-			"dir_shortcuts":   jsonRaw(mustMarshal(s.exportDirShortcuts())),
-			"web_links":       jsonRaw(mustMarshal(s.exportWebLinks())),
-			"experiences":     jsonRaw(mustMarshal(s.exportExperiences())),
-			"tasks_manual":    jsonRaw(mustMarshal(s.exportTasksByType("manual"))),
-			"tasks_scheduled": jsonRaw(mustMarshal(s.exportScheduledTasks())),
+		allOut := struct {
+			Version       string `json:"version"`
+			ExportedAt    string `json:"exported_at"`
+			DirShortcuts  any    `json:"dir_shortcuts"`
+			WebLinks      any    `json:"web_links"`
+			Experiences  any    `json:"experiences"`
+			TasksManual   any    `json:"tasks_manual"`
+			TasksScheduled any   `json:"tasks_scheduled"`
+		}{
+			Version:        "1.0",
+			ExportedAt:     now,
+			DirShortcuts:   s.exportDirShortcuts(),
+			WebLinks:       s.exportWebLinks(),
+			Experiences:    s.exportExperiences(),
+			TasksManual:    s.exportTasksByType("manual"),
+			TasksScheduled: s.exportScheduledTasks(),
 		}
+		b, _ := json.MarshalIndent(allOut, "", "  ")
+		w.Write(b)
+		return
 	case "tasks":
-		// 合并导出：手动任务 + 定时任务为同一 "tasks" 数组
-		// （前端系统配置页 "任务" tab 用；导入时按 task_type 区分走不同表）
 		manual := s.exportTasksAsUnified("manual")
 		sched := s.exportScheduledAsUnified()
 		merged := append(manual, sched...)
-		out = map[string]json.RawMessage{
-			"version":     jsonRaw(`"1.0"`),
-			"exported_at": jsonRaw(fmt.Sprintf(`"%s"`, time.Now().Format(time.RFC3339))),
-			"tasks":       jsonRaw(mustMarshal(merged)),
+		tasksOut := struct {
+			Version     string `json:"version"`
+			ExportedAt  string `json:"exported_at"`
+			Tasks       any    `json:"tasks"`
+		}{
+			Version:    "1.0",
+			ExportedAt: now,
+			Tasks:      merged,
 		}
+		b, _ := json.MarshalIndent(tasksOut, "", "  ")
+		w.Write(b)
+		return
 	default:
-		// 多个 type 用逗号分，每类作为顶层 key（与 all 形态一致）
+		// 多 type 用逗号分，手动拼接（dir_shortcuts/web_links 用 indent，其他用 compact）
 		types := strings.Split(typeParam, ",")
-		out = map[string]json.RawMessage{
-			"version":     jsonRaw(`"1.0"`),
-			"exported_at": jsonRaw(fmt.Sprintf(`"%s"`, time.Now().Format(time.RFC3339))),
+		parts := []string{}
+		addField := func(k string, v string) {
+			parts = append(parts, fmt.Sprintf(`  "%s": %s`, k, v))
 		}
+		addField("version", `"1.0"`)
+		addField("exported_at", now)
 		for _, t := range types {
 			t = strings.TrimSpace(t)
+			var val string
 			switch t {
 			case "shortcuts", "dir_shortcuts":
-				out["dir_shortcuts"] = jsonRaw(mustMarshal(s.exportDirShortcuts()))
+				val = mustMarshalIndent(s.exportDirShortcuts())
 			case "links", "web_links":
-				out["web_links"] = jsonRaw(mustMarshal(s.exportWebLinks()))
+				val = mustMarshalIndent(s.exportWebLinks())
 			case "experiences":
-				out["experiences"] = jsonRaw(mustMarshal(s.exportExperiences()))
+				val = mustMarshal(s.exportExperiences())
 			case "tasks_manual":
-				out["tasks_manual"] = jsonRaw(mustMarshal(s.exportTasksByType("manual")))
+				val = mustMarshal(s.exportTasksByType("manual"))
 			case "tasks_scheduled":
-				out["tasks_scheduled"] = jsonRaw(mustMarshal(s.exportScheduledTasks()))
+				val = mustMarshal(s.exportScheduledTasks())
 			case "tasks":
 				manual := s.exportTasksAsUnified("manual")
 				sched := s.exportScheduledAsUnified()
 				merged := append(manual, sched...)
-				out["tasks"] = jsonRaw(mustMarshal(merged))
+				val = mustMarshal(merged)
 			default:
 				writeErr(w, http.StatusBadRequest, "unknown type: "+t)
 				return
 			}
+			parts = append(parts, fmt.Sprintf(`  "%s": %s`, t, val))
 		}
+		// 给所有字段加前缀逗号，最后一个字段要去掉逗号
+		for i := 2; i < len(parts); i++ {
+			parts[i] = "," + parts[i]
+		}
+		if len(parts) > 2 {
+			parts[len(parts)-1] = parts[len(parts)-1][1:] // 去掉最后一个的前缀逗号
+		}
+		parts = append(parts, "}")
+		w.Write([]byte("{\n" + strings.Join(parts, "\n") + "\n"))
 	}
-	writeJSON(w, out)
 }
 
-func (s *APIServer) exportDirShortcuts() []*backend.DirShortcut {
+func (s *APIServer) exportDirShortcuts() []*DirShortcutExport {
 	list, err := s.dirDB.List()
 	if err != nil {
 		logger.Warnw("config export: dir shortcuts list failed", "err", err)
-		return []*backend.DirShortcut{}
+		return []*DirShortcutExport{}
 	}
 	if list == nil {
-		return []*backend.DirShortcut{}
+		return []*DirShortcutExport{}
 	}
-	// remote_password 仍导出；前端导出按钮处有显式提示
-	return list
+	out := make([]*DirShortcutExport, 0, len(list))
+	for _, d := range list {
+		if d == nil {
+			continue
+		}
+		out = append(out, &DirShortcutExport{
+			Name:     d.Name,
+			Path:     d.Path,
+			Type:     d.Type,
+			RemoteHost:     d.RemoteHost,
+			RemoteUser:     d.RemoteUser,
+			RemotePath:     d.RemotePath,
+			RemotePassword: d.RemotePassword,
+			AuthMethod:     d.AuthMethod,
+			KeyPath:        d.KeyPath,
+			TerminalCmd:    d.TerminalCmd,
+		})
+	}
+	return out
 }
 
-func (s *APIServer) exportWebLinks() []*backend.WebLink {
+func (s *APIServer) exportWebLinks() []*WebLinkExport {
 	list, _ := s.linkDB.List()
 	if list == nil {
-		return []*backend.WebLink{}
+		return []*WebLinkExport{}
 	}
-	return list
+	out := make([]*WebLinkExport, 0, len(list))
+	for _, l := range list {
+		if l == nil {
+			continue
+		}
+		out = append(out, &WebLinkExport{
+			Name:   l.Name,
+			URL:    l.URL,
+			IconURL: l.IconURL,
+		})
+	}
+	return out
 }
 
 func (s *APIServer) exportExperiences() []*backend.Experience {
@@ -772,6 +831,36 @@ func mustMarshal(v any) string {
 		return "null"
 	}
 	return string(b)
+}
+
+func mustMarshalIndent(v any) string {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		logger.Warnw("config export marshal indent failed", "err", err)
+		return "null"
+	}
+	return string(b)
+}
+
+// DirShortcutExport 导出用简化结构（去掉了 id/created_at/sort_order/updated_at 等无关字段）
+type DirShortcutExport struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Type     string `json:"type,omitempty"`
+	RemoteHost     string `json:"remote_host,omitempty"`
+	RemoteUser     string `json:"remote_user,omitempty"`
+	RemotePath     string `json:"remote_path,omitempty"`
+	RemotePassword string `json:"remote_password,omitempty"`
+	AuthMethod     string `json:"auth_method,omitempty"`
+	KeyPath        string `json:"key_path,omitempty"`
+	TerminalCmd    string `json:"terminal_cmd,omitempty"`
+}
+
+// WebLinkExport 导出用简化结构（去掉了 id/created_at/sort_order 等无关字段）
+type WebLinkExport struct {
+	Name   string `json:"name"`
+	URL    string `json:"url"`
+	IconURL string `json:"icon_url,omitempty"`
 }
 
 // ----- APIServer 上的便利包装 -----
