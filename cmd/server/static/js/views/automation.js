@@ -293,15 +293,15 @@ async function loadScheduled() {
     const toggleLabel = s.enabled ? '⏸ 停用' : '▶ 启用';
     const toggleBtnClass = s.enabled ? 'btn btn-small' : 'btn btn-small btn-primary';
     return `<tr>
-      <td>
-        <span class="edit-icon" onclick="editScheduled('${s.id}')" title="编辑" style="cursor:pointer;margin-right:6px;color:var(--text-secondary);font-size:12px">✏️</span>
-        <span style="font-size:12px">${esc(s.name)}</span>${enabledBadge}
+      <td style="padding:4px 6px">
+        <span class="edit-icon" onclick="editScheduled('${s.id}')" title="编辑" style="cursor:pointer;margin-right:6px;color:var(--text-secondary);font-size:14px">✏️</span>
+        <strong>${esc(s.name)}</strong>${enabledBadge}
       </td>
-      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code style="font-size:10px">${esc(s.cron_expr)}</code></td>
-      <td title="${esc(s.command_type)}">${esc(s.command_type)}<br><span style="font-size:11px;color:var(--text-secondary)">${s.model ? esc(s.model) : ''}</span></td>
-      <td>${statusBadge}</td>
-      <td style="font-size:11px;color:var(--text-secondary);vertical-align:top">${lastRun}${nextRun}</td>
-      <td>
+      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 6px"><code style="font-size:10.5px">${esc(s.cron_expr)}</code></td>
+      <td title="${esc(s.command_type)}" style="padding:4px 6px"><span style="font-size:10.5px">${esc(s.command_type)}</span><br><span style="font-size:10.5px;color:var(--text-secondary)">${s.model ? esc(s.model) : ''}</span></td>
+      <td style="padding:4px 6px">${statusBadge}</td>
+      <td style="font-size:11px;color:var(--text-secondary);vertical-align:top;padding:4px 6px">${lastRun}${nextRun}</td>
+      <td style="padding:4px 6px">
         <button class="${toggleBtnClass}" onclick="toggleScheduled('${s.id}', ${s.enabled})" title="${s.enabled ? '停止调度' : '启用调度'}">${toggleLabel}</button>
         <button class="btn btn-small" onclick="runScheduled('${s.id}')">▶ 执行</button>
         <button class="btn btn-small" onclick="deleteScheduled('${s.id}')">删除</button>
