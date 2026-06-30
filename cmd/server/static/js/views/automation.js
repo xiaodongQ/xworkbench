@@ -294,11 +294,11 @@ async function loadScheduled() {
     const toggleBtnClass = s.enabled ? 'btn btn-small' : 'btn btn-small btn-primary';
     return `<tr>
       <td>
-        <span class="edit-icon" onclick="editScheduled('${s.id}')" title="编辑" style="cursor:pointer;margin-right:6px;color:var(--text-secondary);font-size:14px">✏️</span>
-        <strong>${esc(s.name)}</strong>${enabledBadge}
+        <span class="edit-icon" onclick="editScheduled('${s.id}')" title="编辑" style="cursor:pointer;margin-right:6px;color:var(--text-secondary);font-size:12px">✏️</span>
+        <span style="font-size:12px">${esc(s.name)}</span>${enabledBadge}
       </td>
-      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.command_type)}"><code>${esc(s.cron_expr)}</code></td>
-      <td>${esc(s.command_type)}<br${s.model ? ' style="color:var(--text-secondary)"' : ''}>${s.model ? esc(s.model) : ''}</td>
+      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><code style="font-size:10px">${esc(s.cron_expr)}</code></td>
+      <td title="${esc(s.command_type)}">${esc(s.command_type)}<br><span style="font-size:11px;color:var(--text-secondary)">${s.model ? esc(s.model) : ''}</span></td>
       <td>${statusBadge}</td>
       <td style="font-size:11px;color:var(--text-secondary);vertical-align:top">${lastRun}${nextRun}</td>
       <td>
