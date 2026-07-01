@@ -2115,9 +2115,15 @@ func (s *APIServer) handleSchedulerReload(w http.ResponseWriter, r *http.Request
 }
 
 // handleAILoopStatus 返回 AI 自治能力开关状态（单一来源：config.json）。
-// 前端 task-modal 打开时调这个，决定是否渲染"AI 自治"区块。
+// 前端 task-modal 打开时调这个，决定是否渲染"AI 自治"区块；也用于判断按钮是否该禁用。
 func (s *APIServer) handleAILoopStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, map[string]any{"enabled": s.aiLoopEnabled()})
+	s.mu.Lock()
+	var running []string
+	for id := range s.runLoops {
+		running = append(running, id)
+	}
+	s.mu.Unlock()
+	writeJSON(w, map[string]any{"enabled": s.aiLoopEnabled(), "running": running})
 }
 
 // handleGetPreferredCLI 读优先 CLI。前端"默认 CLI" tab 调。
@@ -2780,10 +2786,16 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 	// - loop_done: 达到阈值/最大迭代/被 build 失败中断
 	// - loop_error: 整个 goroutine panic
 	go func() {
+		// loop 开始时将 task 状态置为 running，结束/退出时恢复
+		if err := s.db.UpdateStatus(id, backend.TaskStatusRunning, ""); err != nil {
+			logger.Warnw("run-loop: set task running status failed", "task_id", id, "err", err.Error())
+		}
 		defer func() {
 			s.mu.Lock()
 			delete(s.runLoops, id)
 			s.mu.Unlock()
+			// 恢复为 pending（loop 结束后任务回到待认领状态，由用户决定下一步）
+			s.db.UpdateStatus(id, backend.TaskStatusPending, "")
 		}()
 		s.runLoopBackground(id, req, models)
 	}()
@@ -2817,28 +2829,29 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 		}
 	}()
 
-	// 跨轮 session 续用：第一轮空，后续用上轮 resumeSessionID
+	// 固定使用第一个模型（不再轮换）
+	model := models[0]
+	// session 续用：每轮拿到 resumeSessionID 后下轮继续用，保持上下文连贯
 	var sessionID string
-	// 跨轮反馈：逐轮累积评语，拼入下轮 prompt
-	var feedback string
+	// 跨轮累积输出：每轮 output 追加进 prompt，让模型看到完整迭代历史
+	var outputs string
 
 	for i := 0; i < req.MaxIterations; i++ {
-		model := models[i%len(models)]
 		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 			"task_id": taskID, "event": "iteration_started",
 			"iteration": i + 1, "model": model,
 		})
 
-		// 拼上输出目录约定 + 上轮反馈
+		// 拼 prompt：原始任务描述 + 上轮输出累积
 		var loopPrompt string
 		if req.CliType == "claude" || req.CliType == "cbc" {
 			loopPrompt = req.Prompt + fmt.Sprintf(taskpkg.OutputDirHintTpl, paths.AITaskDir(taskID))
 		} else {
 			loopPrompt = req.Prompt
 		}
-		// 追加上轮反馈（第二轮起）
-		if feedback != "" {
-			loopPrompt += "\n\n--- 上一轮反馈 ---\n" + feedback + "\n请基于上述反馈继续改进。---\n"
+		// 第二轮起：把之前所有轮次的输出追加进去，让模型看到完整的迭代历史
+		if outputs != "" {
+			loopPrompt += "\n\n--- 此前轮次的执行结果 ---\n" + outputs + "\n--- 请基于以上结果继续改进，直到达成目标。---\n"
 		}
 		skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
 		var (
@@ -2897,25 +2910,31 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 		if runErr != nil {
 			step.Error = runErr.Error()
 			logger.Warnw("run-loop executor failed", "task_id", taskID, "iteration", i+1, "err", runErr.Error())
-			// 执行失败时把错误信息当反馈，但不加 session 让下轮重新开始（broken context 不值得续）
-			feedback = fmt.Sprintf("[执行失败] %s", runErr.Error())
+			outputs += fmt.Sprintf("\n[第 %d 轮 执行失败: %s]", i+1, runErr.Error())
 		} else {
+			// 把本轮输出累积进 context
+			// 每轮输出截断到 3000 字符，避免 prompt 无限膨胀
+			outPart := out
+			if len(outPart) > 3000 {
+				outPart = outPart[:3000] + "\n...(输出截断)"
+			}
+			outputs += fmt.Sprintf("\n--- 第 %d 轮输出 ---\n%s", i+1, outPart)
+			// 评估
 			evalCLI := preferredCLI()
 			evalModel := evalDefaultModel(req.CliType)
 			if evID, err := evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, req.Prompt, evalCLI, evalModel); err == nil {
 				if evs, _ := s.evalDB.ListByExecution(exec.ID); len(evs) > 0 {
 					step.Score = &evs[0].Score
 					step.Comments = evs[0].Comments
-					// 评语作为反馈进入下轮
+					// 评语也累积进 context，让模型在下一轮看到完整反馈
 					if evs[0].Comments != "" {
-						feedback = fmt.Sprintf("评分: %.1f / 目标: %.1f\n评语: %s", *step.Score, req.Threshold, evs[0].Comments)
+						outputs += fmt.Sprintf("\n[第 %d 轮评估] 评分: %.1f / 目标: %.1f，评语: %s", i+1, *step.Score, req.Threshold, evs[0].Comments)
 					} else {
-						feedback = fmt.Sprintf("评分: %.1f / 目标: %.1f", *step.Score, req.Threshold)
+						outputs += fmt.Sprintf("\n[第 %d 轮评估] 评分: %.1f / 目标: %.1f", i+1, *step.Score, req.Threshold)
 					}
 				}
 				_ = evID
 			}
-			// 执行成功但没达到阈值，也用当前 session 继续（不重置）
 		}
 		history = append(history, step)
 

@@ -422,8 +422,8 @@ function viewTask(id) {
   _taskConvLoaded = false;
   try { loadTaskConversation(); } catch(e) { console.warn('loadTaskConversation:', e.message); }
   try { loadTaskEvents(); } catch(e) { console.warn('loadTaskEvents:', e.message); }
-  // AI 自治：加载开关状态、决定是否显示 AI 自治区块
-  if (typeof loadAILoopStatus === 'function') loadAILoopStatus();
+  // AI 自治：加载开关状态、决定是否显示 AI 自治区块；也用于判断启动按钮是否该禁用
+  if (typeof loadAILoopStatus === 'function') loadAILoopStatus(t.id);
   // 重置 Run Loop 表单状态
   const lp = document.getElementById('loop-prompt');
   if (lp) lp.value = t.description || t.title || '';
