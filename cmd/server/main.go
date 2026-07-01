@@ -2803,6 +2803,7 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 		Model     string   `json:"model"`
 		ExitCode  int      `json:"exit_code"`
 		Score     *float64 `json:"score,omitempty"`
+		Comments  string   `json:"comments,omitempty"`
 		Error     string   `json:"error,omitempty"`
 	}
 	history := []Step{}
@@ -2816,6 +2817,11 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 		}
 	}()
 
+	// 跨轮 session 续用：第一轮空，后续用上轮 resumeSessionID
+	var sessionID string
+	// 跨轮反馈：逐轮累积评语，拼入下轮 prompt
+	var feedback string
+
 	for i := 0; i < req.MaxIterations; i++ {
 		model := models[i%len(models)]
 		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
@@ -2823,14 +2829,16 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 			"iteration": i + 1, "model": model,
 		})
 
-		// 拼上输出目录约定：让 AI 知道 run-loop 写文件往 data/ai-task-dir/<taskID>/ 落
-		// 仅限 claude/cbc（AI 写文件场景）；shell 类型无文件写需求，且 backtick 路径
-		// 在 sh -c "..." 里会被 shell 当作命令执行导致 exit_code=127。
+		// 拼上输出目录约定 + 上轮反馈
 		var loopPrompt string
 		if req.CliType == "claude" || req.CliType == "cbc" {
 			loopPrompt = req.Prompt + fmt.Sprintf(taskpkg.OutputDirHintTpl, paths.AITaskDir(taskID))
 		} else {
 			loopPrompt = req.Prompt
+		}
+		// 追加上轮反馈（第二轮起）
+		if feedback != "" {
+			loopPrompt += "\n\n--- 上一轮反馈 ---\n" + feedback + "\n请基于上述反馈继续改进。---\n"
 		}
 		skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
 		var (
@@ -2840,9 +2848,9 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 			err     error
 		)
 		if skip {
-			cmd, stdin, cleanup, err = runner.BuildCommand(req.CliType, model, "", loopPrompt, runner.WithSkipPermissions(), runner.WithActionReport())
+			cmd, stdin, cleanup, err = runner.BuildCommand(req.CliType, model, sessionID, loopPrompt, runner.WithSkipPermissions(), runner.WithActionReport())
 		} else {
-			cmd, stdin, cleanup, err = runner.BuildCommand(req.CliType, model, "", loopPrompt, runner.WithActionReport())
+			cmd, stdin, cleanup, err = runner.BuildCommand(req.CliType, model, sessionID, loopPrompt, runner.WithActionReport())
 		}
 		if err != nil {
 			step := Step{Iteration: i + 1, Model: model, Error: err.Error()}
@@ -2858,13 +2866,9 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 		s.execDB.Create(exec)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		// run-loop 里的 AI 调用走沙盒
-		// run-loop: CWD = 项目根（继承父进程），AI 可访问项目文件
 		res, runErr := executor.Run(ctx, cmd, "", stdin, nil)
 		cancel()
 
-		// cleanup 是 runner 提供的资源回收（cbc/shell 类型的临时脚本文件），
-		// claude 类型返回 nil。放到 goroutine 异步回收，避免阻塞循环。
 		if cleanup != nil {
 			go func() { defer cleanup() }()
 		}
@@ -2874,7 +2878,6 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 		if res != nil {
 			out = res.Output
 			exitCode = res.ExitCode
-			// 兜底：ctx 超时时 stderr 为空，错误在 res.Err / runErr
 			if res.ErrorOut != "" {
 				errOut = res.ErrorOut
 			} else if res.Err != nil {
@@ -2885,24 +2888,34 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 			errOut = "run: " + runErr.Error()
 		}
 		resumeSessionID := extractResumeSessionID(out)
+		if resumeSessionID != "" {
+			sessionID = resumeSessionID // 记住 session，下轮续用
+		}
 		s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
 
 		step := Step{Iteration: i + 1, Model: model, ExitCode: exitCode}
 		if runErr != nil {
-			// 之前 res,_ 把错误吞了，错误信息会丢；现在显式带上，便于前端展示 + WS 推送
 			step.Error = runErr.Error()
 			logger.Warnw("run-loop executor failed", "task_id", taskID, "iteration", i+1, "err", runErr.Error())
+			// 执行失败时把错误信息当反馈，但不加 session 让下轮重新开始（broken context 不值得续）
+			feedback = fmt.Sprintf("[执行失败] %s", runErr.Error())
 		} else {
-			// evaluator 只在执行成功时跑；失败时跳过（避免给 broken execution 打分）
-			// evaluator 必须用真实 AI CLI（claude/cbc），不能用任务执行的 cli_type（可能是 shell）
 			evalCLI := preferredCLI()
 			evalModel := evalDefaultModel(req.CliType)
 			if evID, err := evaluator.RunAndSave(context.Background(), s.evalDB, s.execDB, exec, req.Prompt, evalCLI, evalModel); err == nil {
 				if evs, _ := s.evalDB.ListByExecution(exec.ID); len(evs) > 0 {
 					step.Score = &evs[0].Score
+					step.Comments = evs[0].Comments
+					// 评语作为反馈进入下轮
+					if evs[0].Comments != "" {
+						feedback = fmt.Sprintf("评分: %.1f / 目标: %.1f\n评语: %s", *step.Score, req.Threshold, evs[0].Comments)
+					} else {
+						feedback = fmt.Sprintf("评分: %.1f / 目标: %.1f", *step.Score, req.Threshold)
+					}
 				}
 				_ = evID
 			}
+			// 执行成功但没达到阈值，也用当前 session 继续（不重置）
 		}
 		history = append(history, step)
 
@@ -2914,6 +2927,7 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 			"exit_code":    exitCode,
 			"execution_id": exec.ID,
 			"score":        step.Score,
+			"comments":     step.Comments,
 			"error":        step.Error,
 		})
 

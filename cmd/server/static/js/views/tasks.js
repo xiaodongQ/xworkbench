@@ -150,6 +150,7 @@ function renderTaskTable(list) {
       <th class="col-title" style="text-align:left">标题</th>
       <th class="col-status" style="cursor:pointer" onclick="setTaskSort('status')">状态${sortIcon('status')}</th>
       <th class="col-type">类型</th>
+      <th class="col-loop">优化</th>
       <th class="col-time" style="cursor:pointer" onclick="setTaskSort('created_at')">创建时间${sortIcon('created_at')}</th>
       <th class="col-ops" style="text-align:left">操作</th>
     </tr></thead>
@@ -168,6 +169,7 @@ function renderTaskTable(list) {
         </td>
         <td class="col-status">${statusTag(t.status)}</td>
         <td class="col-type">${taskTypeTag(t.task_type)}</td>
+        <td class="col-loop">${loopStatusTag(t)}</td>
         <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
         <td class="col-ops">
           <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
@@ -422,6 +424,24 @@ function viewTask(id) {
   try { loadTaskEvents(); } catch(e) { console.warn('loadTaskEvents:', e.message); }
   // AI 自治：加载开关状态、决定是否显示 AI 自治区块
   if (typeof loadAILoopStatus === 'function') loadAILoopStatus();
+  // 重置 Run Loop 表单状态
+  const lp = document.getElementById('loop-prompt');
+  if (lp) lp.value = t.description || t.title || '';
+  const lt = document.getElementById('loop-threshold');
+  if (lt) lt.value = '7';
+  const lm = document.getElementById('loop-maxiter');
+  if (lm) lm.value = '3';
+  const runBtn = document.getElementById('btn-run-loop');
+  if (runBtn) {
+    runBtn.disabled = false;
+    runBtn.textContent = '▶ 启动';
+  }
+  const progWrap = document.getElementById('ai-loop-progress');
+  if (progWrap) progWrap.classList.add('hidden');
+  const histEl = document.getElementById('ai-loop-progress-history');
+  if (histEl) histEl.dataset.history = '[]';
+  // 尝试恢复上次 loop 结果（避免关闭弹窗后进度丢失）
+  restoreLoopProgress(t.id);
   // 加载执行历史
   loadTaskExecHistory(t.id);
 }
@@ -827,25 +847,48 @@ function _currentTaskId() {
   return document.getElementById('task-id')?.value || '';
 }
 
-function _aiLoopProgressShow(text) {
+function _aiLoopProgressShow(text, threshold) {
   const wrap = document.getElementById('ai-loop-progress');
-  const textEl = document.getElementById('ai-loop-progress-text');
+  const textEl = document.getElementById('ai-loop-status-text');
   if (wrap) wrap.classList.remove('hidden');
   if (textEl) textEl.textContent = text || '进行中...';
 }
 
-function _aiLoopProgressRenderHistory(history) {
+// _loopCurrentIter 跟踪当前进行到的迭代（WS 事件驱动更新）
+var _loopCurrentIter = 0;
+
+function _aiLoopProgressRenderHistory(history, threshold) {
   const histEl = document.getElementById('ai-loop-progress-history');
+  const pctEl = document.getElementById('ai-loop-progress-pct');
+  const barEl = document.getElementById('ai-loop-bar');
   if (!histEl) return;
-  histEl.innerHTML = (history || []).map((step, i) => {
-    const ok = step.exit_code === 0;
-    const score = step.score != null ? '· score=' + step.score.toFixed(2) : '';
-    const err = step.error ? '· ' + step.error : '';
-    const color = ok ? '#10b981' : (step.error ? '#ef4444' : '#f59e0b');
-    return `<div style="padding:4px 6px;border-bottom:1px solid rgba(255,255,255,0.1);font-size:11px">
-      <span style="color:${color}">迭代 ${step.iteration}</span>
-      <span style="color:var(--text-secondary)">· ${step.model}${score}</span>
-      ${err ? `<div style="color:#ef4444;font-size:10px">${err}</div>` : ''}
+  const th = threshold || _loopThreshold || 7;
+  const max = _loopMaxIter || 3;
+  const done = history ? history.length : 0;
+
+  // 更新进度条
+  if (barEl) barEl.style.width = max > 0 ? Math.round((done / max) * 100) + '%' : '0%';
+  if (pctEl) pctEl.textContent = max > 0 ? done + '/' + max + '轮' : '';
+
+  if (!history || history.length === 0) {
+    histEl.innerHTML = '<div style="color:var(--text-secondary);font-size:11px;text-align:center;padding:8px">等待迭代开始...</div>';
+    return;
+  }
+  histEl.innerHTML = history.map((step) => {
+    const passed = step.score != null && step.score >= th;
+    const scoreStr = step.score != null ? step.score.toFixed(1) : '?';
+    const scoreColor = passed ? '#22c55e' : (step.score != null ? '#ef4444' : '#9ca3af');
+    const statusIcon = step.error ? '⚠' : (passed ? '✓' : '✗');
+    const statusColor = step.error ? '#f97316' : (passed ? '#22c55e' : '#ef4444');
+    const errDiv = step.error ? `<div style="color:#ef4444;font-size:10px;margin-left:16px">${esc(step.error)}</div>` : '';
+    const commentDiv = step.comments ? `<div style="color:var(--text-secondary);font-size:10px;margin-left:16px;margin-top:2px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(step.comments)}">💬 ${esc(step.comments)}</div>` : '';
+    return `<div style="padding:4px 6px;border-bottom:1px solid rgba(255,255,255,0.1);font-size:11px;display:flex;align-items:center;gap:6px">
+      <span style="color:${statusColor};flex-shrink:0">${statusIcon}</span>
+      <span style="color:var(--text-secondary);flex-shrink:0">${step.model || '?'}</span>
+      <span style="color:${scoreColor};font-weight:600">${scoreStr}</span>
+      <span style="color:var(--text-secondary)">/ 目标 ${th}</span>
+      ${errDiv}
+      ${commentDiv}
     </div>`;
   }).join('') || '<div style="color:var(--text-secondary)">（无迭代）</div>';
 }
@@ -865,31 +908,105 @@ function _aiLoopErrorHandler(e) {
 async function runTaskLoop() {
   const id = _currentTaskId();
   if (!id) return;
-  const prompt = prompt('Run Loop 的 prompt（必填）:', document.getElementById('task-description')?.value || '');
-  if (!prompt) return;
-  const model = document.getElementById('task-run-model')?.value || '';
-  const thresholdStr = prompt('分数阈值（达到则停止，默认 7）:', '7');
-  const maxIterStr = prompt('最大迭代次数（默认 3）:', '3');
-  const threshold = parseFloat(thresholdStr) || 7;
-  const maxIter = parseInt(maxIterStr) || 3;
-  _aiLoopProgressShow('Run Loop 已启动,等待后端推送进度...');
-  _aiLoopProgressRenderHistory([]); // 清空上次残留
+  const loopPrompt = document.getElementById('loop-prompt')?.value?.trim();
+  if (!loopPrompt) {
+    alert('⚠️ 请填写 Run Loop 的描述内容');
+    return;
+  }
+  const threshold = parseFloat(document.getElementById('loop-threshold')?.value) || 7;
+  const maxIter = parseInt(document.getElementById('loop-maxiter')?.value) || 3;
+  const runBtn = document.getElementById('btn-run-loop');
+  if (runBtn) runBtn.disabled = true;
+  _loopStart(id, threshold, maxIter);
   try {
     await fetchJSON('/api/tasks/' + id + '/run-loop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, model, cli_type: 'claude', threshold, max_iterations: maxIter }),
+      body: JSON.stringify({ prompt: loopPrompt, model: '', cli_type: 'claude', threshold, max_iterations: maxIter }),
     });
-    // 200/202:handler 立即返回,后续进度由 ws 推送
   } catch (e) {
-    _aiLoopProgressShow('❌ ' + e.message);
-    _aiLoopErrorHandler(e);
+    _aiLoopProgressShow('❌ 启动失败：' + e.message, threshold);
+    _aiLoopDone();
+    alert('❌ Run Loop 启动失败：' + e.message);
   }
+}
+
+// _loopStart 初始化进度区（由 WS 事件或直接调用）
+var _loopThreshold = 7;
+var _loopMaxIter = 3;
+
+function _loopStart(id, threshold, maxIter) {
+  _loopThreshold = threshold;
+  _loopMaxIter = maxIter;
+  _loopCurrentIter = 0;
+  const runBtn = document.getElementById('btn-run-loop');
+  if (runBtn) {
+    runBtn.disabled = true;
+    runBtn.textContent = '⏳ 运行中';
+  }
+  _aiLoopProgressShow('🤖 Run Loop 已启动...', threshold);
+  _aiLoopProgressRenderHistory([], threshold);
+}
+
+function _aiLoopDone() {
+  const runBtn = document.getElementById('btn-run-loop');
+  if (runBtn) {
+    runBtn.disabled = false;
+    runBtn.textContent = '▶ 启动';
+  }
+  // 持久化最终结果到 localStorage（关闭弹窗再打开可恢复）
+  const id = _currentTaskId();
+  if (id) {
+    const histEl = document.getElementById('ai-loop-progress-history');
+    const hist = histEl?.dataset.history ? JSON.parse(histEl.dataset.history) : [];
+    const th = _loopThreshold || 7;
+    const statusText = document.getElementById('ai-loop-status-text')?.textContent || '';
+    saveLoopProgress(id, { history: hist, threshold: th, statusText });
+  }
+}
+
+function saveLoopProgress(taskId, data) {
+  try {
+    const all = JSON.parse(localStorage.getItem('loop_progress') || '{}');
+    all[taskId] = { ...data, savedAt: Date.now() };
+    localStorage.setItem('loop_progress', JSON.stringify(all));
+  } catch (_) {}
+}
+
+function restoreLoopProgress(taskId) {
+  try {
+    const all = JSON.parse(localStorage.getItem('loop_progress') || '{}');
+    const entry = all[taskId];
+    if (!entry || !entry.history || entry.history.length === 0) return;
+    // 超过 24 小时的记录忽略
+    if (Date.now() - entry.savedAt > 86400000) return;
+    const histEl = document.getElementById('ai-loop-progress-history');
+    const progWrap = document.getElementById('ai-loop-progress');
+    const statusEl = document.getElementById('ai-loop-status-text');
+    const barEl = document.getElementById('ai-loop-bar');
+    const pctEl = document.getElementById('ai-loop-progress-pct');
+    if (histEl) {
+      histEl.dataset.history = JSON.stringify(entry.history);
+      if (typeof _aiLoopProgressRenderHistory === 'function') {
+        _aiLoopProgressRenderHistory(entry.history, entry.threshold);
+      }
+    }
+    if (statusEl) statusEl.textContent = entry.statusText || '上次优化结果';
+    if (progWrap) progWrap.classList.remove('hidden');
+    const max = _loopMaxIter || 3;
+    if (barEl) barEl.style.width = max > 0 ? Math.round((entry.history.length / max) * 100) + '%' : '0%';
+    if (pctEl) pctEl.textContent = entry.history.length + '/' + max + '轮';
+  } catch (_) {}
 }
 
 async function reevaluateTask() {
   const id = _currentTaskId();
   if (!id) return;
+  const btn = document.getElementById('btn-reevaluate');
+  if (btn?.disabled) {
+    alert('⚠️ Reevaluate 需要先运行一次任务，才能评估执行结果。\n\n请先点击「▶ 运行」按钮执行该任务。');
+    return;
+  }
   const model = document.getElementById('task-run-model')?.value || '';
   if (!confirm('用新模型重新评估该 task 的最新 execution？')) return;
   _aiLoopProgressShow('重评中...');
@@ -903,13 +1020,18 @@ async function reevaluateTask() {
     _aiLoopProgressRenderHistory([{ iteration: 1, model, exit_code: 0, score: result.score }]);
   } catch (e) {
     _aiLoopProgressShow('❌ ' + e.message);
-    _aiLoopErrorHandler(e);
+    alert('❌ Reevaluate 失败：' + e.message);
   }
 }
 
 async function learnFromTask() {
   const id = _currentTaskId();
   if (!id) return;
+  const btn = document.getElementById('btn-learn');
+  if (btn?.disabled) {
+    alert('⚠️ Learn 需要先运行一次任务，才能从中提取经验。\n\n请先点击「▶ 运行」按钮执行该任务。');
+    return;
+  }
   if (!confirm('从该 task 的执行记录生成经验写入 experiences 表？')) return;
   _aiLoopProgressShow('学习中...');
   try {
@@ -917,7 +1039,7 @@ async function learnFromTask() {
     _aiLoopProgressShow('✓ 经验已生成（' + (result.exp_id || '?') + '）');
   } catch (e) {
     _aiLoopProgressShow('❌ ' + e.message);
-    _aiLoopErrorHandler(e);
+    alert('❌ Learn 失败：' + e.message);
   }
 }
 
@@ -937,6 +1059,21 @@ async function loadTaskExecHistory(taskId) {
     _taskExecList = [];
   }
   renderTaskExecHistory();
+}
+
+// 根据执行记录数量同步 AI 自治按钮的可用状态（有记录才可点）
+function syncAILoopButtons() {
+  const hasExec = _taskExecList.length > 0;
+  const revalBtn = document.getElementById('btn-reevaluate');
+  const learnBtn = document.getElementById('btn-learn');
+  if (revalBtn) {
+    revalBtn.disabled = !hasExec;
+    revalBtn.title = hasExec ? '重新评估最新执行结果' : '需要先运行一次任务';
+  }
+  if (learnBtn) {
+    learnBtn.disabled = !hasExec;
+    learnBtn.title = hasExec ? '从执行记录生成经验写入知识库' : '需要先运行一次任务';
+  }
 }
 
 function renderTaskExecHistory() {
@@ -959,6 +1096,7 @@ function renderTaskExecHistory() {
     pageEl.textContent = '';
     prevBtn.classList.add('hidden');
     nextBtn.classList.add('hidden');
+    syncAILoopButtons();
     return;
   }
 
@@ -1014,6 +1152,8 @@ function renderTaskExecHistory() {
   prevBtn.classList.toggle('hidden', _taskExecPage <= 1);
   nextBtn.classList.toggle('hidden', _taskExecPage >= totalPages);
   pageEl.textContent = '';
+  // 同步 AI 自治按钮可用状态
+  syncAILoopButtons();
 }
 
 function prevTaskExecs() {

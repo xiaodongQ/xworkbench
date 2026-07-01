@@ -137,35 +137,40 @@ function handleExecStream(payload) {
 //   - history: Step[]（loop_done 时一次性给完整 history）
 function handleRunLoopProgress(payload) {
   if (!payload || !payload.task_id) return;
-  // 只渲染当前打开的 task 的进度（避免多个 task 弹窗互窜）
   const cur = (typeof _currentTaskId === 'function') ? _currentTaskId() : '';
   if (cur && payload.task_id !== cur) return;
-  if (typeof _aiLoopProgressShow !== 'function') return; // tasks.js 还没加载
+  if (typeof _aiLoopProgressShow !== 'function') return;
+
+  const histEl = document.getElementById('ai-loop-progress-history');
+  const barEl = document.getElementById('ai-loop-bar');
+  const pctEl = document.getElementById('ai-loop-progress-pct');
+  const th = (typeof _loopThreshold !== 'undefined') ? _loopThreshold : 7;
+  const max = (typeof _loopMaxIter !== 'undefined') ? _loopMaxIter : 3;
 
   switch (payload.event) {
     case 'iteration_started':
-      _aiLoopProgressShow(
-        `迭代 ${payload.iteration} 启动 (model: ${payload.model})...`
-      );
+      if (typeof _loopCurrentIter !== 'undefined') _loopCurrentIter = payload.iteration;
+      _aiLoopProgressShow(`🤖 迭代 ${payload.iteration} / ${max} 进行中 (${payload.model})...`, th);
       break;
     case 'iteration_done': {
-      const scoreStr = payload.score != null ? ` · score=${payload.score.toFixed(2)}` : '';
-      const errStr = payload.error ? ` · ❌ ${payload.error}` : '';
-      _aiLoopProgressShow(
-        `迭代 ${payload.iteration} 完成 (exit=${payload.exit_code}${scoreStr}${errStr})`
-      );
-      // 历史区增量重渲染：iteration_done 不带 history,所以从累计中加这一步
-      const histEl = document.getElementById('ai-loop-progress-history');
+      const reasonMap = {
+        threshold_met: '✓ 达到阈值',
+        max_iterations: '⏸ 达到最大迭代',
+        build_failed: '⚠ 构建失败',
+      };
+      const reason = payload.reason ? reasonMap[payload.reason] : '';
+      const scoreStr = payload.score != null ? ` · score=${payload.score.toFixed(1)}` : '';
+      _aiLoopProgressShow(`迭代 ${payload.iteration} 完成${scoreStr} ${reason}`, th);
+      // 增量追加历史
       if (histEl) {
-        const cur = histEl.getAttribute('data-history') ? JSON.parse(histEl.getAttribute('data-history')) : [];
-        cur.push({
+        const history = histEl.dataset.history ? JSON.parse(histEl.dataset.history) : [];
+        history.push({
           iteration: payload.iteration, model: payload.model,
           exit_code: payload.exit_code, score: payload.score, error: payload.error,
         });
-        histEl.setAttribute('data-history', JSON.stringify(cur));
-        // 复用 _aiLoopProgressRenderHistory 的渲染逻辑
+        histEl.dataset.history = JSON.stringify(history);
         if (typeof _aiLoopProgressRenderHistory === 'function') {
-          _aiLoopProgressRenderHistory(cur);
+          _aiLoopProgressRenderHistory(history, th);
         }
       }
       break;
@@ -176,19 +181,21 @@ function handleRunLoopProgress(payload) {
         max_iterations: '⏸ 达到最大迭代次数',
         build_failed: '⚠ 命令构建失败',
       };
-      _aiLoopProgressShow(reasonMap[payload.reason] || '✓ 循环结束');
-      if (Array.isArray(payload.history) && typeof _aiLoopProgressRenderHistory === 'function') {
-        _aiLoopProgressRenderHistory(payload.history);
-        const histEl = document.getElementById('ai-loop-progress-history');
-        if (histEl) histEl.setAttribute('data-history', JSON.stringify(payload.history));
+      _aiLoopProgressShow(reasonMap[payload.reason] || '✓ 循环结束', th);
+      if (Array.isArray(payload.history)) {
+        if (histEl) histEl.dataset.history = JSON.stringify(payload.history);
+        if (typeof _aiLoopProgressRenderHistory === 'function') {
+          _aiLoopProgressRenderHistory(payload.history, th);
+        }
       }
+      if (typeof _aiLoopDone === 'function') _aiLoopDone();
       break;
     }
     case 'loop_error':
-      _aiLoopProgressShow('❌ 后端 panic: ' + (payload.error || 'unknown'));
+      _aiLoopProgressShow('❌ 后端 panic: ' + (payload.error || 'unknown'), th);
+      if (typeof _aiLoopDone === 'function') _aiLoopDone();
       break;
     default:
-      // 未知 event:忽略,不影响其他 handler
       break;
   }
 }

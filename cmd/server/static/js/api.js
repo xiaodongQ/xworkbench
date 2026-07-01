@@ -123,6 +123,18 @@ function taskTypeTag(type) {
   return `<span style="font-size:11px;padding:2px 6px;border-radius:3px;background:${colors[t] || '#64748b'};color:#fff">${labels[t] || t}</span>`;
 }
 
+// loopStatusTag 根据任务的 iteration_count / evaluation_score / max_iterations 显示 loop 状态标签
+function loopStatusTag(task) {
+  const iter = task.iteration_count || 0;
+  const max = task.max_iterations || 0;
+  const score = task.evaluation_score;
+  if (iter === 0) return '<span style="color:var(--text-secondary);font-size:11px">—</span>';
+  const passed = score != null && task.improvement_threshold != null && score >= task.improvement_threshold;
+  const icon = passed ? '✓' : '✗';
+  const color = passed ? '#22c55e' : (score != null ? '#ef4444' : '#9ca3af');
+  return `<span style="font-size:11px;color:${color}" title="优化 ${iter} 轮${score != null ? '· score=' + score.toFixed(1) : ''}">${icon} ${iter}/${max}</span>`;
+}
+
 function fmt(ts) {
   if (!ts) return '-';
   const d = new Date(ts);

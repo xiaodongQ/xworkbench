@@ -751,21 +751,48 @@
       <div id="task-waiting-input-content" style="background:#fff8e1;border:1px solid #ffc107;border-radius:4px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:150px;overflow-y:auto;"></div>
     </div>
 
-    <!-- 任务详情弹窗里的 AI 自治按钮区（ai_loop_enabled=true 时由 loadAILoopStatus 显示） -->
+    <!-- 任务详情弹窗里的 AI 自治区块（ai_loop_enabled=true 时由 loadAILoopStatus 显示） -->
     <div id="task-ailoop-block" class="form-group hidden" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card)">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:13px;font-weight:600">🤖 AI 自治</span>
+          <span style="font-size:13px;font-weight:600">🤖 Run Loop</span>
           <span id="task-ailoop-source" style="font-size:10px;color:var(--text-secondary)"></span>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="runTaskLoop()">🔁 Run Loop</button>
-          <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="reevaluateTask()">📊 Reevaluate</button>
-          <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="learnFromTask()">📚 Learn</button>
+          <button type="button" id="btn-reevaluate" class="btn btn-primary" style="font-size:11px;padding:4px 10px" disabled title="需要先运行一次任务" onclick="reevaluateTask()">📊 Reevaluate</button>
         </div>
       </div>
-      <div id="ai-loop-progress" class="hidden" style="margin-top:10px;padding:8px;background:var(--hover);border-radius:6px">
-        <div id="ai-loop-progress-text" style="font-size:11px;margin-bottom:6px">进行中...</div>
+
+      <!-- Run Loop 内嵌表单 -->
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <textarea id="loop-prompt" placeholder="描述任务目标和预期结果..." style="width:100%;min-height:60px;resize:vertical;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:12px;font-family:inherit;box-sizing:border-box;outline:none;transition:border-color 0.15s"></textarea>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <label style="font-size:11px;display:flex;align-items:center;gap:4px">
+            <span style="color:var(--text-secondary)">阈值≥</span>
+            <input id="loop-threshold" type="number" value="7" min="0" max="10" step="0.5" style="width:46px;padding:3px 6px;border:1px solid var(--primary);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;font-weight:500">
+          </label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:4px">
+            <span style="color:var(--text-secondary)">最多</span>
+            <input id="loop-maxiter" type="number" value="3" min="1" max="10" style="width:40px;padding:3px 6px;border:1px solid var(--primary);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;font-weight:500">
+            <span style="color:var(--text-secondary)">轮</span>
+          </label>
+          <button type="button" id="btn-run-loop" class="btn btn-primary" style="font-size:12px;padding:5px 14px;margin-left:auto" onclick="runTaskLoop()">▶ 启动</button>
+        </div>
+      </div>
+
+      <!-- 进度展示区 -->
+      <div id="ai-loop-progress" class="hidden" style="margin-top:10px">
+        <!-- 进度条 -->
+        <div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:4px">
+            <span id="ai-loop-status-text">进行中...</span>
+            <span id="ai-loop-progress-pct">0%</span>
+          </div>
+          <div style="height:6px;background:var(--hover);border-radius:3px;overflow:hidden">
+            <div id="ai-loop-bar" style="height:100%;width:0%;background:var(--primary);border-radius:3px;transition:width 0.3s"></div>
+          </div>
+        </div>
+        <!-- 历史步骤 -->
         <div id="ai-loop-progress-history" style="max-height:140px;overflow-y:auto"></div>
       </div>
     </div>
@@ -773,7 +800,10 @@
     <!-- 执行历史区块（由 tasks.js 的 loadTaskExecHistory 渲染） -->
     <div id="task-exec-history" class="hidden" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <span style="font-weight:600;font-size:13px">📋 执行历史</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:600;font-size:13px">📋 执行历史</span>
+          <button type="button" id="btn-learn" class="btn btn-primary btn-small" disabled title="需要先运行一次任务" onclick="learnFromTask()">📚 Learn</button>
+        </div>
         <span id="task-exec-history-info" style="font-size:11px;color:var(--text-secondary)"></span>
       </div>
       <div id="task-exec-history-list" style="max-height:200px;overflow-y:auto"></div>

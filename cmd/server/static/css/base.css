@@ -239,6 +239,7 @@ tr:last-child td { border-bottom: none; }
 .task-table .col-title { width: auto; }
 .task-table .col-status { width: 80px; }
 .task-table .col-type { width: 60px; }
+.task-table .col-loop { width: 56px; text-align: center; }
 .task-table .col-time { width: 150px; }
 .task-table .col-ops { width: 320px; white-space: nowrap; }
 .task-table th { vertical-align: middle; }
@@ -319,8 +320,13 @@ tr:last-child td { border-bottom: none; }
    让用户一眼看出 enabled vs disabled。opacity:0.5 + cursor:not-allowed 是 web
    通用约定,比浏览器原生灰化更清晰。 */
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+}
+/* primary 按钮 disabled 时变灰，明显区别于可点击状态 */
+.btn-primary:disabled {
+  background: #6b7280;
+  opacity: 1;
 }
 .btn:hover { opacity: 0.85; }
 .btn-primary { background: var(--primary); color: #fff; }
