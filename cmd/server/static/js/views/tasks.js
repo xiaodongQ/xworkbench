@@ -252,16 +252,15 @@ async function runTask(id) {
 
 function showRunTaskModal(task) {
   document.getElementById('run-task-title').textContent = task.title + (task.description ? ' — ' + task.description.slice(0, 60) : '');
-  // 默认 command_type 走系统配置中的“优先 CLI”（与“系统配置 · 默认 CLI”联动）
-  const preferredCli = (window._preferredCLI || 'claude');
+  // command_type/model：优先用 task 创建时确定的默认值，可临时调整
   const typeSel = document.getElementById('run-task-type');
-  // 防止 preferred_cli 是未知值（如 shell），不在选项中则退回 claude
-  const opt = Array.from(typeSel.options).find(o => o.value === preferredCli);
-  typeSel.value = opt ? preferredCli : 'claude';
+  const taskCmdType = task.command_type || 'claude';
+  const opt = Array.from(typeSel.options).find(o => o.value === taskCmdType);
+  typeSel.value = opt ? taskCmdType : 'claude';
   toggleRunTaskModelGroup();
-  // 使用配置的默认模型（按当前选中的 command_type）
-  const defaultModel = getDefaultModel(typeSel.value) || 'sonnet';
-  document.getElementById('run-task-model').value = defaultModel;
+  const modelSel = document.getElementById('run-task-model');
+  modelSel.innerHTML = buildModelOptions(typeSel.value);
+  modelSel.value = task.model || getDefaultModel(typeSel.value) || '';
   // 默认填上次同任务的 session_id（实现“续传”便捷入口）：异步拉最近一次 execution
   const resumeInput = document.getElementById('run-task-resume');
   if (resumeInput) {
@@ -455,7 +454,7 @@ async function editTask(id) {
   if (t) showTaskModal(t);
 }
 
-function showTaskModal(task) {
+async function showTaskModal(task) {
   document.getElementById('task-modal-title').textContent = task ? '编辑任务' : '新建任务';
   document.getElementById('task-id').value = task ? task.id : '';
   document.getElementById('task-title').value = task ? task.title : '';
@@ -465,6 +464,22 @@ function showTaskModal(task) {
   document.getElementById('task-acceptance').value = task ? (task.acceptance || '') : '';
   document.getElementById('task-acceptance').readOnly = false;
   document.getElementById('task-type').value = task ? (task.task_type || 'manual') : 'manual';
+
+  // command_type / model：新建默认 claude+haiku；编辑时回填已有值
+  const cmdType = task ? (task.command_type || 'claude') : 'claude';
+  const mdl = task ? (task.model || '') : '';
+  document.getElementById('task-command-type').value = cmdType;
+  const modelSel = document.getElementById('task-model');
+  if (typeof loadCLIModels === 'function') await loadCLIModels();
+  modelSel.innerHTML = buildModelOptions(cmdType);
+  modelSel.value = mdl || getDefaultModel(cmdType) || '';
+  // command_type 切换时联动刷新 model 列表
+  document.getElementById('task-command-type').onchange = function() {
+    const type = this.value;
+    modelSel.innerHTML = buildModelOptions(type);
+    modelSel.value = getDefaultModel(type) || '';
+  };
+
   document.getElementById('task-submit-btn').classList.remove('hidden');
   // 经验库：编辑模式从 task.experience_id 解析
   _selectedExps = [];
@@ -495,9 +510,11 @@ async function submitTask() {
   const body = {
     title,
     description: document.getElementById('task-desc').value,
-    experience_ids: _selectedExps.map(s => s.id),  // 修复：使用新字段 experience_ids（数组）而非旧 experience_id（单值）
+    experience_ids: _selectedExps.map(s => s.id),
     acceptance: document.getElementById('task-acceptance').value,
-    task_type: document.getElementById('task-type').value
+    task_type: document.getElementById('task-type').value,
+    command_type: document.getElementById('task-command-type').value,
+    model: document.getElementById('task-model').value,
   };
   if (id) {
     await fetch(API + '/api/tasks/' + id, {

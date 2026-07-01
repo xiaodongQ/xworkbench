@@ -295,6 +295,9 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Acceptance    string   `json:"acceptance"`
 		TaskType      string   `json:"task_type"` // 'manual'|'scheduled'|'remote'，默认 'manual'
 		Priority      int      `json:"priority"`  // 数字越大越优先，默认 5
+		CommandType   string   `json:"command_type"` // claude/shell/cbc，默认 claude
+		Model         string   `json:"model"`         // haiku/sonnet/opus
+		Prompt        string   `json:"prompt"`        // 执行用 prompt
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -311,6 +314,9 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:    time.Now(),
 		TaskType:     req.TaskType,
 		Priority:     req.Priority,
+		CommandType:  req.CommandType,
+		Model:        req.Model,
+		Prompt:       req.Prompt,
 	}
 	if err := s.db.Create(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -348,6 +354,9 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		Acceptance    string   `json:"acceptance"`
 		// Priority 用指针：nil=未传，&0=显式设为 0。
 		Priority *int `json:"priority,omitempty"`
+		CommandType  string   `json:"command_type"`
+		Model        string   `json:"model"`
+		Prompt       string   `json:"prompt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -362,6 +371,9 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	task.Description = req.Description
 	task.ExperienceID = req.ExperienceID
 	task.Acceptance = req.Acceptance
+	task.CommandType = req.CommandType
+	task.Model = req.Model
+	task.Prompt = req.Prompt
 	if req.Priority != nil {
 		task.Priority = *req.Priority
 	}
@@ -683,8 +695,15 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		ResumeSessionID string `json:"resume_session_id"` // agent 模式下续传 claude 会话
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req) // body 可选
+	// 请求体未传时用 task 创建时确定的默认值
+	if req.CommandType == "" {
+		req.CommandType = task.CommandType
+	}
 	if req.CommandType == "" {
 		req.CommandType = "claude"
+	}
+	if req.Model == "" {
+		req.Model = task.Model
 	}
 	// 构造 rich prompt: task 全字段 + 多经验内容注入
 	var prompt string

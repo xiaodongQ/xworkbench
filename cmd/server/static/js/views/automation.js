@@ -158,7 +158,12 @@ async function loadAILoopStatus(taskId) {
       const taskSrc = document.getElementById('task-ailoop-source');
       if (taskSrc) taskSrc.textContent = enabled ? '(config.json)' : '';
     }
-    // 3. 如果当前 task 正在 loop 中，禁用启动按钮
+    // 3. Learn 按钮依赖 ai_loop_enabled，没开时隐藏
+    const learnBtn = document.getElementById('btn-learn');
+    if (learnBtn) {
+      learnBtn.style.display = enabled ? '' : 'none';
+    }
+    // 4. 如果当前 task 正在 loop 中，禁用启动按钮
     if (taskId && Array.isArray(resp.running) && resp.running.includes(taskId)) {
       const runBtn = document.getElementById('btn-run-loop');
       if (runBtn) {

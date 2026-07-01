@@ -49,6 +49,10 @@ type Task struct {
 	ImprovementThreshold float64 `json:"improvement_threshold,omitempty"`
 	LastHeartbeat       *time.Time `json:"last_heartbeat,omitempty"`
 	LastError           string     `json:"last_error,omitempty"`
+	// 执行配置（手动任务创建时确定）
+	CommandType   string `json:"command_type,omitempty"` // claude/shell/cbc
+	Model         string `json:"model,omitempty"`       // haiku/sonnet/opus
+	Prompt        string `json:"prompt,omitempty"`       // 执行用 prompt
 	// 远程 Agent 相关
 	TaskType         string   `json:"task_type,omitempty"`
 	ClaimerAgentID   string   `json:"claimer_agent_id,omitempty"`

@@ -729,12 +729,22 @@
     <input type="hidden" id="task-id">
     <div class="form-group"><label>标题 <span class="field-hint">必填</span></label><input id="task-title" placeholder="任务标题"></div>
     <div class="form-group"><label>描述 <span class="field-hint">详细描述问题和背景</span></label><textarea id="task-desc" placeholder="详细描述..."></textarea></div>
-    <div class="form-row">
-      <div class="form-group"><label>任务类型<span class="field-hint">manual / remote</span></label>
-        <select id="task-type">
-          <option value="manual">manual（本地手动执行）</option>
-          <option value="remote">remote（远程 Agent 领取）</option>
+    <div class="form-row" style="display:flex;flex-wrap:nowrap;gap:6px">
+      <div class="form-group" style="flex:3"><label>任务类型</label>
+        <select id="task-type" style="width:100%">
+          <option value="manual">manual</option>
+          <option value="remote">remote</option>
         </select>
+      </div>
+      <div class="form-group" style="flex:3"><label>CLI 类型</label>
+        <select id="task-command-type" style="width:100%">
+          <option value="claude">claude</option>
+          <option value="shell">shell</option>
+          <option value="cbc">cbc</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:4"><label>模型</label>
+        <select id="task-model" style="width:100%"></select>
       </div>
     </div>
     <div class="form-group">
@@ -802,7 +812,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-weight:600;font-size:13px">📋 执行历史</span>
-          <button type="button" id="btn-learn" class="btn btn-primary btn-small" disabled title="需要先运行一次任务" onclick="learnFromTask()">📚 Learn</button>
+          <button type="button" id="btn-learn" class="btn btn-primary btn-small" style="display:none" disabled title="需要先运行一次任务" onclick="learnFromTask()">📚 Learn</button>
         </div>
         <span id="task-exec-history-info" style="font-size:11px;color:var(--text-secondary)"></span>
       </div>
