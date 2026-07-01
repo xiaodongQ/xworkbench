@@ -173,7 +173,6 @@ function renderTaskTable(list) {
         <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
         <td class="col-ops">
           <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
-            <button class="btn btn-secondary btn-small" onclick="viewTask('${t.id}')">查看</button>
             ${ops}
           </div>
         </td>
@@ -451,10 +450,15 @@ async function editTask(id) {
     await loadTasks();
     t = tasks.find(x => x.id === id);
   }
-  if (t) showTaskModal(t);
+  if (t) {
+    showTaskModal(t);
+    loadTaskExecHistory(t.id);
+  }
 }
 
 async function showTaskModal(task) {
+  // 先确保模型列表加载完成（CLI_MODELS 可能还未初始化）
+  if (typeof loadCLIModels === 'function') await loadCLIModels();
   document.getElementById('task-modal-title').textContent = task ? '编辑任务' : '新建任务';
   document.getElementById('task-id').value = task ? task.id : '';
   document.getElementById('task-title').value = task ? task.title : '';
@@ -470,7 +474,6 @@ async function showTaskModal(task) {
   const mdl = task ? (task.model || '') : '';
   document.getElementById('task-command-type').value = cmdType;
   const modelSel = document.getElementById('task-model');
-  if (typeof loadCLIModels === 'function') await loadCLIModels();
   modelSel.innerHTML = buildModelOptions(cmdType);
   modelSel.value = mdl || getDefaultModel(cmdType) || '';
   // command_type 切换时联动刷新 model 列表

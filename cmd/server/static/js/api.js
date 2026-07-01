@@ -94,11 +94,10 @@ async function loadSystemSettings() {
     const cfg = await fetchJSON(API + '/api/config');
     window._preferredCLI = cfg.preferred_cli || 'claude';
     // 同步评估下拉（如元素已存在）
+    if (typeof loadCLIModels === 'function') await loadCLIModels();
     const cliSel = document.getElementById('eval-cli-select');
     if (cliSel) {
       cliSel.value = window._preferredCLI;
-      // 先确保 CLI_MODELS 已加载，否则 buildModelOptions 返回空串清空 model select
-      if (typeof loadCLIModels === 'function') await loadCLIModels();
       if (typeof onEvalCliChange === 'function') onEvalCliChange();
     }
   } catch (e) {
