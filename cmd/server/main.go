@@ -2886,6 +2886,22 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 			go func() { defer cleanup() }()
 		}
 
+		// session 冲突：claude 报 "Session ID already in use" 时，等待后用同一 session 重试
+		if runErr != nil && strings.Contains(runErr.Error(), "already in use") && sessionID != "" {
+			logger.Warnw("run-loop: session conflict, retrying with same session", "task_id", taskID, "iteration", i+1)
+			time.Sleep(2 * time.Second) // 等待 session 释放
+			cmd2, stdin2, cleanup2, err2 := runner.BuildCommand(req.CliType, model, sessionID, loopPrompt, runner.WithActionReport())
+			if err2 == nil {
+				ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Minute)
+				res2, runErr2 := executor.Run(ctx2, cmd2, "", stdin2, nil)
+				cancel2()
+				if cleanup2 != nil {
+					go func() { defer cleanup2() }()
+				}
+				res, runErr = res2, runErr2
+			}
+		}
+
 		exitCode := -1
 		var out, errOut string
 		if res != nil {
