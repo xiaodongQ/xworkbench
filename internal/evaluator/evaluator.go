@@ -360,7 +360,8 @@ func ExtractActionReport(stdout string) *ActionReport {
 	r := &ActionReport{}
 	for _, m := range cmdLineRe.FindAllStringSubmatch(stdout, -1) {
 		cmd := strings.TrimSpace(m[1])
-		// 过滤占位符嘴炮：`...` / `<...>` / `(待填)` / `TODO` / `xxx`
+		// 去掉 Markdown 代码 fences（反引号）后再判断是否占位符
+		cmd = strings.Trim(cmd, "`")
 		if isPlaceholder(cmd) {
 			continue
 		}
