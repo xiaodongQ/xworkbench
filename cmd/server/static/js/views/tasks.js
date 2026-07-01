@@ -1028,18 +1028,23 @@ async function learnFromTask() {
   const id = _currentTaskId();
   if (!id) return;
   const btn = document.getElementById('btn-learn');
-  if (btn?.disabled) {
-    alert('⚠️ Learn 需要先运行一次任务，才能从中提取经验。\n\n请先点击「▶ 运行」按钮执行该任务。');
+  if (btn) btn.disabled = true;
+  if (!confirm('从该 task 的执行记录生成经验写入 experiences 表？')) {
+    if (btn) btn.disabled = false;
     return;
   }
-  if (!confirm('从该 task 的执行记录生成经验写入 experiences 表？')) return;
-  _aiLoopProgressShow('学习中...');
+  const progWrap = document.getElementById('ai-loop-progress');
+  const textEl = document.getElementById('ai-loop-status-text');
+  if (progWrap) progWrap.classList.remove('hidden');
+  if (textEl) textEl.textContent = '📚 正在分析执行记录生成经验...';
   try {
     const result = await fetchJSON('/api/tasks/' + id + '/learn', { method: 'POST' });
-    _aiLoopProgressShow('✓ 经验已生成（' + (result.exp_id || '?') + '）');
+    if (textEl) textEl.textContent = '✓ 经验已生成（exp_id: ' + (result.exp_id || '?') + '）';
   } catch (e) {
-    _aiLoopProgressShow('❌ ' + e.message);
+    if (textEl) textEl.textContent = '❌ ' + e.message;
     alert('❌ Learn 失败：' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
