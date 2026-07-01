@@ -181,6 +181,12 @@ function reloadCurrentTab() {
 // 全局 ESC 关 modal
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    const execDetail = document.getElementById('exec-detail-modal');
+    // 如果执行详情弹窗开着，只关它；避免连同外层的 task-modal 一起关掉
+    if (execDetail && !execDetail.classList.contains('hidden')) {
+      execDetail.classList.add('hidden');
+      return;
+    }
     document.querySelectorAll('.modal-overlay').forEach(m => m.classList.add('hidden'));
   }
 });

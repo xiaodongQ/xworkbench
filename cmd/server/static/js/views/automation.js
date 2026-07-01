@@ -1036,7 +1036,7 @@ function renderExecOutput(raw) {
       sections.push('=== AI 答复 ===\n' + aiReply);
     }
 
-    // 2. Claude 执行信息
+    // 2. AI CLI 执行信息
     const meta = [];
     if (sessionId) meta.push(`sessionId=${sessionId}`);
     if (typeof obj.num_turns === 'number') meta.push(`num_turns=${obj.num_turns}`);
@@ -1046,7 +1046,7 @@ function renderExecOutput(raw) {
       meta.push(`permission_denials=[${obj.permission_denials.join(',')}]`);
     }
     if (meta.length) {
-      sections.push('--- Claude 执行信息 ---\n' + meta.join(' | '));
+      sections.push('--- AI CLI 执行信息 ---\n' + meta.join(' | '));
     }
 
     // 3. AI 自评动作清单（辅助评估）
@@ -1083,7 +1083,7 @@ function renderExecOutput(raw) {
     const meta = [];
     if (sessionId) meta.push(`sessionId=${sessionId}`);
     if (meta.length) {
-      sections.push('--- Claude 执行信息 ---\n' + meta.join(' | '));
+      sections.push('--- AI CLI 执行信息 ---\n' + meta.join(' | '));
     }
     if (actionReport) {
       sections.push('--- AI 自评动作清单（辅助评估） ---\n' + actionReport);
