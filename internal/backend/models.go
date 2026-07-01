@@ -176,7 +176,8 @@ type DirShortcut struct {
 	RemotePath     string `json:"remote_path,omitempty"`    // 远程目录路径（默认空 = 主目录）
 	RemotePassword string `json:"remote_password,omitempty"` // 密码（仅演示/内部用，生产建议用 key）
 	AuthMethod     string `json:"auth_method,omitempty"`    // "password" | "key"，默认 "password"
-	KeyPath        string `json:"key_path,omitempty"`       // 私钥路径（AuthMethod=key 时使用）
+	KeyPath        string `json:"key_path,omitempty"`       // 私钥路径（AuthMethod=key 时使用；已废弃，推荐 LocalKeyPath）
+	LocalKeyPath   string `json:"local_key_path,omitempty"` // 本地私钥路径（优先于 KeyPath；不填则用全局 ssh.default_key_path）
 	// 本地终端配置
 	TerminalCmd    string `json:"terminal_cmd,omitempty"`   // 启动终端的命令（per-shortcut 字段，存 DB）
 	CreatedAt      time.Time  `json:"created_at"`

@@ -136,6 +136,7 @@ type Config struct {
 	Relay    RelayConfig    `json:"relay"`
 	Terminal TerminalConfig `json:"terminal"`
 	Models   ModelsConfig   `json:"models"`
+	SSH      SSHKeyConfig   `json:"ssh"`
 }
 
 // SupportedCLIs 允许的 CLI 名（不区分大小写）
@@ -162,6 +163,11 @@ type RelayConfig struct {
 type TerminalConfig struct {
 	DetectPaths map[string][]string        `json:"detect_paths"` // 检测路径列表
 	Types       map[string]TerminalTypeDef `json:"types"`        // 终端类型定义
+}
+
+// SSHKeyConfig SSH 密钥相关全局配置
+type SSHKeyConfig struct {
+	DefaultKeyPath string `json:"default_key_path,omitempty"` // 全局默认私钥路径（单记录可覆盖）
 }
 
 // TerminalTypeDef 终端类型定义

@@ -1,15 +1,16 @@
 package shortcuts
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
 
-
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
+	"github.com/xiaodongQ/xworkbench/internal/executor"
 	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
@@ -71,19 +72,45 @@ func DefaultTerminal() string {
 
 // OpenRemoteDirShortcut 用配置的终端软件打开远程 SSH 连接。
 // 支持 wezterm 等终端，连接后 cd 到 remote_path（默认主目录）。
+// 优先使用密钥认证：自动解析密钥路径（LocalKeyPath > KeyPath > 全局默认 > ~/.ssh/xworkbench_id_ed25519）。
 func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) error {
+	return openRemoteDirShortcutImpl(context.Background(), dir, termType, binPath, false)
+}
+
+// OpenRemoteDirShortcutWithKeyAuth 打开远程终端，并确保密钥免密配置已就绪（生成密钥对 + 上传公钥）。
+// 适用于用户首次点击"打开终端"时的引导流程。
+func OpenRemoteDirShortcutWithKeyAuth(ctx context.Context, dir *backend.DirShortcut, termType, binPath string) error {
+	return openRemoteDirShortcutImpl(ctx, dir, termType, binPath, true)
+}
+
+func openRemoteDirShortcutImpl(ctx context.Context, dir *backend.DirShortcut, termType, binPath string, ensureKeyAuth bool) error {
 	if dir.Type != backend.DirShortcutTypeRemote {
 		return fmt.Errorf("not a remote shortcut: type=%s", dir.Type)
 	}
+
+	// 解析密钥路径（优先级：LocalKeyPath > KeyPath > 全局默认 > 兜底）
+	keyPath := executor.ResolveKeyPath(dir)
+
+	// 可选：确保密钥免密已配置（首次使用时）
+	if ensureKeyAuth {
+		_, err := executor.EnsureKeyAuthAvailable(ctx, dir)
+		if err != nil {
+			logger.Logger.Warnw("[OpenRemoteDirShortcut] ensure key auth failed, continuing anyway",
+				"error", err.Error(), "host", dir.RemoteHost)
+		}
+	}
+
 	sshTarget := dir.RemoteHost
 	if dir.RemoteUser != "" {
 		sshTarget = dir.RemoteUser + "@" + dir.RemoteHost
 	}
-	logger.Logger.Infow("[OpenRemoteDirShortcut] opening", "termType", termType, "bin", binPath, "target", sshTarget, "remotePath", dir.RemotePath)
+	logger.Logger.Infow("[OpenRemoteDirShortcut] opening",
+		"termType", termType, "bin", binPath, "target", sshTarget,
+		"remotePath", dir.RemotePath, "keyPath", keyPath)
+
 	switch termType {
 	case "wezterm":
-		// wezterm ssh user@host -- bash -c "cd /path && <cmd>"
-		args := []string{"ssh", sshTarget}
+		args := []string{"ssh", "-i", keyPath, sshTarget}
 		cmd := "exec $SHELL -l"
 		if dir.TerminalCmd != "" {
 			cmd = dir.TerminalCmd + "; exec $SHELL"
@@ -96,11 +123,8 @@ func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) e
 		args = append(args, "--", "bash", "-c", cmd)
 		return exec.Command(binPath, args...).Start()
 	default:
-		// 其他终端用 ssh 命令
-		sshArgs := []string{}
-		if dir.AuthMethod == "key" && dir.KeyPath != "" {
-			sshArgs = append(sshArgs, "-i", dir.KeyPath)
-		}
+		// 其他终端用 ssh 命令，始终用 -i keyPath（密钥不存在则 ssh 会报错，用户可感知）
+		sshArgs := []string{"-i", keyPath}
 		sshArgs = append(sshArgs, sshTarget)
 		cmd := "exec $SHELL -l"
 		if dir.TerminalCmd != "" {
