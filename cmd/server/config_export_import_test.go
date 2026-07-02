@@ -88,6 +88,7 @@ func TestExportImport_RoundTrip_DirShortcuts(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("export status=%d body=%s", w.Code, w.Body.String())
 	}
+
 	var got map[string]json.RawMessage
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)

@@ -119,15 +119,9 @@ func (s *APIServer) handleConfigExport(w http.ResponseWriter, r *http.Request) {
 			}
 			parts = append(parts, fmt.Sprintf(`  "%s": %s`, t, val))
 		}
-		// 给所有字段（除第一个 "{" 外）加前缀逗号，最后一个字段不加
-		for i := 1; i < len(parts)-1; i++ {
-			parts[i] = "," + parts[i]
-		}
-		parts = append(parts, "}")
-		w.Write([]byte("{\n" + strings.Join(parts, "\n") + "\n"))
+			w.Write([]byte("{\n" + strings.Join(parts[:len(parts)-1], ",\n") + ",\n" + parts[len(parts)-1] + "\n}"))
 	}
 }
-
 func (s *APIServer) exportDirShortcuts() []*DirShortcutExport {
 	list, err := s.dirDB.List()
 	if err != nil {
