@@ -343,12 +343,7 @@ func (r *rptyWsReader) Read(p []byte) (int, error) {
 		if len(parts) == 3 {
 			cols := parseInt(parts[1], 80)
 			rows := parseInt(parts[2], 24)
-			_ = r.session.RequestPty("xterm-256color", cols, rows,
-				ssh.TerminalModes{
-					ssh.ECHO:          1,
-					ssh.TTY_OP_ISPEED: 14400,
-					ssh.TTY_OP_OSPEED: 14400,
-				})
+			_ = r.session.WindowChange(cols, rows)
 		}
 		return 0, nil
 	}
