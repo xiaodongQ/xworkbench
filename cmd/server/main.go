@@ -2660,11 +2660,20 @@ func main() {
 	}
 	logger.Infof("Skill Factory started at http://localhost%s  build=%s", addr, BuildInfo)
 
-	// 优雅关闭：监听 SIGINT/SIGTERM，收到后 http.Server.Shutdown 给正在执行的
-	// handler 30s 时间排空，再强制关闭。修复"kill PID 后日志断片 + claude
-	// 子进程变孤儿"两个老问题。
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	// 优雅关闭：stopCh 被关闭时触发 Shutdown（Windows Service 或 Ctrl+C 都会关闭它）
+	stopCh := make(chan struct{})
+
+	// 注册 service stopCh（Windows Service 模式会将 serviceStopCh 指向同一个 channel）
+	serviceStopCh = stopCh
+
+	// 非 Windows Service 模式下，监听 SIGINT/SIGTERM 信号来关闭 stopCh
+	go func() {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		<-ctx.Done()
+		logger.Infow("shutdown signal received...")
+		close(stopCh)
+	}()
 
 	httpSrv := &http.Server{
 		Handler:     srv,
@@ -2685,8 +2694,8 @@ func main() {
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatalw("http serve failed", "err", err)
 		}
-	case <-ctx.Done():
-		logger.Infow("shutdown signal received, draining connections (30s timeout)...")
+	case <-stopCh:
+		logger.Infow("draining connections (30s timeout)...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
