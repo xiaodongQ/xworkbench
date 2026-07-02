@@ -102,6 +102,28 @@ xwcli - xworkbench 远程 agent（单文件，零依赖）
 
 import json, os, pathlib, subprocess, sys, time, urllib.request, urllib.error
 
+def _windows_detach():
+    if sys.platform != 'win32':
+        return
+    try:
+        DETACHED = 0x00000008
+        CREATE_PGROUP = 0x00000200
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0
+        subprocess.Popen(
+            [sys.executable, __file__, 'run-inner'],
+            stdin=subprocess.DEVNULL,
+            stdout=open(os.devnull, 'w'),
+            stderr=open(os.devnull, 'w'),
+            creationflags=DETACHED | CREATE_PGROUP,
+            startupinfo=si,
+        )
+        print('[xwcli] Windows background started')
+        sys.exit(0)
+    except Exception as e:
+        print('[xwcli] background failed: %s' % e)
+
 CONFIG_PATH = pathlib.Path.home() / ".config" / "xwcli" / "agent.json"
 HEARTBEAT_INTERVAL = 15   # 秒
 CLAIM_INTERVAL = 10       # 秒（无任务时轮询间隔）
@@ -232,6 +254,9 @@ def run_claude(prompt):
 
 def run_loop():
     """主循环：claim → execute → report"""
+    pid_file = CONFIG_PATH.parent / "xwcli.pid"
+    if sys.platform == "win32":
+        pid_file.write_text(str(os.getpid()))
     config = load_config()
     token = config["token"]
     agent_id = config["agent_id"]
@@ -302,7 +327,12 @@ def main():
             sys.exit(1)
         register(server_url, name)
 
+    elif cmd == "run-inner":
+        run_loop()
+        pid_file.unlink(missing_ok=True)
+        sys.exit(0)
     elif cmd == "run":
+        _windows_detach()
         run_loop()
 
     elif cmd == "status":
