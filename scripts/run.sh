@@ -77,14 +77,11 @@ Options:
   --port PORT      自定义端口（如 9090）
   --status         查看运行状态
   --log            跟踪日志（tail -f）
-  --install-service   仅 Windows：注册 Windows Service（--service install）
-  --uninstall-service 仅 Windows：卸载 Windows Service（--service uninstall）
   --help           显示本帮助
 
 Windows 模式说明：
-  Windows 上自动使用 Windows Service 方式启动（--service install + net start）
-  关闭终端后服务不受影响，开机自启。
-  如需手动管理：xworkbench.exe --service install|run|uninstall
+  Windows 上使用 PowerShell 脚本后台运行（run_background.ps1）。
+  支持 start / stop / status。
 
 环境变量：
   DB_PATH          SQLite 路径（默认 ./data/xworkbench.db）
@@ -172,21 +169,6 @@ is_port_in_use() {
 
 # 停止进程
 stop() {
-  # Windows：优先尝试 net stop（Service 模式）
-  if [ "$os" = "windows" ]; then
-    if powershell -NoProfile -Command "Get-Service xworkbench -ErrorAction SilentlyContinue" >/dev/null 2>&1; then
-      echo "${YELLOW}==> 停止（Service 模式）${NC}"
-      cmd.exe //c "net stop xworkbench /yes" >/dev/null 2>&1
-      sleep 1
-      local remaining=$(find_pid_by_port)
-      if [ -z "$remaining" ]; then
-        echo "${GREEN}✓ 已停止（Service 模式）${NC}"
-        return 0
-      fi
-      echo "${YELLOW}⚠ Service 已停止但进程仍存在，继续强制终止...${NC}"
-    fi
-  fi
-
   # 非 Windows 或 fallback：SIGTERM / taskkill
   local port=$(listen_port)
   local pid=$(find_pid_by_port)
@@ -278,21 +260,8 @@ start() {
 
   local port=$(listen_port)
 
-  # Windows Service 模式：优先用 --service install + net start
+  # Windows: use run_background.ps1 (no Windows Service)
   if [ "$os" = "windows" ]; then
-    # 检查服务是否已注册
-    if powershell -NoProfile -Command "Get-Service xworkbench -ErrorAction SilentlyContinue" >/dev/null 2>&1; then
-      echo "${YELLOW}⚠ Windows Service 已存在，使用 net start${NC}"
-      cmd.exe //c "net start xworkbench" >/dev/null 2>&1
-      sleep 1
-      local svc_pid=$(find_pid_by_port)
-      if [ -n "$svc_pid" ]; then
-        echo "${GREEN}✓ 启动成功（Service 模式）${NC}  pid=$svc_pid"
-        echo "  浏览器：${CYAN}http://localhost${ADDR}${NC}"
-        return 0
-      fi
-    fi
-
     # 端口被占用时先停止
     if is_port_in_use; then
       local existing_pid=$(find_pid_by_port)
@@ -304,11 +273,9 @@ start() {
     fi
 
     mkdir -p "$(dirname "$DB_PATH")"
-    echo "  Windows Service 模式启动..."
+    echo "  启动 xworkbench (PowerShell background)..."
     local start_time=$(date +%s)
-    # 用 --service install 先注册服务，再用 net start 启动
-    cmd.exe //c ""$BIN" --service install" >/dev/null 2>&1
-    cmd.exe //c "net start xworkbench" >/dev/null 2>&1
+    powershell -NoProfile -ExecutionPolicy Bypass -File "${PROJECT_ROOT}/scripts/run_background.ps1" -Action start
 
     local started=0
     local actual_pid=""
@@ -323,11 +290,11 @@ start() {
 
     if [ "$started" -eq 1 ]; then
       local end_time=$(date +%s)
-      echo "${GREEN}✓ 启动成功（Service 模式）${NC}  pid=$actual_pid"
+      echo "${GREEN}✓ 启动成功${NC}  pid=$actual_pid"
       echo "  耗时：$((end_time - start_time))s"
       echo "  浏览器：${CYAN}http://localhost${ADDR}${NC}"
     else
-      echo "${RED}✗ 启动失败（Service 模式）${NC}"
+      echo "${RED}✗ 启动失败${NC}"
       echo "  查看日志：${YELLOW}tail -f ${PROJECT_ROOT}/data/logs/xworkbench.log${NC}"
       exit 1
     fi
@@ -425,22 +392,6 @@ case "${1:-}" in
   --port)           ADDR=":$2"; start ;;
   --status)         status ;;
   --log)            tail -f "${PROJECT_ROOT}/data/logs/xworkbench.log" ;;
-  --install-service)
-    if [ "$os" != "windows" ]; then
-      echo "${RED}✗ --install-service 仅支持 Windows${NC}"
-      exit 1
-    fi
-    "$BIN" --service install
-    echo "${GREEN}✓ 安装完成，运行 ${CYAN}net start xworkbench${GREEN} 启动${NC}"
-    ;;
-  --uninstall-service)
-    if [ "$os" != "windows" ]; then
-      echo "${RED}✗ --uninstall-service 仅支持 Windows${NC}"
-      exit 1
-    fi
-    "$BIN" --service uninstall
-    echo "${GREEN}✓ 已卸载 Windows Service${NC}"
-    ;;
   --help|-h)        usage ;;
   "")               start ;;
   *)                echo "${RED}✗ 未知选项：$1${NC}"; usage ;;
