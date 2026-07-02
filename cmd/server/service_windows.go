@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-		"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
@@ -55,7 +55,7 @@ func (s *xworkbenchService) Execute(_ []string, svcCh <-chan svc.ChangeRequest, 
 }
 
 // runServiceFlag handles --service install/uninstall/run.
-// startFn is the HTTP server starter (passed as a closure from main so it captures local vars).
+// Matches the non-Windows signature: func(startFn, stopFn func()) bool.
 // Returns true if service mode was handled (caller should return).
 func runServiceFlag(startFn, _ func()) bool {
 	if serviceFlag == nil || *serviceFlag == "" {
@@ -135,11 +135,12 @@ func RemoveService() error {
 
 	s, err := m.OpenService(windowsServiceName)
 	if err != nil {
-		return fmt.Errorf("service %s not found: %w", windowsServiceName, err)
+		return fmt.Errorf("OpenService: %w", err)
 	}
 	defer s.Close()
 
-	if err := s.Delete(); err != nil {
+	err = s.Delete()
+	if err != nil {
 		return fmt.Errorf("Delete: %w", err)
 	}
 	return nil
@@ -148,24 +149,23 @@ func RemoveService() error {
 // isWindowsService returns true on Windows.
 func isWindowsService() bool { return true }
 
-// shutdownHTTP is called on Windows when the service receives a stop.
-// It gracefully shuts down the HTTP server within 30s.
+// shutdownHTTP initiates graceful shutdown of the HTTP server.
 func shutdownHTTP(srv *http.Server) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Errorw("http shutdown failed", "err", err)
+	if srv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
 	}
 }
 
-// handleWindowsSignals starts a goroutine that closes stopCh on SIGINT/SIGTERM.
-// Returns the stopCh. Only used when running on Windows interactively (not as a service).
+// handleWindowsSignals sets up signal handlers for Windows (console mode).
+// Returns the stop channel.
 func handleWindowsSignals() chan struct{} {
 	stopCh := make(chan struct{})
 	go func() {
-		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
-		<-ctx.Done()
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		<-sigCh
 		logger.Infow("shutdown signal received...")
 		close(stopCh)
 	}()
