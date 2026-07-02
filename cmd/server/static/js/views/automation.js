@@ -260,21 +260,22 @@ const SCHED_STATUS_TEXT = {
 };
 const schedStatusText = (raw) => SCHED_STATUS_TEXT[raw] || SCHED_STATUS_TEXT.pending;
 
-// 定时任务表格排序
-const SCHED_SORT_KEY = 'automation.schedSortDir'; // 'asc' | 'desc'
+// 定时任务表格排序：三档循环 asc → desc → ''（默认/恢复原序）
+const SCHED_SORT_KEY = 'automation.schedSortDir'; // 'asc' | 'desc' | ''
 
 // 更新定时任务表格排序图标状态
 function updateSchedSortIcon() {
-  const dir = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
+  const dir = localStorage.getItem(SCHED_SORT_KEY); // null=默认（显示⇅）
   const icon = document.getElementById('sched-sort-icon');
   if (icon) icon.textContent = dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
 }
 
-// 切换定时任务表格排序方向
+// 切换定时任务表格排序方向（asc → desc → '' → asc）
 function toggleSchedSort() {
   const prev = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
-  const next = prev === 'asc' ? 'desc' : 'asc';
-  localStorage.setItem(SCHED_SORT_KEY, next);
+  const next = prev === 'asc' ? 'desc' : prev === 'desc' ? '' : 'asc';
+  if (next) localStorage.setItem(SCHED_SORT_KEY, next);
+  else localStorage.removeItem(SCHED_SORT_KEY);
   updateSchedSortIcon();
   loadScheduled();
 }
@@ -311,12 +312,13 @@ async function loadScheduled() {
     return;
   }
   const initSortIcon = () => {
-    const dir = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
+    const dir = localStorage.getItem(SCHED_SORT_KEY); // null=默认（显示⇅）
     return dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
   };
-  // 按下次运行时间排序（next_run_at 升序，disabled/null 排最后）
-  const sortDir = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
-  const sortedList = [...list].sort((a, b) => {
+  // 按下次运行时间排序（三档：asc / desc / ''=恢复原序）
+  const sortDir = localStorage.getItem(SCHED_SORT_KEY); // null 表示默认（恢复原序）
+  // sortDir 为 null/'' 时不做排序，直接用原始 list
+  const sortedList = sortDir ? [...list].sort((a, b) => {
     // disabled 排最后
     if (!a.enabled && !b.enabled) return 0;
     if (!a.enabled) return 1;
@@ -327,7 +329,7 @@ async function loadScheduled() {
     if (!b.next_run_at) return -1;
     const diff = new Date(a.next_run_at) - new Date(b.next_run_at);
     return sortDir === 'asc' ? diff : -diff;
-  });
+  }) : list;
 el.innerHTML = `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="toggleSchedSort()">最近执行 <span id="sched-sort-icon">${initSortIcon()}</span></th><th>操作</th></tr></thead><tbody>` + sortedList.map(s => {
     const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
     const nextRun = (s.enabled && s.next_run_at)
