@@ -314,7 +314,21 @@ async function loadScheduled() {
     const dir = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
     return dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
   };
-el.innerHTML = `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="toggleSchedSort()">最近执行 <span id="sched-sort-icon">${initSortIcon()}</span></th><th>操作</th></tr></thead><tbody>` + list.map(s => {
+  // 按下次运行时间排序（next_run_at 升序，disabled/null 排最后）
+  const sortDir = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
+  const sortedList = [...list].sort((a, b) => {
+    // disabled 排最后
+    if (!a.enabled && !b.enabled) return 0;
+    if (!a.enabled) return 1;
+    if (!b.enabled) return -1;
+    // 无 next_run_at（cron 解析失败）排最后
+    if (!a.next_run_at && !b.next_run_at) return 0;
+    if (!a.next_run_at) return 1;
+    if (!b.next_run_at) return -1;
+    const diff = new Date(a.next_run_at) - new Date(b.next_run_at);
+    return sortDir === 'asc' ? diff : -diff;
+  });
+el.innerHTML = `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="toggleSchedSort()">最近执行 <span id="sched-sort-icon">${initSortIcon()}</span></th><th>操作</th></tr></thead><tbody>` + sortedList.map(s => {
     const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
     const nextRun = (s.enabled && s.next_run_at)
       ? `<div style="font-size:10px;color:var(--info);margin-top:2px;white-space:nowrap">⏰ 下次 ${esc(new Date(s.next_run_at).toLocaleString())}</div>`
