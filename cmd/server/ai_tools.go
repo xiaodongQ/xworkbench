@@ -7,14 +7,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
+	"github.com/xiaodongQ/xworkbench/internal/skill"
 )
 
 // GetTools returns all available AI function-calling tools.
 func GetTools() []Tool {
-	return []Tool{
+	tools := []Tool{
 		// Task management
 		{
 			Name:        "create_task",
@@ -164,6 +166,40 @@ func GetTools() []Tool {
 			}`),
 		},
 	}
+	// 追加 skill 插件工具
+	for _, s := range skill.GetAll() {
+		tools = append(tools, skillToTool(s))
+	}
+	return tools
+}
+
+// skillToTool 将 skill 转换为 AI Tool 格式。
+func skillToTool(s *skill.Skill) Tool {
+	// 从 xw_params 生成 JSON Schema properties
+	properties := make(map[string]any)
+	required := make([]string, 0)
+	for name, desc := range s.XWParams {
+		properties[name] = map[string]any{
+			"type":        "string",
+			"description": desc,
+		}
+		if strings.Contains(desc, "必填") {
+			required = append(required, name)
+		}
+	}
+	schema := map[string]any{
+		"type":       "object",
+		"properties": properties,
+	}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	paramsBytes, _ := json.Marshal(schema)
+	return Tool{
+		Name:        s.Name,
+		Description: s.Description,
+		Parameters:  json.RawMessage(paramsBytes),
+	}
 }
 
 // ExecuteTool executes a tool by name with given JSON arguments.
@@ -171,6 +207,24 @@ func GetTools() []Tool {
 func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.ExperienceRepo,
 	execDB *backend.ExecutionRepo, agentDB *backend.AgentRepo,
 	localShellState *LocalShellState, toolName string, argsJSON string) string {
+
+	// skill 工具走 skill.Execute
+	if s := skill.GetByName(toolName); s != nil {
+		var params map[string]any
+		if argsJSON != "" {
+			json.Unmarshal([]byte(argsJSON), &params)
+		}
+		result, err := skill.Execute(toolName, params)
+		if err != nil {
+			return fmt.Sprintf("执行技能 %s 失败: %v", toolName, err)
+		}
+		if result.Status == "error" {
+			out, _ := json.Marshal(result.Output)
+			return fmt.Sprintf("技能执行出错: %s", string(out))
+		}
+		out, _ := json.Marshal(result.Output)
+		return string(out)
+	}
 
 	switch toolName {
 	case "create_task":

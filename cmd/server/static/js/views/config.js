@@ -1,6 +1,6 @@
 // ===== 系统配置 Tab =====
 // 2 个导入/导出子 tab：📁 快捷目录 / 🔗 快捷链接
-// 1 个设置子 tab：🤖 默认 CLI
+// 2 个设置子 tab：🤖 默认 CLI / 🛠️ 工具技能
 //
 // 每个导入/导出子 tab 分"导出"和"导入"两个面板。
 // 导入只支持：粘贴 JSON 文本 + 后端解析（不再有 AI 对话 / 后台任务入口）。
@@ -15,6 +15,7 @@ const CFG_TAB_LABEL = {
   dir_shortcuts: '快捷目录',
   web_links: '快捷链接',
   default_cli: '默认 CLI',
+  skills: '工具技能',
 };
 
 // 子 tab  →  后端 type（export/import 用）
@@ -58,6 +59,8 @@ function switchCfgTab(tab) {
     loadPreferredCLI();
     loadModelDefaults();
     loadSkipPerm();
+  } else if (tab === 'skills') {
+    loadSkills();
   } else {
     refreshExportSummary();
   }
@@ -483,6 +486,193 @@ async function setSkipPerm(enabled) {
     status.style.color = 'var(--exception)';
     // 回滚 checkbox
     checkbox.checked = !enabled;
+  }
+}
+
+// ---- 工具技能 ----
+async function loadSkills() {
+  const container = document.getElementById('skills-list');
+  if (!container) return;
+  container.innerHTML = '<div style="color:var(--text-secondary);font-size:13px">加载中…</div>';
+  try {
+    const data = await fetchJSON(API + '/api/skills');
+    const skills = data.skills || [];
+    // 缓存起来供弹窗使用
+    window._skillCache = {};
+    skills.forEach(s => { window._skillCache[s.name] = s; });
+    if (skills.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-secondary);font-size:13px">暂无可用的工具技能</div>';
+      return;
+    }
+    container.innerHTML = skills.map(s => renderSkillCard(s)).join('');
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--exception);font-size:13px">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+
+function renderSkillCard(s) {
+  const examples = (s.examples || []).map(ex =>
+    '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">• ' + esc(ex.description) + ' <code style="background:var(--bg);padding:1px 4px;border-radius:3px;font-size:11px">' + esc(JSON.stringify(ex.params || {})) + '</code></div>'
+  ).join('');
+  const params = Object.entries(s.params || {}).map(([k, v]) =>
+    '<span style="font-size:12px;margin-right:12px"><code style="background:var(--bg);padding:1px 4px;border-radius:3px">' + esc(k) + '</code>: ' + esc(v) + '</span>'
+  ).join('');
+  const output = Object.entries(s.output || {}).map(([k, v]) =>
+    '<span style="font-size:12px;margin-right:12px"><code style="background:var(--bg);padding:1px 4px;border-radius:3px">' + esc(k) + '</code>: ' + esc(v) + '</span>'
+  ).join('');
+  return `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-weight:600;font-size:14px;color:var(--primary)">${esc(s.name)}</span>
+        ${s.version ? '<span style="font-size:11px;color:var(--text-secondary);background:var(--bg);padding:1px 6px;border-radius:10px">v' + esc(s.version) + '</span>' : ''}
+        <button onclick="toggleSkillDetail(this)" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:12px">详情 ▾</button>
+      </div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">${esc(s.description || '')}</div>
+      <div class="skill-detail" style="display:none;border-top:1px solid var(--border);padding-top:12px;margin-top:8px">
+        <div style="margin-bottom:8px">
+          <div style="font-size:12px;font-weight:500;color:var(--text-secondary);margin-bottom:4px">参数</div>
+          <div>${params || '<span style="font-size:12px;color:var(--text-secondary)">无</span>'}</div>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:12px;font-weight:500;color:var(--text-secondary);margin-bottom:4px">输出</div>
+          <div>${output || '<span style="font-size:12px;color:var(--text-secondary)">无</span>'}</div>
+        </div>
+        <div style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:500;color:var(--text-secondary);margin-bottom:4px">示例</div>
+          <div>${examples || '<span style="font-size:12px;color:var(--text-secondary)">无</span>'}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button onclick="showSkillTest('${esc(s.name)}', this)" style="background:var(--primary);color:#fff;border:none;cursor:pointer;padding:6px 12px;border-radius:6px;font-size:13px">▶ 立即测试</button>
+          <span class="skill-test-result" style="font-size:12px;color:var(--text-secondary)"></span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function toggleSkillDetail(btn) {
+  const card = btn.closest('div').querySelector('.skill-detail');
+  if (!card) return;
+  const isHidden = card.style.display === 'none' || card.style.display === '';
+  card.style.display = isHidden ? 'block' : 'none';
+  btn.textContent = isHidden ? '收起 △' : '详情 ▾';
+}
+
+function showSkillTest(name, btn) {
+  const card = btn.closest('div');
+  const resultSpan = card.querySelector('.skill-test-result');
+  const skillData = window._skillCache ? window._skillCache[name] : null;
+  const examples = skillData ? skillData.examples : [];
+  const defaultParams = examples.length > 0 ? examples[0].params : {};
+  const paramKeys = skillData ? Object.keys(skillData.params || {}) : [];
+
+  if (paramKeys.length === 0) {
+    executeSkillTest(name, {}, resultSpan);
+    return;
+  }
+
+  let formHTML = '<div style="display:flex;flex-direction:column;gap:10px;padding:8px">';
+  paramKeys.forEach(key => {
+    const isRequired = (skillData.params[key] || '').includes('必填');
+    const defaultVal = defaultParams[key] !== undefined ? JSON.stringify(defaultParams[key]) : '';
+    formHTML += `<div style="display:flex;align-items:center;gap:8px">
+      <label style="font-size:13px;min-width:80px">${esc(key)}${isRequired ? ' <span style="color:var(--exception)">*</span>' : ''}</label>
+      <input type="text" id="st-param-${esc(key)}" value="${defaultVal}" placeholder="${esc(skillData.params[key])}"
+        style="flex:1;font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+    </div>`;
+  });
+  formHTML += '</div>';
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000';
+  overlay.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:360px;max-width:500px">
+      <h3 style="margin:0 0 4px;font-size:15px">测试 ${esc(name)}</h3>
+      <p style="margin:0 0 12px;font-size:12px;color:var(--text-secondary)">请输入参数值</p>
+      ${formHTML}
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button onclick="this.closest('[style*=&quot;position:fixed&quot;]').remove()" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font-size:13px">取消</button>
+        <button onclick="executeSkillTestFromForm('${esc(name)}', this)" style="padding:6px 12px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">▶ 执行</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+async function executeSkillTestFromForm(name, btn) {
+  const overlay = btn.closest('[style*="position:fixed"]');
+  const skillData = window._skillCache ? window._skillCache[name] : null;
+  const paramKeys = skillData ? Object.keys(skillData.params || {}) : [];
+  const params = {};
+  let valid = true;
+
+  paramKeys.forEach(key => {
+    const input = document.getElementById('st-param-' + key);
+    if (!input) return;
+    let val = input.value.trim();
+    if (!val) {
+      if ((skillData.params[key] || '').includes('必填')) {
+        input.style.borderColor = 'var(--exception)';
+        valid = false;
+      }
+      return;
+    }
+    try { val = JSON.parse(val); } catch(e) {}
+    params[key] = val;
+  });
+  if (!valid) return;
+
+  // 找到原始卡片的 resultSpan
+  const card = document.querySelector('.skill-card[data-name="' + name.replace(/"/g, '\\"') + '"]') ||
+    document.querySelector('.cfg-tab-panel[data-tab="skills"] .skill-detail')?.parentElement;
+  const resultSpan = card ? card.querySelector('.skill-test-result') : null;
+
+  btn.disabled = true;
+  btn.textContent = '执行中…';
+  try {
+    const data = await fetchJSON(API + '/api/skills/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, params }),
+    });
+    const output = data.output || {};
+    const status = data.status;
+    if (resultSpan) {
+      const text = status === 'ok' ? '✓ ' + JSON.stringify(output) : '✗ ' + (output.error || JSON.stringify(output));
+      resultSpan.textContent = text.length > 100 ? text.substring(0, 100) + '…' : text;
+      resultSpan.style.color = status === 'ok' ? 'var(--success)' : 'var(--exception)';
+      resultSpan.title = text;
+    }
+    overlay.remove();
+  } catch (e) {
+    if (resultSpan) {
+      resultSpan.textContent = '✗ ' + e.message;
+      resultSpan.style.color = 'var(--exception)';
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ 执行';
+  }
+}
+
+async function executeSkillTest(name, params, resultSpan) {
+  if (!resultSpan) return;
+  resultSpan.textContent = '执行中…';
+  resultSpan.style.color = 'var(--text-secondary)';
+  try {
+    const data = await fetchJSON(API + '/api/skills/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, params }),
+    });
+    const output = data.output || {};
+    const status = data.status;
+    const text = status === 'ok' ? '✓ ' + JSON.stringify(output) : '✗ ' + (output.error || JSON.stringify(output));
+    resultSpan.textContent = text.length > 100 ? text.substring(0, 100) + '…' : text;
+    resultSpan.style.color = status === 'ok' ? 'var(--success)' : 'var(--exception)';
+    resultSpan.title = text;
+  } catch (e) {
+    resultSpan.textContent = '✗ ' + e.message;
+    resultSpan.style.color = 'var(--exception)';
   }
 }
 

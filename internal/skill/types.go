@@ -11,9 +11,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ToolsDir 是 skill 插件的根目录，默认值在 paths.go 中定义。
-var ToolsDir = "" // 由 Init 设置
-
 // Skill 表示一个可执行的 skill 插件。
 type Skill struct {
 	Name        string            `json:"name"`                  // 唯一标识符

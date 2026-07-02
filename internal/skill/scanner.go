@@ -7,6 +7,39 @@ import (
 	"sort"
 )
 
+// ToolsDir 是 skill 插件的根目录，由 Init 设置。
+var ToolsDir = ""
+
+// registry 存储启动时扫描到的所有 skill，GetAll/GetByName 依赖此变量。
+// 必须在 server 启动前通过 Init() 填充。
+var registry []*Skill
+
+// Init 扫描 ToolsDir 并将结果存入 registry。应在 server 启动时调用一次。
+func Init(toolsDir string) error {
+	ToolsDir = toolsDir
+	regs, err := ScanToolsDir(toolsDir)
+	if err != nil {
+		return err
+	}
+	registry = regs
+	return nil
+}
+
+// GetAll 返回所有已注册的 skill。
+func GetAll() []*Skill {
+	return registry
+}
+
+// GetByName 根据名字查找 skill。
+func GetByName(name string) *Skill {
+	for _, s := range registry {
+		if s.Name == name {
+			return s
+		}
+	}
+	return nil
+}
+
 // ScanToolsDir 扫描 toolsDir 目录，返回所有有效的 Skill。
 // 只收录包含 SKILL.md 且 name 不为空的有效 skill。
 func ScanToolsDir(toolsDir string) ([]*Skill, error) {

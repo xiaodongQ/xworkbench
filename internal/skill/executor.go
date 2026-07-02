@@ -67,3 +67,13 @@ func ExecuteSkill(skill *Skill, input map[string]any) (*ExecuteSkillResult, erro
 	result.Status = "ok"
 	return result, nil
 }
+
+// Execute 根据 skill 名字和输入参数执行技能。
+// 内部自动从 registry 查找 skill，找不到返回 error。
+func Execute(name string, input map[string]any) (*ExecuteSkillResult, error) {
+	s := GetByName(name)
+	if s == nil {
+		return nil, fmt.Errorf("skill not found: %s", name)
+	}
+	return ExecuteSkill(s, input)
+}

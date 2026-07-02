@@ -32,6 +32,7 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/ratelimit"
 	"github.com/xiaodongQ/xworkbench/internal/relay"
 	"github.com/xiaodongQ/xworkbench/internal/scheduler"
+	"github.com/xiaodongQ/xworkbench/internal/skill"
 	"github.com/xiaodongQ/xworkbench/internal/shortcuts"
 	taskpkg "github.com/xiaodongQ/xworkbench/internal/task"
 	"github.com/xiaodongQ/xworkbench/internal/todo"
@@ -260,6 +261,10 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/config/export", s.handleConfigExport)
 	mux.HandleFunc("POST /api/config/import/preview", s.handleConfigImportPreview)
 	mux.HandleFunc("POST /api/config/import", s.handleConfigImport)
+
+	// skill 工具技能
+	mux.HandleFunc("GET /api/skills", s.handleSkillsList)
+	mux.HandleFunc("POST /api/skills/execute", s.handleSkillsExecute)
 
 	// xwcli 安装脚本（公开，无需认证）
 	mux.HandleFunc("GET /api/xwcli/install.sh", s.handleXwcliInstall)
@@ -2645,6 +2650,35 @@ func main() {
 		logger.Warnw("startup orphan cleanup done", "total", len(orphans), "finished", finished)
 	}
 
+	// 初始化 skill 插件注册中心（扫描 tools/ 目录）
+	// 优先从 cwd 找（开发模式），再从二进制目录的上一级找（生产模式）
+	var skillToolsDir string
+	if wd, err := os.Getwd(); err == nil {
+		cwdTools := filepath.Join(wd, "tools")
+		if execPath, err := os.Executable(); err == nil {
+			execDir := filepath.Dir(execPath)
+			prodTools := filepath.Join(execDir, "..", "tools")
+			if absDir, err := filepath.Abs(prodTools); err == nil {
+				prodTools = absDir
+			}
+			// 开发模式 cwdTools 优先；否则用生产模式路径
+			if _, err := os.Stat(cwdTools); err == nil {
+				skillToolsDir = cwdTools
+			} else {
+				skillToolsDir = prodTools
+			}
+		} else {
+			skillToolsDir = cwdTools
+		}
+	}
+	if skillToolsDir != "" {
+		if err := skill.Init(skillToolsDir); err != nil {
+			logger.Warnw("skill init failed", "err", err, "dir", skillToolsDir)
+		} else {
+			logger.Infow("skill registry loaded", "dir", skillToolsDir, "count", len(skill.GetAll()))
+		}
+	}
+
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
 		linkRepo, dirRepo, schedRepo, evalRepo, agentRepo,
 		eventRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)
@@ -3916,6 +3950,76 @@ func (s *APIServer) handleAgentSetBoundDirShortcut(w http.ResponseWriter, r *htt
 	}
 	logger.Infow("agent bound to dir_shortcut", "agent_id", agentID, "dir_shortcut_id", req.DirShortcutID)
 	writeJSON(w, map[string]any{"ok": true, "agent_id": agentID, "bound_dir_shortcut_id": req.DirShortcutID})
+}
+
+// handleSkillsList 返回所有已注册的 skill 技能列表。
+func (s *APIServer) handleSkillsList(w http.ResponseWriter, r *http.Request) {
+	skills := skill.GetAll()
+	// 转换为前端需要的格式
+	type SkillInfo struct {
+		Name        string            `json:"name"`
+		Description string            `json:"description"`
+		Version     string            `json:"version,omitempty"`
+		Params      map[string]string `json:"params"`
+		Output      map[string]string `json:"output"`
+		Examples    []struct {
+			Description string         `json:"description"`
+			Params      map[string]any `json:"params"`
+		} `json:"examples"`
+	}
+	var out []SkillInfo
+	for _, s := range skills {
+		examples := make([]struct {
+			Description string         `json:"description"`
+			Params      map[string]any `json:"params"`
+		}, len(s.XWExamples))
+		for i, ex := range s.XWExamples {
+			examples[i] = struct {
+				Description string         `json:"description"`
+				Params      map[string]any `json:"params"`
+			}{Description: ex.Description, Params: ex.Params}
+		}
+		out = append(out, SkillInfo{
+			Name:        s.Name,
+			Description: s.Description,
+			Version:     s.Version,
+			Params:      s.XWParams,
+			Output:      s.XWOutput,
+			Examples:    examples,
+		})
+	}
+	writeJSON(w, map[string]any{"skills": out})
+}
+
+// handleSkillsExecute 执行指定的 skill 技能。
+func (s *APIServer) handleSkillsExecute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Name   string         `json:"name"`
+		Params map[string]any `json:"params"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	result, err := skill.Execute(req.Name, req.Params)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{
+		"status":  result.Status,
+		"output":  result.Output,
+		"raw_out": result.RawOut,
+		"raw_err": result.RawErr,
+	})
 }
 
 // handleAgentDelete 删除 agent（先释放任务再删，避免遗留 in_progress）。
