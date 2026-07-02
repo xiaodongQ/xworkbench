@@ -45,7 +45,6 @@ func (s *xworkbenchService) Execute(_ []string, svcCh <-chan svc.ChangeRequest, 
 			case svc.Stop, svc.Shutdown:
 				changesCh <- svc.Status{State: svc.StopPending}
 				close(svcStopCh)
-				time.Sleep(30 * time.Second)
 				return false, 0
 			case svc.Interrogate:
 				changesCh <- c.CurrentStatus

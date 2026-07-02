@@ -2653,6 +2653,62 @@ func main() {
 	if addr == "" {
 		addr = ":8902"
 	}
+
+	// Windows Service 模式：在此处接管，不再继续往下执行
+	// startFn 会启动 HTTP server 并监听 stopCh 来优雅关闭
+	if runServiceFlag(
+		func() {
+			// HTTP server 启动（Windows Service 的 goroutine 中执行）
+			logger.Infof("Skill Factory started at http://localhost%s  build=%s", addr, BuildInfo)
+			stopCh := make(chan struct{})
+			serviceStopCh = stopCh
+
+			httpSrv := &http.Server{
+				Handler:     srv,
+				IdleTimeout: 30 * time.Second,
+				ReadTimeout: 60 * time.Second,
+				WriteTimeout: 0,
+			}
+
+			go func() {
+				ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+				defer stop()
+				<-ctx.Done()
+				logger.Infow("shutdown signal received...")
+				close(stopCh)
+			}()
+
+			ln, err := net.Listen("tcp", addr)
+			if err != nil {
+				logger.Fatalw("listen failed", "addr", addr, "err", err)
+			}
+
+			serveErr := make(chan error, 1)
+			go func() {
+				serveErr <- httpSrv.Serve(ln)
+			}()
+
+			select {
+			case err := <-serveErr:
+				if err != nil && !errors.Is(err, http.ErrServerClosed) {
+					logger.Fatalw("http serve failed", "err", err)
+				}
+			case <-stopCh:
+				logger.Infow("stop signal received, shutting down...")
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+					logger.Errorw("http shutdown failed", "err", err)
+				}
+				<-serveErr
+				logger.Infow("http server stopped")
+			}
+		},
+		nil, // stopFn: handled via stopCh closure
+	) {
+		return
+	}
+
 	// SO_REUSEADDR：服务重启时避免 "address already in use" 等 TIME_WAIT
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -2695,7 +2751,7 @@ func main() {
 			logger.Fatalw("http serve failed", "err", err)
 		}
 	case <-stopCh:
-		logger.Infow("draining connections (30s timeout)...")
+		logger.Infow("stop signal received, shutting down...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
@@ -2703,6 +2759,19 @@ func main() {
 		}
 		<-serveErr
 		logger.Infow("http server stopped")
+	}
+}
+
+// stopHTTPServer gracefully shuts down the HTTP server (used by Windows Service stop).
+func stopHTTPServer(srv *http.Server) {
+	if srv == nil {
+		return
+	}
+	logger.Infow("stopHTTPServer: initiating graceful shutdown...")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Errorw("http shutdown failed", "err", err)
 	}
 }
 
