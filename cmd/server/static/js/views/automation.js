@@ -266,11 +266,23 @@ const SCHED_SORT_KEY = 'automation.schedSortDir'; // 'asc' | 'desc' | ''
 // 最近任务执行列表排序：三档循环 asc → desc → ''（默认/恢复原序）
 const EXEC_SORT_KEY = 'automation.execSortDir'; // 'asc' | 'desc' | ''
 
+// 返回 sortKey 对应的"下一档"提示文字（用于 tooltip）
+const nextSortLabel = (key) => {
+  const prev = localStorage.getItem(key) || 'asc';
+  const next = prev === 'asc' ? 'desc' : prev === 'desc' ? '' : 'asc';
+  if (next === 'asc') return '↑ 升序';
+  if (next === 'desc') return '↓ 降序';
+  return '⇅ 恢复默认';
+};
+
 // 更新定时任务表格排序图标状态
 function updateSchedSortIcon() {
   const dir = localStorage.getItem(SCHED_SORT_KEY); // null=默认（显示⇅）
   const icon = document.getElementById('sched-sort-icon');
-  if (icon) icon.textContent = dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
+  if (icon) {
+    icon.textContent = dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
+    icon.title = '点击排序（下一档：' + nextSortLabel(SCHED_SORT_KEY) + '）';
+  }
 }
 
 // 切换定时任务表格排序方向（asc → desc → '' → asc）
@@ -287,7 +299,10 @@ function toggleSchedSort() {
 function updateExecSortIcon() {
   const dir = localStorage.getItem(EXEC_SORT_KEY); // null=默认（显示⇅）
   const icon = document.getElementById('exec-sort-icon');
-  if (icon) icon.textContent = dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
+  if (icon) {
+    icon.textContent = dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
+    icon.title = '点击排序（下一档：' + nextSortLabel(EXEC_SORT_KEY) + '）';
+  }
 }
 
 // 切换最近任务执行列表排序方向（asc → desc → '' → asc）
