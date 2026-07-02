@@ -260,6 +260,25 @@ const SCHED_STATUS_TEXT = {
 };
 const schedStatusText = (raw) => SCHED_STATUS_TEXT[raw] || SCHED_STATUS_TEXT.pending;
 
+// 定时任务表格排序
+const SCHED_SORT_KEY = 'automation.schedSortDir'; // 'asc' | 'desc'
+
+// 更新定时任务表格排序图标状态
+function updateSchedSortIcon() {
+  const dir = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
+  const icon = document.getElementById('sched-sort-icon');
+  if (icon) icon.textContent = dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
+}
+
+// 切换定时任务表格排序方向
+function toggleSchedSort() {
+  const prev = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
+  const next = prev === 'asc' ? 'desc' : 'asc';
+  localStorage.setItem(SCHED_SORT_KEY, next);
+  updateSchedSortIcon();
+  loadScheduled();
+}
+
 async function loadScheduledSummary() {
   const list = await fetchJSON('/api/scheduled');
   const el = document.getElementById('scheduled-summary');
@@ -291,7 +310,11 @@ async function loadScheduled() {
     el.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:40px 0">暂无定时任务<br><br><span style="font-size:12px">点击右上"+ 新建定时任务"创建<br>支持标准 cron 5 字段 或 @every 30s</span></div>';
     return;
   }
-  el.innerHTML = `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th>最近执行</th><th>操作</th></tr></thead><tbody>` + list.map(s => {
+  const initSortIcon = () => {
+  const dir = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
+  return dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
+};
+el.innerHTML = `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="toggleSchedSort()">最近执行 <span id="sched-sort-icon">${initSortIcon()}</span></th><th>操作</th></tr></thead><tbody>` + list.map(s => {
     const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
     const nextRun = (s.enabled && s.next_run_at)
       ? `<div style="font-size:10px;color:var(--info);margin-top:2px;white-space:nowrap">⏰ 下次 ${esc(new Date(s.next_run_at).toLocaleString())}</div>`
@@ -321,6 +344,8 @@ async function loadScheduled() {
       </td>
     </tr>`;
   }).join('') + '</tbody></table>';
+  // 页面加载时恢复排序图标状态
+  updateSchedSortIcon();
 }
 
 function toggleScheduled(id, currentlyEnabled) {
