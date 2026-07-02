@@ -735,8 +735,9 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Goal 模式：claude/cbc 执行时 prompt 前加 /goal 前缀
-	if req.GoalMode && (req.CommandType == "claude" || req.CommandType == "cbc") {
+	// Goal 模式：request body 优先，否则 fallback 到 task.GoalMode
+	// claude/cbc 执行时 prompt 前加 /goal 前缀
+	if (req.GoalMode || task.GoalMode) && (req.CommandType == "claude" || req.CommandType == "cbc") {
 		prompt = "/goal " + prompt
 	}
 	req.Prompt = prompt
