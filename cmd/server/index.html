@@ -252,7 +252,10 @@
     <div id="scheduled-list"></div>
 
     <div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 12px">
-      <h2 class="page-title" style="margin:0">最近任务执行</h2>
+      <h2 class="page-title" style="margin:0;display:flex;gap:8px;align-items:center">
+        最近任务执行
+        <span id="exec-sort-icon" onclick="toggleExecSort()" style="cursor:pointer;font-size:14px" title="点击排序（↑升序/↓降序/⇅默认）">⇅</span>
+      </h2>
       <div style="display:flex;gap:8px;align-items:center">
         <span id="auto-refresh-status" style="font-size:12px"></span>
         <span id="auto-refresh-freq-wrap" style="display:none">
@@ -783,25 +786,38 @@
       </div>
 
       <!-- Goal 目标模式（简化版） -->
-      <div class="form-group">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex-wrap:wrap">
+      <div class="form-group" style="position:relative">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <input type="checkbox" id="task-goal-mode" style="width:16px;height:16px;cursor:pointer">
           <span style="font-weight:500">🤖 Goal 目标模式</span>
           <span class="field-hint">自主多轮迭代，适合大型重构</span>
-          <span class="info-btn" onclick="toggleGoalInfo()" title="查看说明">ⓘ</span>
-        </label>
+          <span class="info-btn" onclick="toggleGoalInfo(event)" title="查看说明">ⓘ</span>
+        </div>
         <!-- Goal 模式说明弹窗 -->
         <div id="goal-info-popup" class="info-popup hidden">
           <div style="margin-bottom:10px;font-size:12px;color:var(--text-secondary);line-height:1.5">
             <strong style="color:var(--text)">Goal 目标模式</strong>：你只定义<strong>可验证的完成条件</strong>，Claude Code 自动多轮迭代执行+验证，每轮由独立评估模型判断是否达标，<strong>达标自动停</strong>。
           </div>
           <div style="margin-bottom:8px">
-            <div style="font-size:11px;color:#22c55e;font-weight:600;margin-bottom:4px">✅ 正确写法（可量化）</div>
-            <div style="font-size:11px;font-family:monospace;line-height:1.5">全部 go test 通过，零失败<br>tsc --noEmit 零报错</div>
+            <div style="font-size:11px;color:#22c55e;font-weight:600;margin-bottom:4px">📗 推荐写法示例</div>
+            <div style="font-size:11px;font-family:monospace;line-height:1.6;background:rgba(34,197,94,0.08);padding:6px 8px;border-radius:4px">
+              <strong>示例1</strong>：go test ./... 退出码0，零失败<br>
+              <strong>示例2</strong>：golangci-lint run 零报错<br>
+              <strong>示例3</strong>：go build ./cmd/server 退出码0<br>
+              <strong>示例4</strong>：curl localhost:8080/api/health 返回 {"status":"ok"}<br>
+              <strong>示例5</strong>：dist/ 目录包含 index.html 和 js/
+            </div>
           </div>
           <div style="margin-bottom:8px">
-            <div style="font-size:11px;color:#ef4444;font-weight:600;margin-bottom:4px">❌ 错误写法（模糊）</div>
-            <div style="font-size:11px;font-family:monospace;line-height:1.5">优化代码质量<br>完善 xx 模块</div>
+            <div style="font-size:11px;color:#f59e0b;font-weight:600;margin-bottom:4px">📙 避免写法</div>
+            <div style="font-size:11px;font-family:monospace;line-height:1.6;background:rgba(245,158,11,0.08);padding:6px 8px;border-radius:4px">
+              优化代码质量<br>
+              完善用户认证模块<br>
+              让界面更好看
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.4">
+            💡 核心：写<strong>可观测的结果</strong>（退出码、输出内容、文件存在），而非过程描述
           </div>
         </div>
       </div>
@@ -814,74 +830,6 @@
         </div>
       </div>
       <div class="form-group"><label>验收标准 <span class="field-hint">(可选) 正向+反向用例</span></label><textarea id="task-acceptance" class="code" placeholder="正向用例:\n输入... → 输出...\n\n反向用例:\n输入... → 预期行为..."></textarea></div>
-    </div>
-
-    <!-- ===== 任务操作区（仅编辑时显示） ===== -->
-    <div id="task-ops-section" class="hidden">
-      <div class="section-divider">执行控制</div>
-
-      <!-- 待交互内容（waiting_input 状态时显示） -->
-      <div id="task-waiting-input-section" class="form-group hidden">
-        <label>⚠️ 待交互内容 <span class="field-hint" style="background:rgba(202,138,4,0.15);color:#ca8a04">需要人工介入</span></label>
-        <div id="task-waiting-input-content" style="background:#fff8e1;border:1px solid #ffc107;border-radius:4px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:150px;overflow-y:auto;"></div>
-      </div>
-
-      <!-- Run Loop 表单 -->
-      <div id="task-ailoop-block" class="form-group hidden" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card)">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:13px;font-weight:600">🤖 Run Loop</span>
-            <span id="task-ailoop-source" style="font-size:10px;color:var(--text-secondary)"></span>
-          </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button type="button" id="btn-reevaluate" class="btn btn-primary" style="font-size:11px;padding:4px 10px" disabled title="需要先运行一次任务" onclick="reevaluateTask()">📊 Reevaluate</button>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <textarea id="loop-prompt" placeholder="描述任务目标和预期结果..." style="width:100%;min-height:60px;resize:vertical;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:12px;font-family:inherit;box-sizing:border-box;outline:none;transition:border-color 0.15s"></textarea>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <label style="font-size:11px;display:flex;align-items:center;gap:4px">
-              <span style="color:var(--text-secondary)">阈值≥</span>
-              <input id="loop-threshold" type="number" value="7" min="0" max="10" step="0.5" style="width:46px;padding:3px 6px;border:1px solid var(--primary);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;font-weight:500">
-            </label>
-            <label style="font-size:11px;display:flex;align-items:center;gap:4px">
-              <span style="color:var(--text-secondary)">最多</span>
-              <input id="loop-maxiter" type="number" value="3" min="1" max="10" style="width:40px;padding:3px 6px;border:1px solid var(--primary);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;font-weight:500">
-              <span style="color:var(--text-secondary)">轮</span>
-            </label>
-            <button type="button" id="btn-run-loop" class="btn btn-primary" style="font-size:12px;padding:5px 14px;margin-left:auto" onclick="runTaskLoop()">▶ 启动</button>
-          </div>
-        </div>
-        <div id="ai-loop-progress" class="hidden" style="margin-top:10px">
-          <div style="margin-bottom:8px">
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:4px">
-              <span id="ai-loop-status-text">进行中...</span>
-              <span id="ai-loop-progress-pct">0%</span>
-            </div>
-            <div style="height:6px;background:var(--hover);border-radius:3px;overflow:hidden">
-              <div id="ai-loop-bar" style="height:100%;width:0%;background:var(--primary);border-radius:3px;transition:width 0.3s"></div>
-            </div>
-          </div>
-          <div id="ai-loop-progress-history" style="max-height:140px;overflow-y:auto"></div>
-        </div>
-      </div>
-
-      <!-- 执行历史区块 -->
-      <div id="task-exec-history" class="hidden">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-weight:600;font-size:13px">📋 执行历史</span>
-            <button type="button" id="btn-learn" class="btn btn-primary btn-small" style="display:none" disabled title="需要先运行一次任务" onclick="learnFromTask()">📚 Learn</button>
-          </div>
-          <span id="task-exec-history-info" style="font-size:11px;color:var(--text-secondary)"></span>
-        </div>
-        <div id="task-exec-history-list" style="max-height:200px;overflow-y:auto"></div>
-        <div id="task-exec-history-pager" style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-          <button class="btn btn-small" id="task-exec-prev" onclick="prevTaskExecs()">← 上一页</button>
-          <span id="task-exec-history-page" style="font-size:11px;color:var(--text-secondary)"></span>
-          <button class="btn btn-small" id="task-exec-next" onclick="nextTaskExecs()">下一页 →</button>
-        </div>
-      </div>
     </div>
 
     <div class="modal-actions">
@@ -1119,41 +1067,115 @@
   </div>
 </div>
 
-<!-- 立即运行 modal:任务执行用,选 command_type + model -->
+<!-- 立即运行 modal:任务执行用,选 command_type + model + Run Loop + 执行历史 -->
 <div id="run-task-modal" class="modal-overlay hidden" >
-  <div class="modal" style="max-width:480px">
+  <div class="modal" style="max-width:560px">
     <h2 style="margin:0 0 12px 0;font-size:16px">立即运行任务</h2>
+
+    <!-- 任务信息（只读） -->
     <div class="form-group" style="margin-bottom:10px">
       <label style="font-size:12px">任务 <span class="field-hint">Title</span></label>
       <div id="run-task-title" style="font-size:13px;color:var(--text-secondary);padding:6px 8px;background:var(--hover);border-radius:4px"></div>
     </div>
-    <div class="form-group" style="margin-bottom:10px">
-      <label style="font-size:12px">执行方式 <span class="field-hint">Command Type</span></label>
-      <select id="run-task-type" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
-        <option value="claude" selected>claude（AI CLI 解释执行 · 推荐）</option>
-        <option value="shell">shell（直接 sh -c 执行）</option>
-        <option value="cbc">cbc（codebuddy CLI · 需 PATH）</option>
-      </select>
+
+    <!-- 执行配置 -->
+    <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div class="form-group" style="margin-bottom:0">
+        <label style="font-size:12px">执行方式</label>
+        <select id="run-task-type" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
+          <option value="claude" selected>claude</option>
+          <option value="shell">shell</option>
+          <option value="cbc">cbc</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0" id="run-task-model-group">
+        <label style="font-size:12px">执行模型</label>
+        <select id="run-task-model" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
+          <option value="haiku">haiku</option>
+          <option value="sonnet" selected>sonnet</option>
+          <option value="opus">opus</option>
+        </select>
+      </div>
     </div>
-    <div class="form-group" style="margin-bottom:10px" id="run-task-model-group">
-      <label style="font-size:12px">执行模型 <span class="field-hint">Model（仅 claude / cbc 生效）</span></label>
-      <select id="run-task-model" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
-        <option value="haiku">haiku（快+便宜）</option>
-        <option value="sonnet" selected>sonnet（推荐 · 准确）</option>
-        <option value="opus">opus（最强 · 贵）</option>
-      </select>
-    </div>
     <div class="form-group" style="margin-bottom:10px">
-      <label style="font-size:12px">运行位置 <span class="field-hint">默认本机；选 agent 可远端 SSH 执行</span></label>
+      <label style="font-size:12px">运行位置</label>
       <select id="run-task-agent" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
         <option value="">本机执行（默认）</option>
       </select>
     </div>
     <div class="form-group" style="margin-bottom:10px" id="run-task-resume-group">
-      <label style="font-size:12px">续传 Session <span class="field-hint">留空 = 开启新会话；填上次 session_id = 继续对话（--resume）</span></label>
+      <label style="font-size:12px">续传 Session</label>
       <input id="run-task-resume" type="text" placeholder="留空则开新会话" style="font-size:12px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
     </div>
-    <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end">
+
+    <!-- 执行控制区（仅编辑时显示，已运行过的任务） -->
+    <div id="run-task-ops-section" class="hidden">
+      <div class="section-divider">执行控制</div>
+
+      <!-- 待交互内容（waiting_input 状态时显示） -->
+      <div id="run-task-waiting-section" class="form-group hidden">
+        <label>⚠️ 待交互内容 <span class="field-hint" style="background:rgba(202,138,4,0.15);color:#ca8a04">需要人工介入</span></label>
+        <div id="run-task-waiting-content" style="background:#fff8e1;border:1px solid #ffc107;border-radius:4px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:120px;overflow-y:auto;"></div>
+      </div>
+
+      <!-- Run Loop 表单 -->
+      <div id="run-task-ailoop-block" class="form-group hidden" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card)">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;font-weight:600">🤖 Run Loop</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" id="run-btn-reevaluate" class="btn btn-primary" style="font-size:11px;padding:4px 10px" disabled onclick="reevaluateTask()">📊 Reevaluate</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <textarea id="run-loop-prompt" placeholder="描述任务目标和预期结果..." style="width:100%;min-height:50px;resize:vertical;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:12px;font-family:inherit;box-sizing:border-box;outline:none"></textarea>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <label style="font-size:11px;display:flex;align-items:center;gap:4px">
+              <span style="color:var(--text-secondary)">阈值≥</span>
+              <input id="run-loop-threshold" type="number" value="7" min="0" max="10" step="0.5" style="width:46px;padding:3px 6px;border:1px solid var(--primary);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;font-weight:500">
+            </label>
+            <label style="font-size:11px;display:flex;align-items:center;gap:4px">
+              <span style="color:var(--text-secondary)">最多</span>
+              <input id="run-loop-maxiter" type="number" value="3" min="1" max="10" style="width:40px;padding:3px 6px;border:1px solid var(--primary);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;font-weight:500">
+              <span style="color:var(--text-secondary)">轮</span>
+            </label>
+            <button type="button" id="run-btn-run-loop" class="btn btn-primary" style="font-size:12px;padding:5px 14px;margin-left:auto" onclick="runTaskLoop()">▶ 启动</button>
+          </div>
+        </div>
+        <div id="run-ai-loop-progress" class="hidden" style="margin-top:10px">
+          <div style="margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:4px">
+              <span id="run-ai-loop-status-text">进行中...</span>
+              <span id="run-ai-loop-progress-pct">0%</span>
+            </div>
+            <div style="height:6px;background:var(--hover);border-radius:3px;overflow:hidden">
+              <div id="run-ai-loop-bar" style="height:100%;width:0%;background:var(--primary);border-radius:3px;transition:width 0.3s"></div>
+            </div>
+          </div>
+          <div id="run-ai-loop-progress-history" style="max-height:100px;overflow-y:auto"></div>
+        </div>
+      </div>
+
+      <!-- 执行历史区块 -->
+      <div id="run-task-exec-history">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-weight:600;font-size:13px">📋 执行历史</span>
+            <button type="button" id="run-btn-learn" class="btn btn-primary btn-small" style="display:none" disabled onclick="learnFromTask()">📚 Learn</button>
+          </div>
+          <span id="run-task-exec-history-info" style="font-size:11px;color:var(--text-secondary)"></span>
+        </div>
+        <div id="run-task-exec-history-list" style="max-height:150px;overflow-y:auto"></div>
+        <div id="run-task-exec-history-pager" style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+          <button class="btn btn-small" id="run-task-exec-prev" onclick="prevTaskExecs()">←</button>
+          <span id="run-task-exec-history-page" style="font-size:11px;color:var(--text-secondary)"></span>
+          <button class="btn btn-small" id="run-task-exec-next" onclick="nextTaskExecs()">→</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
       <button class="btn btn-secondary" onclick="closeRunTaskModal()">取消</button>
       <button class="btn btn-primary" onclick="submitRunTask()">▶ 启动</button>
     </div>
