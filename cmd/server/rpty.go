@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/gorilla/websocket"
@@ -28,15 +29,23 @@ var rptyUpgrader = websocket.Upgrader{
 
 // RPTYSession holds a single remote PTY session over SSH.
 // Registered globally by tab_id, used by handleRptyInput (REST submit-input).
+// Supports reconnect: WS close with ?reconnect=1 starts a grace period (60s) before
+// SSH session cleanup. Reconnect within grace period reuses the existing session.
 type RPTYSession struct {
-	tabID   string
-	dirID   string
-	client  *ssh.Client
-	session *ssh.Session
-	stdin   io.WriteCloser
-	stdout  io.Reader
-	mu      sync.Mutex
+	tabID         string
+	dirID         string
+	client        *ssh.Client
+	session       *ssh.Session
+	stdin         io.WriteCloser
+	stdout        io.Reader
+	wsClosed      bool        // WS 已断开，等待重连或清理
+	wsCloseTime   time.Time   // WS 断开时间
+	cleanupTimer  *time.Timer // 宽限期计时器，超时后关闭 SSH
+	mu            sync.Mutex
 }
+
+// ReconnectGraceSec 重连宽限期秒数。
+const ReconnectGraceSec = 60
 
 // rptySessions 全局 RPTY session 注册表，按 tab_id 索引。
 var (
@@ -59,18 +68,58 @@ func RegisterRPTY(tabID string, sess *RPTYSession) {
 	}()
 }
 
-// FindRPTY 查找活跃 RPTY session。
+// FindRPTY 查找活跃或处于重连宽限期的 RPTY session。
 func FindRPTY(tabID string) *RPTYSession {
 	rptyMu.RLock()
 	defer rptyMu.RUnlock()
 	return rptySessions[tabID]
 }
 
-// UnregisterRPTY 主动注销 RPTY session。
+// UnregisterRPTY 主动注销 RPTY session（真正清理，不走宽限期）。
 func UnregisterRPTY(tabID string) {
 	rptyMu.Lock()
-	delete(rptySessions, tabID)
+	sess, ok := rptySessions[tabID]
+	if ok {
+		delete(rptySessions, tabID)
+	}
 	rptyMu.Unlock()
+	if sess != nil {
+		if sess.cleanupTimer != nil {
+			sess.cleanupTimer.Stop()
+		}
+		go func() {
+			if sess.session != nil { sess.session.Close() }
+			if sess.client != nil { sess.client.Close() }
+		}()
+	}
+}
+
+// markWsClosed 标记 session 进入重连宽限期（WS 刷新断开），启动清理计时器。
+// 宽限期内重连（FindRPTY）会看到 wsClosed=true，取消计时器并复用 session。
+func (s *RPTYSession) markWsClosed() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.wsClosed { return } // 已在宽限期
+	s.wsClosed = true
+	s.wsCloseTime = time.Now()
+	s.cleanupTimer = time.AfterFunc(ReconnectGraceSec*time.Second, func() {
+		logger.Infof("rpty: grace period expired tab_id=%q, closing SSH", s.tabID)
+		UnregisterRPTY(s.tabID)
+	})
+	logger.Infof("rpty: ws closed, grace period started tab_id=%q", s.tabID)
+}
+
+// cancelGracePeriod 取消重连宽限期（重连成功时调用）。
+func (s *RPTYSession) cancelGracePeriod() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.wsClosed { return }
+	if s.cleanupTimer != nil {
+		s.cleanupTimer.Stop()
+		s.cleanupTimer = nil
+	}
+	s.wsClosed = false
+	logger.Infof("rpty: reconnect succeeded, grace period cancelled tab_id=%q", s.tabID)
 }
 
 // WriteInput 向远程 PTY stdin 写入字符串（自动加换行）。

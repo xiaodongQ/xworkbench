@@ -138,10 +138,15 @@ func sendNotify(conn *websocket.Conn, tabID, notifyType, extra string) {
 }
 
 // handlePty 启动一个 PTY + WebSocket 终端会话。
-// query param: tab_id 用于多 Tab 区分
+// query param:
+//   - tab_id: 多 Tab 区分标识
+//   - session_id: Claude Code 会话 ID（--session-id），稳定身份
+//   - resume_uuid: Claude Code 会话续接 ID（--resume），对话历史续接
 func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	tabID := r.URL.Query().Get("tab_id")
-	logger.Infof("pty: ws open request tab_id=%q remote=%s", tabID, r.RemoteAddr)
+	sessionID := r.URL.Query().Get("session_id")
+	resumeUUID := r.URL.Query().Get("resume_uuid")
+	logger.Infof("pty: ws open request tab_id=%q session_id=%q resume_uuid=%q remote=%s", tabID, sessionID, resumeUUID, r.RemoteAddr)
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -165,7 +170,7 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 		shell = "/bin/bash"
 	}
 
-	cmdStr := determineAICmd(cliType, ctxDir)
+	cmdStr := determineAICmd(cliType, ctxDir, sessionID, resumeUUID)
 	var cmd *exec.Cmd
 	if cmdStr == "" {
 		cmd = exec.Command(shell, "-i")
@@ -177,6 +182,8 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 
 	logger.Infof("pty: cmd ready tab_id=%q cli=%s shell=%s cmdStr=%q ctxDir=%q argv=%v",
 		tabID, cliType, shell, cmdStr, ctxDir, cmd.Args)
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color", "CLAUDE_CODE_PROMPT_PATH="+ctxDir)
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -348,7 +355,7 @@ func getContextDir() string {
 	return ""
 }
 
-// determineAICmd 根据 CLI 类型构造 AI 命令。
+// determineAICmd 根据 CLI 类型和会话参数构造 AI 命令。
 //
 // 注释:这里是 PTY(交互式终端)路径,只决定启动哪个 CLI 让用户输入。
 // 之前版本会从 context/ 目录读 system-prompt / schemas 拼成文件再传
@@ -356,18 +363,32 @@ func getContextDir() string {
 // `claude --print "..."` 位置参数形式),导致 cli=claude 启动立即报
 // `error: unknown option '--prompt-file'` 后退出,PTY 看不到 prompt。
 // 任务执行链路(`internal/executor/runner`)才需要 prompt 注入,不在此处。
-func determineAICmd(cliType, ctxDir string) string {
+func determineAICmd(cliType, ctxDir, sessionID, resumeUUID string) string {
 	if cmd := os.Getenv("CLAUDE_CMD"); cmd != "" {
-		return cmd
+		return enrichCmd(cmd, sessionID, resumeUUID)
 	}
 	switch cliType {
 	case "codex":
 		return "codex"
 	case "cbc":
-		return "cbc"
+		return enrichCmd("cbc", sessionID, resumeUUID)
 	case "shell":
 		return "sh"
 	default:
-		return "claude"
+		return enrichCmd("claude", sessionID, resumeUUID)
 	}
+}
+
+// enrichCmd 给命令加 --session-id 和 --resume 参数（sessionID/resumeUUID 之一非空才加）。
+func enrichCmd(cmd string, sessionID, resumeUUID string) string {
+	if sessionID == "" && resumeUUID == "" {
+		return cmd
+	}
+	if sessionID != "" {
+		cmd += " --session-id " + sessionID
+	}
+	if resumeUUID != "" {
+		cmd += " --resume " + resumeUUID
+	}
+	return cmd
 }
