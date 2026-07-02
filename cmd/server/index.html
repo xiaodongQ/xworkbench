@@ -735,6 +735,12 @@
             默认心跳超时 30s · 任务超时 10min（后台自动释放）
           </span>
         </div>
+        <!-- xwcli 安装命令 -->
+        <div style="background:var(--hover);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px">📥 分发 xwcli 到新机器</div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">在目标 Linux 机器运行以下命令安装并注册 xwcli agent：</div>
+          <div id="xwcli-install-cmd" style="background:#0f172a;color:#22d3ee;font-family:monospace;font-size:11px;padding:8px;border-radius:4px;word-break:break-all;cursor:pointer" title="点击复制" onclick="copyXwcliInstallCmd(this)"></div>
+        </div>
         <div id="agents-table" style="font-size:12px">
           <div style="color:var(--text-secondary);padding:20px;text-align:center">加载中...</div>
         </div>
@@ -772,9 +778,16 @@
     <div class="form-group"><label>描述 <span class="field-hint">详细描述问题和背景</span></label><textarea id="task-desc" placeholder="详细描述..."></textarea></div>
     <div class="form-row" style="display:flex;flex-wrap:nowrap;gap:6px">
       <div class="form-group" style="flex:3"><label>任务类型</label>
-        <select id="task-type" style="width:100%">
+        <select id="task-type" onchange="onTaskTypeChange()" style="width:100%">
           <option value="manual">manual</option>
           <option value="remote">remote</option>
+        </select>
+      </div>
+      <!-- 目标机器选择（仅 task_type=remote 时显示） -->
+      <div class="form-group hidden" id="task-agent-group" style="flex:4">
+        <label>目标机器 <span class="field-hint" id="task-agent-hint">（从已注册 agent 中选择）</span></label>
+        <select id="task-agent-id" style="width:100%">
+          <option value="">加载中...</option>
         </select>
       </div>
       <div class="form-group" style="flex:3"><label>CLI 类型</label>

@@ -464,6 +464,37 @@ function onGoalModeToggle() {
   info.classList.toggle('hidden', !checked);
 }
 
+// onTaskTypeChange task_type 切换：remote 类型时显示目标机器选择。
+function onTaskTypeChange() {
+  const taskType = document.getElementById('task-type').value;
+  const agentGroup = document.getElementById('task-agent-group');
+  if (!agentGroup) return;
+  agentGroup.classList.toggle('hidden', taskType !== 'remote');
+}
+
+// loadAgentListForTask 加载已注册 online 的 agent 列表到 task-agent-id 下拉。
+async function loadAgentListForTask() {
+  const sel = document.getElementById('task-agent-id');
+  if (!sel) return;
+  try {
+    const agents = await fetchJSON(API + '/api/agents');
+    const online = (agents || []).filter(a => a.status === 'online');
+    if (online.length === 0) {
+      sel.innerHTML = '<option value="">无可用 agent，请先分发 xwcli</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">— 选择目标机器 —</option>' +
+      online.map(a => {
+        const ip = (a.bound_dir_shortcut || {}).remote_host || '';
+        const label = ip ? `${esc(a.name)} (${ip})` : esc(a.name);
+        return `<option value="${esc(a.id)}">${label}</option>`;
+      }).join('');
+  } catch (e) {
+    console.error('[loadAgentListForTask]', e);
+    if (sel) sel.innerHTML = '<option value="">加载失败</option>';
+  }
+}
+
 async function showTaskModal(task) {
   // 先确保模型列表加载完成（CLI_MODELS 可能还未初始化）
   if (typeof loadCLIModels === 'function') await loadCLIModels();
@@ -480,6 +511,13 @@ async function showTaskModal(task) {
   const goalMode = task ? (task.goal_mode || false) : false;
   document.getElementById('task-goal-mode').checked = goalMode;
   onGoalModeToggle();
+  // 目标机器选择（remote 类型）
+  await loadAgentListForTask();
+  onTaskTypeChange();
+  if (task && task.assigned_agent_id) {
+    const sel = document.getElementById('task-agent-id');
+    if (sel) sel.value = task.assigned_agent_id;
+  }
 
   // command_type / model：新建默认 claude+haiku；编辑时回填已有值
   const cmdType = task ? (task.command_type || 'claude') : 'claude';
@@ -532,6 +570,10 @@ async function submitTask() {
     model: document.getElementById('task-model').value,
     goal_mode: document.getElementById('task-goal-mode').checked,
   };
+  const agentSel = document.getElementById('task-agent-id');
+  if (agentSel && agentSel.value) {
+    body.assigned_agent_id = agentSel.value;
+  }
   if (id) {
     await fetch(API + '/api/tasks/' + id, {
       method: 'PUT',

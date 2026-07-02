@@ -371,6 +371,7 @@ func migrateTasksColumns(db *sql.DB) error {
 		{"last_heartbeat", "last_heartbeat DATETIME"},
 		{"last_error", "last_error TEXT"},
 		{"task_type", "task_type TEXT DEFAULT 'manual'"},
+		{"assigned_agent_id", "assigned_agent_id TEXT"},
 		{"claimer_agent_id", "claimer_agent_id TEXT"},
 		{"result_output", "result_output TEXT"},
 		{"evaluation_score", "evaluation_score REAL DEFAULT 0"},
@@ -659,10 +660,10 @@ func (r *TaskRepo) Create(t *Task) error {
 	if t.GoalMode {
 		goalMode = 1
 	}
-	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type,priority,command_type,model,prompt,goal_mode)
-	        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type,assigned_agent_id,priority,command_type,model,prompt,goal_mode)
+	        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, t.ID, t.Title, t.Description, t.Status,
-		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt, t.TaskType, t.Priority,
+		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt, t.TaskType, t.AssignedAgentID, t.Priority,
 		t.CommandType, t.Model, t.Prompt, goalMode)
 	if err != nil {
 		logger.Logger.Errorw("tasks create failed", "id", t.ID, "error", err.Error())
@@ -676,7 +677,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
 		claimed_at,maintainer,repo_address,archived_at,completed_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
-		task_type,claimer_agent_id,result_output,evaluation_score,priority,
+		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
 		command_type,model,prompt,goal_mode
 		FROM tasks WHERE id=?`
 	var t Task
@@ -686,14 +687,14 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	var iterCount, maxIter int
 	var improvThresh, evalScore sql.NullFloat64
 	var lastHeartbeat sql.NullTime
-	var lastErr, taskType, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
+	var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
 	var priority int
 	var goalMode int
 	err := r.db.QueryRow(q, id).Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 		&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 		&claimedAt, &maintainer, &repoAddr, &archivedAt, &completedAt, &res,
 		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
-		&taskType, &claimerAgentID, &resultOutput, &evalScore, &priority,
+		&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
 		&cmdType, &mdl, &prompt, &goalMode)
 	t.Acceptance = acc.String
 	t.Result = res.String
@@ -705,6 +706,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	t.MaxIterations = maxIter
 	t.LastError = lastErr.String
 	t.TaskType = taskType.String
+	t.AssignedAgentID = assignedAgentID.String
 	t.ClaimerAgentID = claimerAgentID.String
 	t.ResultOutput = resultOutput.String
 	t.Priority = priority
@@ -745,10 +747,10 @@ func (r *TaskRepo) Update(t *Task) error {
 		goalMode = 1
 	}
 	q := `UPDATE tasks SET title=?,description=?,experience_id=?,resources=?,acceptance=?,
-		task_type=?,claimer_agent_id=?,result_output=?,evaluation_score=?,priority=?,
+		task_type=?,assigned_agent_id=?,claimer_agent_id=?,result_output=?,evaluation_score=?,priority=?,
 		command_type=?,model=?,prompt=?,goal_mode=? WHERE id=?`
 	_, err := r.db.Exec(q, t.Title, t.Description, t.ExperienceID, t.Resources, t.Acceptance,
-		t.TaskType, t.ClaimerAgentID, t.ResultOutput, t.EvaluationScore, t.Priority,
+		t.TaskType, t.AssignedAgentID, t.ClaimerAgentID, t.ResultOutput, t.EvaluationScore, t.Priority,
 		t.CommandType, t.Model, t.Prompt, goalMode, t.ID)
 	if err != nil {
 		logger.Logger.Errorw("tasks update failed", "id", t.ID, "error", err.Error())
@@ -926,7 +928,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
 		claimed_at,maintainer,repo_address,archived_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
-		task_type,claimer_agent_id,result_output,evaluation_score,priority,
+		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
 		command_type,model,prompt
 		FROM tasks`
 	var args []any
@@ -961,13 +963,13 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		var iterCount, maxIter int
 		var improvThresh, evalScore sql.NullFloat64
 		var lastHeartbeat sql.NullTime
-		var lastErr, taskType, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
+		var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
 		var priority int
 		err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 			&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 			&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 			&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
-			&taskType, &claimerAgentID, &resultOutput, &evalScore, &priority,
+			&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
 			&cmdType, &mdl, &prompt)
 		t.Acceptance = acc.String
 		t.Result = res.String
@@ -979,6 +981,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		t.MaxIterations = maxIter
 		t.LastError = lastErr.String
 		t.TaskType = taskType.String
+		t.AssignedAgentID = assignedAgentID.String
 		t.ClaimerAgentID = claimerAgentID.String
 		t.ResultOutput = resultOutput.String
 		t.Priority = priority
@@ -1025,7 +1028,7 @@ func (r *TaskRepo) FindByTitle(title string) (*Task, error) {
 	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
 		claimed_at,maintainer,repo_address,archived_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
-		task_type,claimer_agent_id,result_output,evaluation_score,priority
+		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority
 		FROM tasks WHERE title=? LIMIT 1`
 	var t Task
 	var claimedAt, archivedAt sql.NullTime
@@ -1034,13 +1037,13 @@ func (r *TaskRepo) FindByTitle(title string) (*Task, error) {
 	var iterCount, maxIter int
 	var improvThresh, evalScore sql.NullFloat64
 	var lastHeartbeat sql.NullTime
-	var lastErr, taskType, claimerAgentID, resultOutput sql.NullString
+	var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput sql.NullString
 	var priority int
 	err := r.db.QueryRow(q, title).Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 		&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 		&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
-		&taskType, &claimerAgentID, &resultOutput, &evalScore, &priority)
+		&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1057,6 +1060,7 @@ func (r *TaskRepo) FindByTitle(title string) (*Task, error) {
 	t.MaxIterations = maxIter
 	t.LastError = lastErr.String
 	t.TaskType = taskType.String
+	t.AssignedAgentID = assignedAgentID.String
 	t.ClaimerAgentID = claimerAgentID.String
 	t.ResultOutput = resultOutput.String
 	t.Priority = priority

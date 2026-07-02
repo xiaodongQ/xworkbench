@@ -55,8 +55,9 @@ type Task struct {
 	Prompt        string `json:"prompt,omitempty"`       // 执行用 prompt
 	GoalMode      bool   `json:"goal_mode,omitempty"`    // 是否启用 Goal 目标模式（/goal 前缀）
 	// 远程 Agent 相关
-	TaskType         string   `json:"task_type,omitempty"`
-	ClaimerAgentID   string   `json:"claimer_agent_id,omitempty"`
+	TaskType          string   `json:"task_type,omitempty"`
+	AssignedAgentID   string   `json:"assigned_agent_id,omitempty"`  // 创建时指定的目标 agent（task_type=remote）
+	ClaimerAgentID    string   `json:"claimer_agent_id,omitempty"`
 	ResultOutput     string   `json:"result_output,omitempty"`
 	EvaluationScore *float64 `json:"evaluation_score,omitempty"`
 	WaitingInput     string   `json:"waiting_input,omitempty"`   // 待交互的提示内容

@@ -222,6 +222,7 @@ func (s *APIServer) routes() {
 	agentMux.HandleFunc("POST /api/agents/{id}/heartbeat", s.handleAgentHeartbeat)
 	agentMux.HandleFunc("POST /api/tasks/{id}/claim", s.handleTaskClaim)
 	agentMux.HandleFunc("POST /api/tasks/{id}/report", s.handleTaskReport)
+	agentMux.HandleFunc("GET /api/tasks/claim-next", s.handleTaskClaimNext)
 	agentMux.HandleFunc("POST /api/tasks/claim-next", s.handleTaskClaimNext)
 	// agent API 套上速率限制 middleware（默认 60/min，可由 RATE_LIMIT_PER_MIN 调整；0 = 禁用）
 	{
@@ -235,6 +236,7 @@ func (s *APIServer) routes() {
 		mux.Handle("POST /api/agents/{id}/heartbeat", agentHandler)
 		mux.Handle("POST /api/tasks/{id}/claim", agentHandler)
 		mux.Handle("POST /api/tasks/{id}/report", agentHandler)
+		mux.Handle("GET /api/tasks/claim-next", agentHandler)
 		mux.Handle("POST /api/tasks/claim-next", agentHandler)
 	}
 
@@ -253,6 +255,10 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/config/export", s.handleConfigExport)
 	mux.HandleFunc("POST /api/config/import/preview", s.handleConfigImportPreview)
 	mux.HandleFunc("POST /api/config/import", s.handleConfigImport)
+
+	// xwcli 安装脚本（公开，无需认证）
+	mux.HandleFunc("GET /api/xwcli/install.sh", s.handleXwcliInstall)
+	mux.HandleFunc("GET /api/xwcli/xwcli.py", s.handleXwcliDownload)
 
 	// 评论
 	mux.HandleFunc("GET /api/tasks/{id}/comments", s.handleCommentList)
@@ -299,8 +305,9 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Priority      int      `json:"priority"`  // 数字越大越优先，默认 5
 		CommandType   string   `json:"command_type"` // claude/shell/cbc，默认 claude
 		Model         string   `json:"model"`         // haiku/sonnet/opus
-		Prompt        string   `json:"prompt"`        // 执行用 prompt
-		GoalMode      bool     `json:"goal_mode"`     // 是否启用 Goal 目标模式
+		Prompt           string   `json:"prompt"`             // 执行用 prompt
+		GoalMode         bool     `json:"goal_mode"`           // 是否启用 Goal 目标模式
+		AssignedAgentID  string   `json:"assigned_agent_id"`   // 指定的远程 agent（task_type=remote）
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -315,12 +322,13 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Status:       backend.TaskStatusPending,
 		Version:      "v0.0.1",
 		CreatedAt:    time.Now(),
-		TaskType:     req.TaskType,
-		Priority:     req.Priority,
-		CommandType:  req.CommandType,
-		Model:        req.Model,
-		Prompt:       req.Prompt,
-		GoalMode:     req.GoalMode,
+		TaskType:         req.TaskType,
+		Priority:         req.Priority,
+		CommandType:      req.CommandType,
+		Model:            req.Model,
+		Prompt:           req.Prompt,
+		GoalMode:         req.GoalMode,
+		AssignedAgentID:  req.AssignedAgentID,
 	}
 	if err := s.db.Create(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -3570,6 +3578,7 @@ func (s *APIServer) handleExecutionCommentDelete(w http.ResponseWriter, r *http.
 }
 
 // handleTaskClaimNext 任务优先级队列：自动领下一个最高优先级任务。
+// 支持 GET (long-poll, ?timeout=30) 和 POST (即时返回)。
 // 找不到可领任务时返回 204。
 // (在 agentHandler 注册时被 ratelimit 包裹)
 func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) {
@@ -3578,15 +3587,28 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusUnauthorized, "missing token")
 		return
 	}
-	var req struct {
-		AgentID string `json:"agent_id"`
+	var agentID string
+	var timeoutSec int
+
+	if r.Method == "GET" {
+		// Long-poll: agent 每隔 N 秒轮询，等有任务再返回
+		agentID = r.URL.Query().Get("agent_id")
+		timeoutSec = parseInt(r.URL.Query().Get("timeout"), 10)
+		if timeoutSec <= 0 || timeoutSec > 60 {
+			timeoutSec = 10
+		}
+	} else {
+		var req struct{ AgentID string `json:"agent_id"` }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		agentID = req.AgentID
+		timeoutSec = 0 // POST 即时返回，不等待
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
+
 	a, err := s.agentDB.GetByToken(token)
-	if err != nil || a.ID != req.AgentID {
+	if err != nil || a.ID != agentID {
 		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
 		return
 	}
@@ -3594,36 +3616,85 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusForbidden, "auto claim is disabled for this agent")
 		return
 	}
-	// 找下一个可领任务
-	taskID, err := s.db.NextClaimable(req.AgentID)
+
+	// 尝试立即 claim（无等待路径）
+	doClaim := func() (taskID string, err error) {
+		tid, err := s.db.NextClaimable(agentID)
+		if err != nil {
+			return "", err
+		}
+		if tid == "" {
+			return "", nil
+		}
+		if err := s.db.ClaimTask(tid, agentID); err != nil {
+			return "", err
+		}
+		return tid, nil
+	}
+
+	taskID, err := doClaim()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// 无任务 → long-poll 等候
+	if taskID == "" && timeoutSec > 0 {
+		logger.Infow("claim-next: no task, starting long-poll", "agent_id", agentID, "timeout_sec", timeoutSec)
+		type claimResult struct {
+			taskID string
+			err    error
+		}
+		resultCh := make(chan claimResult, 1)
+		go func() {
+			for elapsed := 0; elapsed < timeoutSec; elapsed += 2 {
+				time.Sleep(2 * time.Second)
+				tid, err := doClaim()
+				if err != nil {
+					resultCh <- claimResult{"", err}
+					return
+				}
+				if tid != "" {
+					resultCh <- claimResult{tid, nil}
+					return
+				}
+			}
+			resultCh <- claimResult{"", nil} // timeout 后返回空
+		}()
+
+		select {
+		case res := <-resultCh:
+			if res.err != nil {
+				writeErr(w, http.StatusInternalServerError, res.err.Error())
+				return
+			}
+			taskID = res.taskID
+		case <-r.Context().Done():
+			return // 客户端断开
+		}
+	}
+
 	if taskID == "" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	// 尝试 claim
-	if err := s.db.ClaimTask(taskID, req.AgentID); err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
+
+	// Claim 成功 → 构建响应
 	task, _ := s.db.Get(taskID)
 	task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
 	experiences := s.loadExperiencesForTask(task)
-	// 输出目录约定告诉 agent「把文件写到 data/ai-task-dir/<task_id>/」
 	prompt := taskpkg.BuildTaskPromptWithOutput(task, paths.AITaskDir(taskID), experiences...)
-	// 审计
 	s.eventDB.Record(&backend.TaskEvent{
 		TaskID: taskID, EventType: "claimed_via_priority",
-		Actor: "agent:" + req.AgentID, CreatedAt: time.Now(),
+		Actor: "agent:" + agentID, CreatedAt: time.Now(),
 	})
 	writeJSON(w, map[string]any{
 		"status":      "claimed",
+		"task_id":     taskID,
 		"task":        task,
 		"experiences": experiences,
 		"prompt":      prompt,
+		"output_dir":  paths.AITaskDir(taskID),
 	})
 }
 

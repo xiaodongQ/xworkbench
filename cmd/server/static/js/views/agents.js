@@ -2,6 +2,28 @@
 
 let agentsCache = [];
 
+// getInstallCommand 返回 xwcli 安装命令（根据当前浏览器 origin 动态生成）。
+function getInstallCommand() {
+  const server = window.location.origin;
+  return `curl -fsSL ${server}/api/xwcli/install.sh | bash -s -- \`hostname\``;
+}
+
+function copyXwcliInstallCmd(el) {
+  const cmd = getInstallCommand();
+  navigator.clipboard.writeText(cmd).then(() => {
+    const orig = el.textContent;
+    el.textContent = '✅ 已复制到剪贴板';
+    setTimeout(() => { el.textContent = orig; }, 2000);
+  }).catch(() => {
+    prompt('复制命令（Ctrl+C）:', cmd);
+  });
+}
+
+function populateInstallCmd() {
+  const el = document.getElementById('xwcli-install-cmd');
+  if (el) el.textContent = getInstallCommand();
+}
+
 function formatRelativeTime(t) {
   if (!t) return '从未';
   const ms = Date.now() - new Date(t).getTime();
@@ -36,6 +58,7 @@ async function loadAgents() {
       return;
     }
     renderAgents(agentsCache);
+    populateInstallCmd();
   } catch (e) {
     container.innerHTML = '<div style="color:var(--danger);padding:20px">加载失败: ' + escapeHtml(e.message || String(e)) + '</div>';
   }

@@ -129,12 +129,13 @@ chmod 600 ~/.ssh/authorized_keys
 // BuildSSHConfigFromDirShortcut 从 DirShortcut 构建 SSHConfig。
 func BuildSSHConfigFromDirShortcut(dir *backend.DirShortcut) SSHConfig {
 	return SSHConfig{
-		Host:       dir.RemoteHost,
-		User:       dir.RemoteUser,
-		AuthMethod: dir.AuthMethod,
-		Password:   dir.RemotePassword,
-		KeyPath:    ResolveKeyPath(dir),
-		TimeoutSec: 10,
+		Host:         dir.RemoteHost,
+		User:         dir.RemoteUser,
+		AuthMethod:   dir.AuthMethod,
+		Password:     dir.RemotePassword,
+		KeyPath:      ResolveKeyPath(dir),
+		KeyPassword:  dir.KeyPassword,
+		TimeoutSec:   10,
 	}
 }
 
