@@ -158,6 +158,8 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/pty", s.handlePty)
 	mux.HandleFunc("POST /api/pty/{tab_id}/submit-input", s.handlePtyInput)
+	mux.HandleFunc("GET /api/rpty", s.handleRemotePty)
+	mux.HandleFunc("POST /api/rpty/{tab_id}/submit-input", s.handleRptyInput)
 	mux.HandleFunc("GET /ws", s.handleWS)
 	// /static/* 用 embed.FS serve 拆分 CSS/JS 文件
 	mux.Handle("GET /static/", http.FileServer(http.FS(FS)))
@@ -1700,15 +1702,21 @@ func (s *APIServer) handleDirShortcutOpenTerminal(w http.ResponseWriter, r *http
 
 // handleTerminalList 返回支持的终端类型列表
 func (s *APIServer) handleTerminalList(w http.ResponseWriter, r *http.Request) {
-	supported := []map[string]string{
-		{"type": "wezterm", "name": "WezTerm", "platform": "macOS/Linux/Windows"},
-		{"type": "wt", "name": "Windows Terminal", "platform": "Windows"},
-		{"type": "powershell", "name": "PowerShell", "platform": "Windows"},
-		{"type": "pwsh", "name": "PowerShell Core", "platform": "Windows/macOS/Linux"},
-		{"type": "terminal", "name": "Terminal.app", "platform": "macOS"},
-		{"type": "gnome", "name": "GNOME Terminal", "platform": "Linux"},
-		{"type": "xterm", "name": "xterm", "platform": "Linux"},
-		{"type": "cmd", "name": "CMD", "platform": "Windows"},
+	cfg := config.Get()
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+	supported := make([]map[string]interface{}, 0, len(cfg.Terminal.Types))
+	for typeKey, termDef := range cfg.Terminal.Types {
+		entry := map[string]interface{}{
+			"type": typeKey,
+			"name": termDef.Name,
+			"plate": termDef.Plate,
+		}
+		if len(termDef.RemoteArgs) > 0 {
+			entry["remote_args"] = termDef.RemoteArgs
+		}
+		supported = append(supported, entry)
 	}
 	writeJSON(w, map[string]interface{}{
 		"supported": supported,

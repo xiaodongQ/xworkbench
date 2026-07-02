@@ -12,10 +12,15 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/config"
 	"github.com/xiaodongQ/xworkbench/internal/hub"
 	"github.com/xiaodongQ/xworkbench/internal/scheduler"
+	"go.uber.org/zap"
 )
 
 // newTestServer creates an APIServer with in-memory SQLite for testing.
 func newTestServer(t *testing.T) *APIServer {
+	if logger == nil {
+		z, _ := zap.NewProduction()
+		logger = z.Sugar()
+	}
 	db, _, err := backend.TestDB()
 	if err != nil {
 		t.Fatalf("TestDB: %v", err)
@@ -55,8 +60,8 @@ func TestHandleTerminalList(t *testing.T) {
 		t.Fatalf("handleTerminalList status = %d, want 200", w.Code)
 	}
 	var resp struct {
-		Supported []map[string]string `json:"supported"`
-		Default   string              `json:"default"`
+		Supported []map[string]interface{} `json:"supported"`
+		Default   string                   `json:"default"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)

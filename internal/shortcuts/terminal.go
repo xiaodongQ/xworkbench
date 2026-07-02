@@ -70,6 +70,71 @@ func DefaultTerminal() string {
 	return cfg.DefaultTerminal
 }
 
+// buildRemoteArgs 根据终端类型和 DirShortcut 构建远程唤起的完整 args。
+// 优先使用 config 中预置的 RemoteArgs 模板；未知终端类型用泛用 ssh 兜底。
+// 变量替换：{user}、{host}、{key_path}、{shell_cmd}。
+// shell_cmd 规则：cd 到 remote_path（如有）+ TerminalCmd（如有） + exec $SHELL -l。
+func buildRemoteArgs(termType string, dir *backend.DirShortcut, keyPath string) []string {
+	// 构建 ssh target
+	sshTarget := dir.RemoteHost
+	if dir.RemoteUser != "" {
+		sshTarget = dir.RemoteUser + "@" + dir.RemoteHost
+	}
+
+	// 构建 shell_cmd
+	shellCmd := buildShellCmd(dir)
+
+	// 查配置中的 RemoteArgs 模板
+	cfg := config.Get()
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+	termDef, ok := cfg.Terminal.Types[strings.ToLower(termType)]
+
+	var template []string
+	if ok && len(termDef.RemoteArgs) > 0 {
+		template = termDef.RemoteArgs
+	} else {
+		// 兜底：泛用 ssh 命令
+		template = []string{"ssh", "-i", "{key_path}", "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}"}
+	}
+
+	// 变量替换
+	result := make([]string, 0, len(template))
+	for _, arg := range template {
+		arg = strings.ReplaceAll(arg, "{key_path}", shellQuote(keyPath))
+		arg = strings.ReplaceAll(arg, "{user}@{host}", sshTarget)
+		arg = strings.ReplaceAll(arg, "{host}", dir.RemoteHost)
+		arg = strings.ReplaceAll(arg, "{user}", dir.RemoteUser)
+		arg = strings.ReplaceAll(arg, "{shell_cmd}", shellQuote(shellCmd))
+		result = append(result, arg)
+	}
+	return result
+}
+
+// buildShellCmd 构建远端执行的 shell 命令。
+// 规则：cd remote_path（如有） → TerminalCmd（如有） → exec $SHELL -l。
+func buildShellCmd(dir *backend.DirShortcut) string {
+	parts := []string{}
+	if dir.RemotePath != "" {
+		parts = append(parts, "cd '"+dir.RemotePath+"'")
+	}
+	if dir.TerminalCmd != "" {
+		parts = append(parts, dir.TerminalCmd)
+	}
+	parts = append(parts, "exec $SHELL -l")
+	return strings.Join(parts, " && ")
+}
+
+// shellQuote 给字符串加单引号并转义内部单引号（简单实现，用于命令行参数）。
+func shellQuote(s string) string {
+	if s == "" {
+		return ""
+	}
+	// 将 ' 替换为 '\''（单引号-反斜单引号-单引号-单引号）
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 // OpenRemoteDirShortcut 用配置的终端软件打开远程 SSH 连接。
 // 支持 wezterm 等终端，连接后 cd 到 remote_path（默认主目录）。
 // 优先使用密钥认证：自动解析密钥路径（LocalKeyPath > KeyPath > 全局默认 > ~/.ssh/xworkbench_id_ed25519）。
@@ -100,43 +165,104 @@ func openRemoteDirShortcutImpl(ctx context.Context, dir *backend.DirShortcut, te
 		}
 	}
 
-	sshTarget := dir.RemoteHost
-	if dir.RemoteUser != "" {
-		sshTarget = dir.RemoteUser + "@" + dir.RemoteHost
-	}
 	logger.Logger.Infow("[OpenRemoteDirShortcut] opening",
-		"termType", termType, "bin", binPath, "target", sshTarget,
+		"termType", termType, "bin", binPath,
 		"remotePath", dir.RemotePath, "keyPath", keyPath)
 
-	switch termType {
+	// 用 buildRemoteArgs 获取完整 args 列表
+	args := buildRemoteArgs(termType, dir, keyPath)
+	if len(args) == 0 {
+		return fmt.Errorf("build remote args failed: empty result")
+	}
+
+	return execRemoteTerminal(termType, binPath, args)
+}
+
+// execRemoteTerminal 用终端类型的 binPath 执行远程唤起命令。
+// remoteArgs[0] 是 ssh（或其他远程可执行文件），通过终端的 RemoteBin 或 "ssh" 调用。
+func execRemoteTerminal(termType, binPath string, remoteArgs []string) error {
+	cfg := config.Get()
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+	termDef, ok := cfg.Terminal.Types[strings.ToLower(termType)]
+
+	var bin string
+	if ok {
+		bin = termDef.Bin
+	}
+	if bin == "" {
+		bin = "ssh"
+	}
+	if binPath != "" {
+		bin = binPath
+	}
+
+	// 用终端类型的本地唤起方式包装远程命令
+	localArgs := buildLocalArgsForRemote(termType, termDef, remoteArgs)
+
+	logger.Logger.Infow("[execRemoteTerminal]",
+		"bin", bin, "localArgs", localArgs)
+
+	return exec.Command(bin, localArgs...).Start()
+}
+
+// buildLocalArgsForRemote 根据终端类型构建本地唤起参数，把 remoteArgs 作为子命令传入。
+// 例如 wezterm: ["start", "--", "ssh", "-i", "...", "user@host"]
+// 例如 iterm2: ["-e", "tell app \"iTerm2\" to create window command \"...\""]
+func buildLocalArgsForRemote(termType string, termDef config.TerminalTypeDef, remoteArgs []string) []string {
+	// 将 remoteArgs 拼成空白分隔的字符串（用于嵌入 osascript/powershell）
+	remoteCmdStr := strings.Join(remoteArgs, " ")
+
+	switch strings.ToLower(termType) {
 	case "wezterm":
-		args := []string{"ssh", "-i", keyPath, sshTarget}
-		cmd := "exec $SHELL -l"
-		if dir.TerminalCmd != "" {
-			cmd = dir.TerminalCmd + "; exec $SHELL"
-			if dir.RemotePath != "" {
-				cmd = "cd '" + dir.RemotePath + "' && " + cmd
+		// wezterm start -- ssh -i ... user@host
+		args := []string{"start"}
+		args = append(args, remoteArgs...)
+		return args
+	case "wt":
+		// wt.exe new-tab -p 80 -H "user@host" ssh -i ... user@host
+		// WT uses -H/--title for window title
+		sshTarget := ""
+		for _, a := range remoteArgs {
+			if strings.Contains(a, "@") {
+				sshTarget = a
+				break
 			}
-		} else if dir.RemotePath != "" {
-			cmd = "cd '" + dir.RemotePath + "' && " + cmd
 		}
-		args = append(args, "--", "bash", "-c", cmd)
-		return exec.Command(binPath, args...).Start()
+		args := []string{"new-tab"}
+		if sshTarget != "" {
+			args = append(args, "-H", sshTarget)
+		}
+		args = append(args, remoteArgs...)
+		return args
+	case "iterm2":
+		// osascript -e 'tell application "iTerm2" to create window with default profile command "ssh -i ..."'
+		return []string{"-e", fmt.Sprintf(`tell application "iTerm2" to create window with default profile command "%s"`, remoteCmdStr)}
+	case "terminal":
+		// osascript -e 'tell application "Terminal" to do script "ssh -i ..."'
+		return []string{"-e", fmt.Sprintf(`tell application "Terminal" to do script "%s"`, remoteCmdStr)}
+	case "gnome":
+		// gnome-terminal -- ssh -i ... user@host
+		args := []string{"--"}
+		args = append(args, remoteArgs...)
+		return args
+	case "xterm":
+		// xterm -e ssh -i ... user@host
+		args := []string{"-e"}
+		args = append(args, remoteArgs...)
+		return args
+	case "powershell", "pwsh", "pwsh7":
+		// powershell.exe -NoExit -Command "ssh -i ... user@host"
+		return []string{"-NoExit", "-Command", remoteCmdStr}
+	case "cmd":
+		// cmd.exe /K ssh -i ... user@host
+		args := []string{"/K"}
+		args = append(args, remoteArgs...)
+		return args
 	default:
-		// 其他终端用 ssh 命令，始终用 -i keyPath（密钥不存在则 ssh 会报错，用户可感知）
-		sshArgs := []string{"-i", keyPath}
-		sshArgs = append(sshArgs, sshTarget)
-		cmd := "exec $SHELL -l"
-		if dir.TerminalCmd != "" {
-			cmd = dir.TerminalCmd + "; exec $SHELL"
-			if dir.RemotePath != "" {
-				cmd = "cd '" + dir.RemotePath + "' && " + cmd
-			}
-		} else if dir.RemotePath != "" {
-			cmd = "cd '" + dir.RemotePath + "' && " + cmd
-		}
-		sshArgs = append(sshArgs, "-t", "--", "sh", "-c", cmd)
-		return exec.Command("ssh", sshArgs...).Start()
+		// 泛用终端：直接执行 remoteArgs
+		return remoteArgs
 	}
 }
 
@@ -183,13 +309,13 @@ func OpenTerminal(termType, dir, binPath string) error {
 	if binPath != "" {
 		bin = binPath
 	}
-	logger.Logger.Infow("[OpenTerminal]", "termType", termType, "dir", dir, "bin", bin, "binPath", binPath, "at", "terminal.go:93")
+	logger.Logger.Infow("[OpenTerminal]", "termType", termType, "dir", dir, "bin", bin, "binPath", binPath, "at", "terminal.go")
 	// 构建 args，替换 {dir} 占位符
 	args := make([]string, len(typeDef.Args))
 	for i, a := range typeDef.Args {
 		args[i] = strings.ReplaceAll(a, "{dir}", dir)
 	}
-	logger.Logger.Infow("[OpenTerminal] exec", "bin", bin, "args", args, "at", "terminal.go:113")
+	logger.Logger.Infow("[OpenTerminal] exec", "bin", bin, "args", args, "at", "terminal.go")
 	cmd := buildOpenTerminalCmd(bin, args, dir)
 	return cmd.Start()
 }

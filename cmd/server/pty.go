@@ -71,7 +71,7 @@ func (s *PTYSession) WriteInput(input string) error {
 	return err
 }
 
-// authRequiredPatterns 检测需要授权的输出模式（中英文）。
+// authRequiredPatterns 检测需要授权的输出模式（中英文 + SSH 特有）。
 var authRequiredPatterns = []string{
 	"Approve",
 	"y/N",
@@ -88,6 +88,11 @@ var authRequiredPatterns = []string{
 	"是否需要",
 	"按 Y 确认",
 	"请按",
+	// SSH 特有
+	"Password:",
+	"Enter passphrase for key",
+	"Passphrase for key",
+	"Are you sure you want to continue connecting",
 }
 
 // authRequiredAntiPatterns 排除项（permission denied 等误报）。

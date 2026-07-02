@@ -172,11 +172,13 @@ type SSHKeyConfig struct {
 
 // TerminalTypeDef 终端类型定义
 type TerminalTypeDef struct {
-	Bin   string   `json:"bin"`   // 可执行文件名或路径
-	Args  []string `json:"args"`  // 启动参数，{dir} 会被替换为目录路径
-	Name  string   `json:"name"`  // 显示名称
-	Plate string   `json:"plate"` // 适用平台：all / macOS / Windows / Linux
-	Path  string   `json:"path"`  // 检测到的自定义路径
+	Bin       string   `json:"bin"`   // 可执行文件名或路径
+	Args      []string `json:"args"`  // 本地唤起参数，{dir} 会被替换为目录路径
+	Name      string   `json:"name"`  // 显示名称
+	Plate     string   `json:"plate"` // 适用平台：all / macOS / Windows / Linux
+	Path      string   `json:"path"`  // 检测到的自定义路径
+	RemoteBin string   `json:"remote_bin,omitempty"` // 远程唤起的 ssh 路径（默认 "ssh"）
+	RemoteArgs []string `json:"remote_args,omitempty"` // 远程唤起参数模板
 }
 
 // ModelsConfig key=cli_type, value=模型配置
@@ -349,15 +351,86 @@ func DefaultConfig() *Config {
 				"wezterm": {"/Applications/WezTerm.app/Contents/MacOS/WezTerm"},
 			},
 			Types: map[string]TerminalTypeDef{
-				"wezterm":    {Bin: "wezterm", Args: []string{"start", "--cwd", "{dir}", "--always-new-process"}, Name: "WezTerm", Plate: "all", Path: ""},
-				"wt":         {Bin: "wt.exe", Args: []string{"-d", "{dir}"}, Name: "Windows Terminal", Plate: "windows", Path: ""},
-				"powershell": {Bin: "powershell.exe", Args: []string{"-NoExit", "-Command", "cd \"{dir}\""}, Name: "PowerShell", Plate: "windows", Path: ""},
-				"pwsh":       {Bin: "pwsh.exe", Args: []string{"-NoExit", "-Command", "cd \"{dir}\""}, Name: "PowerShell Core", Plate: "windows", Path: ""},
-				"pwsh7":      {Bin: "pwsh", Args: []string{"-NoExit", "-c", "cd '{dir}'"}, Name: "PowerShell 7", Plate: "all", Path: ""},
-				"terminal":   {Bin: "osascript", Args: []string{"-e", `tell application "Terminal" to do script "cd {dir}"`}, Name: "Terminal.app", Plate: "darwin", Path: ""},
-				"gnome":      {Bin: "gnome-terminal", Args: []string{"--", "--working-directory={dir}"}, Name: "GNOME Terminal", Plate: "linux", Path: ""},
-				"xterm":      {Bin: "xterm", Args: []string{"-e", "bash -c 'cd {dir}; exec bash'"}, Name: "xterm", Plate: "linux", Path: ""},
-				"cmd":        {Bin: "cmd.exe", Args: []string{"/K", "cd /d {dir}"}, Name: "cmd.exe", Plate: "windows", Path: ""},
+				"wezterm": {
+					Bin:       "wezterm",
+					Args:      []string{"start", "--cwd", "{dir}", "--always-new-process"},
+					RemoteArgs: []string{"ssh", "-i", "{key_path}", "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}"},
+					Name:  "WezTerm",
+					Plate: "all",
+					Path: "",
+				},
+				"wt": {
+					Bin:       "wt.exe",
+					Args:      []string{"-d", "{dir}"},
+					RemoteArgs: []string{"ssh", "-i", "{key_path}", "{user}@{host}"},
+					Name:  "Windows Terminal",
+					Plate: "windows",
+					Path: "",
+				},
+				"powershell": {
+					Bin:       "powershell.exe",
+					Args:      []string{"-NoExit", "-Command", "cd \"{dir}\""},
+					RemoteArgs: []string{"ssh", "-i", "{key_path}", "{user}@{host}"},
+					Name:  "PowerShell",
+					Plate: "windows",
+					Path: "",
+				},
+				"pwsh": {
+					Bin:       "pwsh.exe",
+					Args:      []string{"-NoExit", "-Command", "cd \"{dir}\""},
+					RemoteArgs: []string{"ssh", "-i", "{key_path}", "{user}@{host}"},
+					Name:  "PowerShell Core",
+					Plate: "windows",
+					Path: "",
+				},
+				"pwsh7": {
+					Bin:       "pwsh",
+					Args:      []string{"-NoExit", "-c", "cd '{dir}'"},
+					RemoteArgs: []string{"ssh", "-i", "{key_path}", "{user}@{host}"},
+					Name:  "PowerShell 7",
+					Plate: "all",
+					Path: "",
+				},
+				"iterm2": {
+					Bin:       "osascript",
+					Args:      []string{"-e", `tell application "iTerm2" to create window with default profile`},
+					RemoteArgs: []string{"ssh", "-i", "{key_path}", "{user}@{host}"},
+					Name:  "iTerm2",
+					Plate: "darwin",
+					Path: "",
+				},
+				"terminal": {
+					Bin:       "osascript",
+					Args:      []string{"-e", `tell application "Terminal" to do script "cd {dir}"`},
+					RemoteArgs: []string{"ssh", "-i", "{key_path}", "{user}@{host}"},
+					Name:  "Terminal.app",
+					Plate: "darwin",
+					Path: "",
+				},
+				"gnome": {
+					Bin:       "gnome-terminal",
+					Args:      []string{"--", "--working-directory={dir}"},
+					RemoteArgs: []string{"ssh", "-i", "{key_path}", "{user}@{host}"},
+					Name:  "GNOME Terminal",
+					Plate: "linux",
+					Path: "",
+				},
+				"xterm": {
+					Bin:       "xterm",
+					Args:      []string{"-e", "bash -c 'cd {dir}; exec bash'"},
+					RemoteArgs: []string{"ssh", "-i", "{key_path}", "{user}@{host}"},
+					Name:  "xterm",
+					Plate: "linux",
+					Path: "",
+				},
+				"cmd": {
+					Bin:       "cmd.exe",
+					Args:      []string{"/K", "cd /d {dir}"},
+					RemoteArgs: []string{"ssh", "-i", "{key_path}", "{user}@{host}"},
+					Name:  "cmd.exe",
+					Plate: "windows",
+					Path: "",
+				},
 			},
 		},
 		Relay: RelayConfig{
