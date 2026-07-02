@@ -311,9 +311,9 @@ async function loadScheduled() {
     return;
   }
   const initSortIcon = () => {
-  const dir = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
-  return dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
-};
+    const dir = localStorage.getItem(SCHED_SORT_KEY) || 'asc';
+    return dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
+  };
 el.innerHTML = `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="toggleSchedSort()">最近执行 <span id="sched-sort-icon">${initSortIcon()}</span></th><th>操作</th></tr></thead><tbody>` + list.map(s => {
     const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
     const nextRun = (s.enabled && s.next_run_at)
