@@ -555,10 +555,13 @@ function renderSkillCard(s) {
 }
 
 function toggleSkillDetail(btn) {
-  const card = btn.closest('div').querySelector('.skill-detail');
-  if (!card) return;
-  const isHidden = card.style.display === 'none' || card.style.display === '';
-  card.style.display = isHidden ? 'block' : 'none';
+  // 向上两级：按钮 -> display:flex的div -> 卡片div -> skill-detail
+  const flexDiv = btn.closest('div');
+  const card = flexDiv ? flexDiv.parentElement : null;
+  const detail = card ? card.querySelector('.skill-detail') : null;
+  if (!detail) return;
+  const isHidden = detail.style.display === 'none' || detail.style.display === '';
+  detail.style.display = isHidden ? 'block' : 'none';
   btn.textContent = isHidden ? '收起 △' : '详情 ▾';
 }
 

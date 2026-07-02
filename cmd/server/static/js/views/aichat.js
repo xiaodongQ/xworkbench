@@ -34,9 +34,9 @@
         </aside>
         <main class="aichat-main">
           <div class="aichat-subtabs">
-            <button class="subtab active" data-tab="chat">AI 对话</button>
-            <button class="subtab" data-tab="shell">本地 Shell</button>
-            <button class="subtab" data-tab="config">⚙️ 配置</button>
+            <button class="subtab active" data-tab="chat">AI 助手</button>
+            <button class="subtab" data-tab="shell">网页终端</button>
+            <button class="subtab" data-tab="config">⚙️ AI 助手配置</button>
           </div>
           <div class="aichat-panel" id="panel-chat">
             <div class="aichat-messages" id="aichat-messages"></div>
@@ -54,7 +54,7 @@
                 <div class="terminal-dot red"></div>
                 <div class="terminal-dot yellow"></div>
                 <div class="terminal-dot green"></div>
-                <div class="terminal-title" id="shell-term-title">本地 Shell</div>
+                <div class="terminal-title" id="shell-term-title">网页终端</div>
                 <div style="margin-left:auto;display:flex;align-items:center;gap:6px;position:relative">
                   <span style="font-size:11px;color:var(--text-secondary)">CLI:</span>
                   <div id="cli-display" style="font-size:12px;padding:3px 8px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;min-width:80px;text-align:center">-</div>
@@ -83,7 +83,7 @@
 
   function configPanelHTML() {
     return `<div class="aichat-config">
-      <h3>AI 配置</h3>
+      <h3>AI 助手配置</h3>
       <div class="form-group"><label>Provider</label>
         <select id="cfg-provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select>
       </div>
@@ -192,13 +192,48 @@
   function renderMessages(messages) {
     const container = document.getElementById('aichat-messages');
     if (!container) return;
-    if (!messages.length) { container.innerHTML = '<div class="aichat-empty">发送消息开始对话</div>'; return; }
+    if (!messages.length) { container.innerHTML = welcomeHTML(); return; }
     container.innerHTML = messages.map(m => `
       <div class="aichat-msg aichat-msg-${escHtml(m.role)}">
         <div class="aichat-msg-role">${m.role === 'user' ? '你' : 'AI'}</div>
         <div class="aichat-msg-content">${formatContent(m.content)}</div>
       </div>`).join('');
     container.scrollTop = container.scrollHeight;
+  }
+
+  // welcomeHTML: 无消息时展示欢迎面板（4 张能力卡 + 提示）。
+  // 能力分类来自 cmd/server/ai_tools.go 的真实工具。
+  function welcomeHTML() {
+    return `<div class="aichat-welcome">
+      <div class="aichat-welcome-title">👋 你好，我是 AI 助手</div>
+      <div class="aichat-welcome-sub">
+        我能帮你管理任务、操作目录、查询经验库，<br/>
+        也可以启动 Claude / CBC CLI 进行交互式操作。
+      </div>
+      <div class="aichat-welcome-grid">
+        <div class="aichat-welcome-card">
+          <div class="aichat-welcome-card-icon">📋</div>
+          <div class="aichat-welcome-card-title">任务管理</div>
+          <div class="aichat-welcome-card-desc">创建、查询、执行任务，查看执行历史</div>
+        </div>
+        <div class="aichat-welcome-card">
+          <div class="aichat-welcome-card-icon">📁</div>
+          <div class="aichat-welcome-card-title">目录快捷</div>
+          <div class="aichat-welcome-card-desc">本地与远程目录快捷方式，一键访问</div>
+        </div>
+        <div class="aichat-welcome-card">
+          <div class="aichat-welcome-card-icon">💡</div>
+          <div class="aichat-welcome-card-title">经验库</div>
+          <div class="aichat-welcome-card-desc">搜索已有的经验与知识</div>
+        </div>
+        <div class="aichat-welcome-card">
+          <div class="aichat-welcome-card-icon">🛠️</div>
+          <div class="aichat-welcome-card-title">CLI 会话</div>
+          <div class="aichat-welcome-card-desc">启动 Claude / CBC 交互式会话</div>
+        </div>
+      </div>
+      <div class="aichat-welcome-hint">在下方输入框开始你的第一次对话 ↓</div>
+    </div>`;
   }
 
   function formatContent(content) {
@@ -341,7 +376,7 @@
 
       ptyWs.onopen = () => {
         termReady = true;
-        term.writeln('\x1b[32m[xworkbench] 本地 Shell 已连接\x1b[0m\r\n');
+        term.writeln('\x1b[32m[xworkbench] 网页终端已连接\x1b[0m\r\n');
         if (typeof loadCliSetting === 'function') loadCliSetting();
       };
       ptyWs.onmessage = (e) => {
