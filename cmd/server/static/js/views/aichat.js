@@ -84,23 +84,22 @@
   function configPanelHTML() {
     return `<div class="aichat-config">
       <h3>AI 助手配置</h3>
-      <div class="form-group"><label>Provider</label>
-        <select id="cfg-provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select>
+      <p class="aichat-config-hint">支持官方 API 或第三方代理（类似 Claude Code 的 <code>ANTHROPIC_BASE_URL</code> / <code>ANTHROPIC_AUTH_TOKEN</code>）。</p>
+      <div class="form-group"><label>协议 (Provider)</label>
+        <select id="cfg-provider" onchange="onCfgProviderChange()">
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+        </select>
       </div>
-      <div class="form-group"><label>API Key</label>
-        <input type="password" id="cfg-api-key" placeholder="sk-... / sk-ant-..." />
+      <div class="form-group"><label>API URL</label>
+        <input type="text" id="cfg-base-url" placeholder="https://api.anthropic.com" />
+        <small class="form-hint">官方默认已自动填，自定义代理直接覆盖即可（如 <code>https://api.minimaxi.com/anthropic</code>）。</small>
+      </div>
+      <div class="form-group"><label>API Key / Token</label>
+        <input type="password" id="cfg-api-key" placeholder="sk-ant-... / sk-cp-..." />
       </div>
       <div class="form-group"><label>Model</label>
-        <input type="text" id="cfg-model" placeholder="gpt-4o / claude-sonnet-4" />
-      </div>
-      <div class="form-group"><label>Base URL（可选）</label>
-        <input type="text" id="cfg-base-url" placeholder="https://api.openai.com/v1" />
-      </div>
-      <div class="form-group"><label>Temperature</label>
-        <input type="number" id="cfg-temp" value="0.7" min="0" max="2" step="0.1" />
-      </div>
-      <div class="form-group"><label>Max Tokens</label>
-        <input type="number" id="cfg-max-tokens" value="4096" min="100" max="128000" />
+        <input type="text" id="cfg-model" placeholder="claude-sonnet-4 / gpt-4o" />
       </div>
       <div class="form-actions">
         <button class="btn btn-secondary" id="cfg-test-btn">测试连接</button>
@@ -109,6 +108,20 @@
       <div class="cfg-status" id="cfg-status"></div>
     </div>`;
   }
+
+  // 协议默认 URL 与示例 model（用户留空时回填）
+  const CFG_DEFAULTS = {
+    anthropic: { url: 'https://api.anthropic.com', model: 'claude-sonnet-4' },
+    openai:    { url: 'https://api.openai.com/v1',  model: 'gpt-4o' },
+  };
+  window.onCfgProviderChange = function() {
+    const provider = document.getElementById('cfg-provider').value;
+    const def = CFG_DEFAULTS[provider];
+    const urlEl = document.getElementById('cfg-base-url');
+    const modelEl = document.getElementById('cfg-model');
+    if (urlEl && def)  urlEl.placeholder = def.url;
+    if (modelEl && def) modelEl.placeholder = def.model;
+  };
 
   // ── Events ─────────────────────────────────────────────────
   function bindEvents(root) {
@@ -299,27 +312,30 @@
       const r = await fetch('/api/ai/config');
       const d = await r.json();
       const cfg = d.ai_chat || {};
-      root.querySelector('#cfg-provider').value = cfg.provider || 'openai';
+      const provider = cfg.provider || 'anthropic';
+      root.querySelector('#cfg-provider').value = provider;
       root.querySelector('#cfg-model').value = cfg.model || '';
       root.querySelector('#cfg-base-url').value = cfg.base_url || '';
-      root.querySelector('#cfg-temp').value = cfg.temperature || 0.7;
-      root.querySelector('#cfg-max-tokens').value = cfg.max_tokens || 4096;
+      // 触发 placeholder 更新
+      window.onCfgProviderChange();
     } catch {}
   }
 
   async function saveConfig(root) {
     const status = root.querySelector('#cfg-status');
     const provider = root.querySelector('#cfg-provider').value;
-    const model = root.querySelector('#cfg-model').value;
-    const baseURL = root.querySelector('#cfg-base-url').value;
-    const temp = parseFloat(root.querySelector('#cfg-temp').value);
-    const maxTok = parseInt(root.querySelector('#cfg-max-tokens').value);
+    const model = root.querySelector('#cfg-model').value.trim();
+    const baseURL = root.querySelector('#cfg-base-url').value.trim();
     const apiKey = root.querySelector('#cfg-api-key').value;
+    // 必填校验：protocol + key + model 必填，URL 不填时后端用默认值
+    if (!provider || !model) {
+      status.textContent = '❌ 请填写协议、Model'; status.style.color = 'red'; return;
+    }
     try {
       await fetch('/api/ai/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, model, base_url: baseURL, temperature: temp, max_tokens: maxTok })
+        body: JSON.stringify({ provider, model, base_url: baseURL })
       });
       if (apiKey) {
         await fetch('/api/ai/config/key', {
@@ -328,11 +344,9 @@
           body: JSON.stringify({ api_key: apiKey })
         });
       }
-      status.textContent = '✅ 配置已保存';
-      status.style.color = 'green';
+      status.textContent = '✅ 配置已保存'; status.style.color = 'green';
     } catch (err) {
-      status.textContent = '❌ 保存失败: ' + err.message;
-      status.style.color = 'red';
+      status.textContent = '❌ 保存失败: ' + err.message; status.style.color = 'red';
     }
   }
 

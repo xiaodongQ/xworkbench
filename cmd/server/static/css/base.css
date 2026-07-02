@@ -764,6 +764,24 @@ tr:last-child td { border-bottom: none; }
 .aichat-config input:focus, .aichat-config select:focus { outline: none; border-color: var(--primary, #22d3ee); }
 .form-actions { display: flex; gap: 8px; margin-top: 16px; }
 .cfg-status { margin-top: 10px; font-size: 13px; }
+.aichat-config-hint {
+  font-size: 12px; color: var(--text-secondary);
+  margin: 0 0 16px; line-height: 1.5;
+}
+.aichat-config-hint code, .form-hint code {
+  background: var(--hover-bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--text);
+}
+.form-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  opacity: 0.85;
+}
 
 /* Shell panel */
 .aichat-shell-info {
@@ -781,4 +799,61 @@ tr:last-child td { border-bottom: none; }
   border-radius: 4px;
   font-size: 13px;
   color: var(--text);
+}
+
+/* AI 助手欢迎面板（无对话时） */
+.aichat-welcome {
+  padding: 32px 24px;
+  text-align: center;
+}
+.aichat-welcome-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.aichat-welcome-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  line-height: 1.7;
+}
+.aichat-welcome-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  max-width: 520px;
+  margin: 0 auto 24px;
+}
+.aichat-welcome-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.aichat-welcome-card:hover {
+  border-color: var(--primary, #22d3ee);
+  background: var(--hover-bg);
+}
+.aichat-welcome-card-icon {
+  font-size: 20px;
+  margin-bottom: 4px;
+}
+.aichat-welcome-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.aichat-welcome-card-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.aichat-welcome-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0.7;
 }
