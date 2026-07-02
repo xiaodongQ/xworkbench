@@ -101,7 +101,11 @@ xw_output:
 xw_examples: []
 ---
 `), 0644)
-	os.WriteFile(filepath.Join(skill1, "scripts", "check.py"), []byte("# dummy"), 0644)
+	os.WriteFile(filepath.Join(skill1, "scripts", "check.py"), []byte(`#!/usr/bin/env python3
+import sys,json
+params=json.load(sys.stdin)
+print(json.dumps({"status":"ok","received_host":params.get("host",""),"code":200}))
+`), 0644)
 
 	// skill 2: 缺少 SKILL.md
 	skill2 := filepath.Join(toolsDir, "skill-two")
