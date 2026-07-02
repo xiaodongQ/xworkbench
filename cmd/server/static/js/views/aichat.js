@@ -378,6 +378,19 @@
     });
   }
 
+  // loadCliSetting: fetch current aichat_default_cli from config and update selector/display
+  window.loadCliSetting = async function() {
+    try {
+      const r = await fetch('/api/config');
+      const d = await r.json();
+      const cli = d.aichat_default_cli || 'claude';
+      const sel = document.getElementById('cli-selector');
+      const disp = document.getElementById('cli-display');
+      if (sel) sel.value = cli;
+      if (disp) disp.textContent = cli;
+    } catch {}
+  };
+
   window.onCliChange = async function(value) {
     const disp = document.getElementById('cli-display');
     if (disp) disp.textContent = value;
@@ -385,7 +398,7 @@
       await fetch('/api/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ default_cli: value })
+        body: JSON.stringify({ aichat_default_cli: value })
       });
     } catch {}
   };
