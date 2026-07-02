@@ -168,15 +168,6 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 密钥认证优先；密码认证暂不支持（需要 ssh-agent 注入）
-	if dir.AuthMethod != "key" {
-		writeErr(w, http.StatusBadRequest, "only key auth is supported for remote PTY")
-		return
-	}
-
-	// 解析密钥路径
-	_ = executor.ResolveKeyPath(dir)
-
 	// 构建 SSH 地址
 	addr := dir.RemoteHost
 	user := dir.RemoteUser
@@ -184,7 +175,7 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 		user = "root"
 	}
 
-	// 升级 WebSocket
+	// 升级 WebSocket（提前到此，认证失败时也能通过 WS 回写错误）
 	conn, err := rptyUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		logger.Errorf("rpty: websocket upgrade error: %v", err)
@@ -193,30 +184,33 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 	logger.Infow("rpty: ws upgraded", "tab_id", tabID, "host", dir.RemoteHost, "user", user)
 
-	// 建立 SSH 连接（密钥认证）
-	keyPath := executor.ResolveKeyPath(dir)
-	keyData, kerr := os.ReadFile(keyPath)
-	if kerr != nil {
-		logger.Errorf("rpty: read key file error: %v", kerr)
-		conn.WriteMessage(websocket.TextMessage,
-			[]byte(fmt.Sprintf("\r\n\x1b[31m[xworkbench] 读取 SSH 密钥文件失败: %v\x1b[0m\r\n", kerr)))
-		return
+	// 建立 SSH 连接（支持 key 或 password 认证）
+	var authMethods []ssh.AuthMethod
+	// 密钥认证（有密钥文件时优先）
+	if dir.AuthMethod == "key" {
+		keyPath := executor.ResolveKeyPath(dir)
+		keyData, kerr := os.ReadFile(keyPath)
+		if kerr == nil {
+			signer, serr := ssh.ParsePrivateKey(keyData)
+			if serr == nil {
+				authMethods = append(authMethods, ssh.PublicKeys(signer))
+			}
+		}
 	}
-	signer, err := ssh.ParsePrivateKey(keyData)
-	if err != nil {
-		logger.Errorf("rpty: load signer error: %v", err)
+	// 密码认证
+	if dir.RemotePassword != "" {
+		authMethods = append(authMethods, ssh.Password(dir.RemotePassword))
+	}
+	if len(authMethods) == 0 {
 		conn.WriteMessage(websocket.TextMessage,
-			[]byte(fmt.Sprintf("\r\n\x1b[31m[xworkbench] 加载 SSH 密钥失败: %v\x1b[0m\r\n", err)))
+			[]byte("\r\n\x1b[31m[xworkbench] 无可用认证方式（未配置密钥也无密码）\x1b[0m\r\n"))
 		return
 	}
 	sshCfg := &ssh.ClientConfig{
 		User:            user,
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		Auth:            authMethods,
 		Timeout:         0,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // 演示用
-	}
-	if dir.RemotePassword != "" {
-		sshCfg.Auth = append(sshCfg.Auth, ssh.Password(dir.RemotePassword))
 	}
 
 	client, err := ssh.Dial("tcp", addr, sshCfg)
