@@ -77,6 +77,8 @@ Options:
   --port PORT      自定义端口（如 9090）
   --status         查看运行状态
   --log            跟踪日志（tail -f）
+  --install-service   仅 Windows：注册 Windows Service（--service install）
+  --uninstall-service 仅 Windows：卸载 Windows Service（--service uninstall）
   --help           显示本帮助
 
 Windows 模式说明：
@@ -423,6 +425,22 @@ case "${1:-}" in
   --port)           ADDR=":$2"; start ;;
   --status)         status ;;
   --log)            tail -f "${PROJECT_ROOT}/data/logs/xworkbench.log" ;;
+  --install-service)
+    if [ "$os" != "windows" ]; then
+      echo "${RED}✗ --install-service 仅支持 Windows${NC}"
+      exit 1
+    fi
+    "$BIN" --service install
+    echo "${GREEN}✓ 安装完成，运行 ${CYAN}net start xworkbench${GREEN} 启动${NC}"
+    ;;
+  --uninstall-service)
+    if [ "$os" != "windows" ]; then
+      echo "${RED}✗ --uninstall-service 仅支持 Windows${NC}"
+      exit 1
+    fi
+    "$BIN" --service uninstall
+    echo "${GREEN}✓ 已卸载 Windows Service${NC}"
+    ;;
   --help|-h)        usage ;;
   "")               start ;;
   *)                echo "${RED}✗ 未知选项：$1${NC}"; usage ;;
