@@ -265,6 +265,7 @@ func (s *APIServer) routes() {
 	// skill 工具技能
 	mux.HandleFunc("GET /api/skills", s.handleSkillsList)
 	mux.HandleFunc("POST /api/skills/execute", s.handleSkillsExecute)
+	mux.HandleFunc("POST /api/skills/create", s.handleSkillsCreate)
 
 	// xwcli 安装脚本（公开，无需认证）
 	mux.HandleFunc("GET /api/xwcli/install.sh", s.handleXwcliInstall)
@@ -3952,9 +3953,9 @@ func (s *APIServer) handleAgentSetBoundDirShortcut(w http.ResponseWriter, r *htt
 	writeJSON(w, map[string]any{"ok": true, "agent_id": agentID, "bound_dir_shortcut_id": req.DirShortcutID})
 }
 
-// handleSkillsList 返回所有已注册的 skill 技能列表。
+// handleSkillsList 返回所有已注册的 skill 技能列表（排除内部工具）。
 func (s *APIServer) handleSkillsList(w http.ResponseWriter, r *http.Request) {
-	skills := skill.GetAll()
+	skills := skill.GetPublic()
 	// 转换为前端需要的格式
 	type SkillInfo struct {
 		Name        string            `json:"name"`
@@ -4020,6 +4021,155 @@ func (s *APIServer) handleSkillsExecute(w http.ResponseWriter, r *http.Request) 
 		"raw_out": result.RawOut,
 		"raw_err": result.RawErr,
 	})
+}
+
+// handleSkillsCreate 根据用户输入创建新的 skill（目前支持 HTTP 请求类 skill）。
+// 请求体：{name, description, url, method, headers, body, output}
+// output 为 map[key]=jsonPath，如 {"ip":"ip","city":"city"}
+func (s *APIServer) handleSkillsCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Name        string            `json:"name"`
+		Description string            `json:"description"`
+		URL         string            `json:"url"`
+		Method      string            `json:"method"`
+		Headers     map[string]string `json:"headers"`
+		Body        string            `json:"body"`
+		Output      map[string]string `json:"output"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.Name == "" || req.URL == "" {
+		writeErr(w, http.StatusBadRequest, "name and url are required")
+		return
+	}
+	if req.Method == "" {
+		req.Method = "GET"
+	}
+	if req.Headers == nil {
+		req.Headers = map[string]string{}
+	}
+	if req.Output == nil {
+		req.Output = map[string]string{}
+	}
+
+	// 验证目录不存在
+	skillDir := filepath.Join(skill.ToolsDir, req.Name)
+	if _, err := os.Stat(skillDir); err == nil {
+		writeErr(w, http.StatusConflict, "skill already exists: "+req.Name)
+		return
+	}
+
+	// 创建目录
+	scriptsDir := filepath.Join(skillDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0755); err != nil {
+		writeErr(w, http.StatusInternalServerError, "mkdir failed: "+err.Error())
+		return
+	}
+
+	// --- 生成 SKILL.md ---
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString(fmt.Sprintf("name: %s\n", req.Name))
+	sb.WriteString(fmt.Sprintf("description: %s\n", req.Description))
+	sb.WriteString("version: 1.0.0\n")
+	sb.WriteString("xw_command: python3 scripts/check.py\n")
+	sb.WriteString("xw_params:\n")
+	for k := range req.Headers {
+		sb.WriteString(fmt.Sprintf("  %s: 请求头 %s\n", k, k))
+	}
+	if req.Method == "POST" || req.Method == "PUT" {
+		sb.WriteString("  body: 请求体（JSON 字符串）\n")
+	}
+	sb.WriteString("xw_output:\n")
+	if len(req.Output) > 0 {
+		for k, v := range req.Output {
+			sb.WriteString(fmt.Sprintf("  %s: JSONPath %s\n", k, v))
+		}
+	} else {
+		sb.WriteString("  raw: 完整响应 JSON\n")
+	}
+	sb.WriteString("xw_examples:\n")
+	sb.WriteString(fmt.Sprintf("  - description: 调用 %s\n", req.Name))
+	sb.WriteString("    params: {}\n---\n")
+
+	// --- 生成 check.py ---
+	// 计算 http_util 的相对路径
+
+	var checkPy strings.Builder
+	checkPy.WriteString("#!/usr/bin/env python3\n")
+	checkPy.WriteString(fmt.Sprintf(`"""Auto-generated skill: %s
+Description: %s
+URL: %s %s
+"""`, req.Name, req.Description, req.Method, req.URL))
+	checkPy.WriteString("\nimport json, sys\nsys.path.insert(0, \"../http_util/http_util\")\nfrom http_util.http_util import json_request\n\ndef main():\n    params = json.load(sys.stdin)\n")
+
+	// headers
+	headersJSON, _ := json.Marshal(req.Headers)
+	checkPy.WriteString(fmt.Sprintf("    headers = %s\n", headersJSON))
+
+	// body
+	if req.Body != "" {
+		bodyJSON, _ := json.Marshal(req.Body)
+		checkPy.WriteString(fmt.Sprintf("    body = %s\n", bodyJSON))
+	}
+
+	// request call
+	checkPy.WriteString(fmt.Sprintf("    resp = json_request(%q, method=%q", req.URL, req.Method))
+	if req.Body != "" {
+		checkPy.WriteString(", body=body")
+	}
+	checkPy.WriteString(")\n\n")
+
+	// output processing
+	if len(req.Output) > 0 {
+		checkPy.WriteString("    out = {}\n")
+		for outKey, jsonPath := range req.Output {
+			checkPy.WriteString(fmt.Sprintf("    # %s: JSONPath %s\n", outKey, jsonPath))
+			checkPy.WriteString(fmt.Sprintf(`    try:
+        parts = %q.split('.')
+        val = resp
+        for p in parts:
+            if isinstance(val, dict):
+                val = val[p]
+            elif isinstance(val, list):
+                val = val[int(p)]
+            else:
+                val = None
+        out[%q] = val
+    except:
+        out[%q] = None
+`, jsonPath, outKey, outKey))
+		}
+		checkPy.WriteString("    print(json.dumps({\"status\": \"ok\", **out}, ensure_ascii=False))\n")
+	} else {
+		checkPy.WriteString("    print(json.dumps({\"status\": \"ok\", \"raw\": resp}, ensure_ascii=False))\n")
+	}
+
+	checkPy.WriteString("\nif __name__ == \"__main__\":\n    main()\n")
+
+	// 写文件
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(sb.String()), 0644); err != nil {
+		writeErr(w, http.StatusInternalServerError, "write SKILL.md failed: "+err.Error())
+		return
+	}
+	if err := os.WriteFile(filepath.Join(scriptsDir, "check.py"), []byte(checkPy.String()), 0755); err != nil {
+		writeErr(w, http.StatusInternalServerError, "write check.py failed: "+err.Error())
+		return
+	}
+
+	logger.Infow("skill created", "name", req.Name, "dir", skillDir)
+
+	// 热更新 skill registry，使新创建的 skill 立即可用
+	if err := skill.Reload(); err != nil {
+		logger.Warnw("skill reload after create failed", "err", err)
+	}
+	writeJSON(w, map[string]any{"ok": true, "name": req.Name, "dir": skillDir})
 }
 
 // handleAgentDelete 删除 agent（先释放任务再删，避免遗留 in_progress）。

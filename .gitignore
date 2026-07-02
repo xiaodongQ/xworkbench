@@ -28,3 +28,4 @@ internal/twosum/
 data/ai-sandbox/
 .playwright-cli
 tasks/two-sum/
+__pycache__/

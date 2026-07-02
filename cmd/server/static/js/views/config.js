@@ -501,10 +501,15 @@ async function loadSkills() {
     window._skillCache = {};
     skills.forEach(s => { window._skillCache[s.name] = s; });
     if (skills.length === 0) {
-      container.innerHTML = '<div style="color:var(--text-secondary);font-size:13px">暂无可用的工具技能</div>';
+      container.innerHTML = '<div style="display:flex;flex-direction:column;gap:12px;align-items:flex-start">' +
+        '<div style="color:var(--text-secondary);font-size:13px">暂无可用的工具技能</div>' +
+        '<button onclick="showCreateSkill()" style="background:var(--primary);color:#fff;border:none;cursor:pointer;padding:8px 16px;border-radius:6px;font-size:13px">+ 新建工具</button>' +
+        '</div>';
       return;
     }
-    container.innerHTML = skills.map(s => renderSkillCard(s)).join('');
+    container.innerHTML = '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">' +
+      '<button onclick="showCreateSkill()" style="background:var(--primary);color:#fff;border:none;cursor:pointer;padding:8px 16px;border-radius:6px;font-size:13px">+ 新建工具</button>' +
+      '</div>' + skills.map(s => renderSkillCard(s)).join('');
   } catch (e) {
     container.innerHTML = '<div style="color:var(--exception);font-size:13px">加载失败：' + esc(e.message) + '</div>';
   }
@@ -673,6 +678,136 @@ async function executeSkillTest(name, params, resultSpan) {
   } catch (e) {
     resultSpan.textContent = '✗ ' + e.message;
     resultSpan.style.color = 'var(--exception)';
+  }
+}
+
+// ---- 新建工具弹窗 ----
+function showCreateSkill() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000';
+  overlay.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:480px;max-width:600px;max-height:90vh;overflow-y:auto">
+      <h3 style="margin:0 0 4px;font-size:16px">新建工具</h3>
+      <p style="margin:0 0 16px;font-size:12px;color:var(--text-secondary)">通过 URL + 输出映射快速创建网络查询类工具，自动生成 SKILL.md 和脚本。</p>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div>
+          <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">名称 <span style="color:var(--exception)">*</span></label>
+          <input type="text" id="cs-name" placeholder="英文唯一标识，如 ipinfo" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">描述 / 触发词 <span style="color:var(--exception)">*</span></label>
+          <input type="text" id="cs-desc" placeholder="AI 用来判断何时调用的描述，如 查 IP 地址、我的公网 IP 是多少" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">请求 URL <span style="color:var(--exception)">*</span></label>
+          <input type="text" id="cs-url" placeholder="https://api.example.com/data" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);box-sizing:border-box">
+        </div>
+        <div style="display:grid;grid-template-columns:120px 1fr">
+          <div>
+            <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">方法</label>
+            <select id="cs-method" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="DELETE">DELETE</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">请求头（JSON）</label>
+            <input type="text" id="cs-headers" placeholder='{"Authorization": "Bearer xxx"}' style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);box-sizing:border-box">
+          </div>
+        </div>
+        <div id="cs-body-row" style="display:none">
+          <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">请求体</label>
+          <textarea id="cs-body" placeholder='{"key": "value"}' style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);resize:vertical;height:60px;font-family:monospace;box-sizing:border-box"></textarea>
+        </div>
+        <div>
+          <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">输出映射 <span style="font-weight:normal;color:var(--text-secondary)">(可选，key→jsonPath)</span></label>
+          <textarea id="cs-output" placeholder='ip:ip\nprovince:data.province' style="width:100%;font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);resize:vertical;height:56px;font-family:monospace;box-sizing:border-box"></textarea>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">每行一个，格式：<code style="background:var(--bg);padding:1px 3px;border-radius:2px">输出key: JSONPath</code>，留空则返回 raw 完整响应</div>
+        </div>
+        <div id="cs-error" style="color:var(--exception);font-size:13px;display:none"></div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+        <button onclick="this.closest('[style*=\"position:fixed\"]').remove()" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font-size:13px">取消</button>
+        <button onclick="createSkillSubmit(this)" style="padding:8px 16px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">创建</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  // toggle body field
+  document.getElementById('cs-method').addEventListener('change', function() {
+    const bodyRow = document.getElementById('cs-body-row');
+    bodyRow.style.display = (this.value === 'POST' || this.value === 'PUT') ? 'block' : 'none';
+  });
+}
+
+async function createSkillSubmit(btn) {
+  const overlay = btn.closest('[style*="position:fixed"]');
+  const name = document.getElementById('cs-name').value.trim();
+  const desc = document.getElementById('cs-desc').value.trim();
+  const url = document.getElementById('cs-url').value.trim();
+  const method = document.getElementById('cs-method').value;
+  const headersStr = document.getElementById('cs-headers').value.trim();
+  const body = document.getElementById('cs-body').value.trim();
+  const outputStr = document.getElementById('cs-output').value.trim();
+  const errorEl = document.getElementById('cs-error');
+
+  if (!name || !desc || !url) {
+    errorEl.textContent = '名称、描述、URL 不能为空';
+    errorEl.style.display = 'block';
+    return;
+  }
+  if (!/^[a-z0-9_-]+$/.test(name)) {
+    errorEl.textContent = '名称只能包含小写字母、数字、下划线、连字符';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  let headers = {};
+  if (headersStr) {
+    try { headers = JSON.parse(headersStr); } catch(e) {
+      errorEl.textContent = '请求头 JSON 格式错误：' + e.message;
+      errorEl.style.display = 'block';
+      return;
+    }
+  }
+
+  // parse output mapping: "key: path\nkey2: path2"
+  let output = {};
+  if (outputStr) {
+    outputStr.split('\n').forEach(line => {
+      line = line.trim();
+      if (!line) return;
+      const colonIdx = line.indexOf(':');
+      if (colonIdx < 0) return;
+      const k = line.slice(0, colonIdx).trim();
+      const v = line.slice(colonIdx + 1).trim();
+      if (k && v) output[k] = v;
+    });
+  }
+
+  btn.disabled = true;
+  btn.textContent = '创建中…';
+
+  try {
+    await fetchJSON(API + '/api/skills/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description: desc, url, method, headers, body, output }),
+    });
+    overlay.remove();
+    // 刷新列表
+    await loadSkills();
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '创建';
   }
 }
 

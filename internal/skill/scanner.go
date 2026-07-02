@@ -25,6 +25,19 @@ func Init(toolsDir string) error {
 	return nil
 }
 
+// Reload 重新扫描 toolsDir 并刷新 registry。用于 skill 动态创建后热更新。
+func Reload() error {
+	if ToolsDir == "" {
+		return fmt.Errorf("ToolsDir not set")
+	}
+	regs, err := ScanToolsDir(ToolsDir)
+	if err != nil {
+		return err
+	}
+	registry = regs
+	return nil
+}
+
 // GetAll 返回所有已注册的 skill。
 func GetAll() []*Skill {
 	return registry
@@ -38,6 +51,17 @@ func GetByName(name string) *Skill {
 		}
 	}
 	return nil
+}
+
+// GetPublic 返回所有对外可见的 skill（排除 xw_internal=true 的内部工具）。
+func GetPublic() []*Skill {
+	var out []*Skill
+	for _, s := range registry {
+		if !s.XWInternal {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // ScanToolsDir 扫描 toolsDir 目录，返回所有有效的 Skill。

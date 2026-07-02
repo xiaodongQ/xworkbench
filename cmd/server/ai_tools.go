@@ -166,8 +166,8 @@ func GetTools() []Tool {
 			}`),
 		},
 	}
-	// 追加 skill 插件工具
-	for _, s := range skill.GetAll() {
+	// 追加 skill 插件工具（仅公开 skill）
+	for _, s := range skill.GetPublic() {
 		tools = append(tools, skillToTool(s))
 	}
 	return tools

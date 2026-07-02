@@ -24,6 +24,7 @@ type Skill struct {
 	XWOutput   map[string]string `json:"xw_output,omitempty"`   // 输出字段 → 描述
 	XWXamples  []Example         `json:"xw_examples,omitempty"` // 示例（拼写保护字段名）
 	XWExamples []Example         `json:"-"`                     // 别名，避免 YAML 解析问题
+	XWInternal bool              `json:"-"`                     // 内部工具，不对外暴露
 
 	Dir string `json:"-"` // skill 目录绝对路径
 }
@@ -47,6 +48,7 @@ type skillMeta struct {
 	XWParams   map[string]string `yaml:"xw_params"`
 	XWOutput   map[string]string `yaml:"xw_output"`
 	XWExamples []Example         `yaml:"xw_examples"`
+	XWInternal bool              `yaml:"xw_internal"`
 }
 
 // ParseSkillMeta 解析 skill 目录中的 SKILL.md，返回 Skill 元数据。
@@ -85,6 +87,7 @@ func ParseSkillMeta(skillFile string) (*Skill, error) {
 		XWParams:    meta.XWParams,
 		XWOutput:    meta.XWOutput,
 		XWExamples:  examples,
+		XWInternal:  meta.XWInternal,
 		Dir:         filepath.Dir(skillFile),
 	}, nil
 }

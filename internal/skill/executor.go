@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -30,7 +31,19 @@ func ExecuteSkill(skill *Skill, input map[string]any) (*ExecuteSkillResult, erro
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", skill.XWCommand)
 	cmd.Dir = skill.Dir
-	cmd.Env = append(os.Environ(), "SKILL_INPUT_STDIN=1")
+
+	// 注入 PYTHONPATH：让 skill 脚本可以 import 同级目录的共享模块
+	// 例如 tools/http_util/scripts/http_util.py 可以被 tools/weather/scripts/check.py
+	// 通过 "from http_util.scripts.http_util import ..." 引用
+	toolsRoot := filepath.Dir(skill.Dir) // .../tools
+	pythonPath := os.Getenv("PYTHONPATH")
+	if pythonPath != "" {
+		pythonPath = toolsRoot + string(os.PathListSeparator) + pythonPath
+	} else {
+		pythonPath = toolsRoot
+	}
+	env := append(os.Environ(), "SKILL_INPUT_STDIN=1", "PYTHONPATH="+pythonPath)
+	cmd.Env = env
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdin = bytes.NewReader(inputBytes)
