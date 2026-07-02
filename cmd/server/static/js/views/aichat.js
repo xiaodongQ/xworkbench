@@ -12,6 +12,12 @@
   function getLastId() { return localStorage.getItem(LAST_KEY); }
   function setLastId(id) { localStorage.setItem(LAST_KEY, id); }
 
+  // ── PTY terminal state ─────────────────────────────────────
+  // eslint-disable-next-line no-var
+  var term = null, ptyWs = null, termReady = false;
+  // eslint-disable-next-line no-var
+  var currentSession = null;
+
   // ── Public: render into #aichat-root ────────────────────────
   window.renderAICheat = function(root) {
     const sessions = getSessions();
@@ -43,9 +49,23 @@
             </div>
           </div>
           <div class="aichat-panel hidden" id="panel-shell">
-            <div class="aichat-shell-info">
-              <p>本地 Claude/CBC Shell 入口。在「AI 对话」标签中发送自然语言请求，AI 会自动调用工具。</p>
-              <p>直接执行命令 → <code>run_local_command</code>；启动交互式会话 → <code>start_local_shell</code></p>
+            <div class="terminal-wrap">
+              <div class="terminal-header">
+                <div class="terminal-dot red"></div>
+                <div class="terminal-dot yellow"></div>
+                <div class="terminal-dot green"></div>
+                <div class="terminal-title" id="shell-term-title">本地 Shell</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:6px;position:relative">
+                  <span style="font-size:11px;color:var(--text-secondary)">CLI:</span>
+                  <div id="cli-display" style="font-size:12px;padding:3px 8px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;min-width:80px;text-align:center">-</div>
+                  <select id="cli-selector" onchange="onCliChange(this.value)" style="position:absolute;opacity:0;width:100%;height:100%;left:0;top:0;cursor:pointer">
+                    <option value="claude">claude</option>
+                    <option value="cbc">cbc / codebuddy</option>
+                    <option value="shell">shell</option>
+                  </select>
+                </div>
+              </div>
+              <div id="shell-terminal"></div>
             </div>
           </div>
           <div class="aichat-panel hidden" id="panel-config">
@@ -99,6 +119,7 @@
         btn.classList.add('active');
         root.querySelectorAll('.aichat-panel').forEach(p => p.classList.add('hidden'));
         root.querySelector('#panel-' + btn.dataset.tab).classList.remove('hidden');
+        if (btn.dataset.tab === 'shell') initShellTerminal();
         if (btn.dataset.tab === 'config') loadConfig(root);
       });
     });
@@ -294,5 +315,79 @@
       status.textContent = '❌ ' + err.message; status.style.color = 'red';
     }
   }
+
+
+  // ── Local Shell PTY ─────────────────────────────────────────
+  function initShellTerminal() {
+    if (term) return; // already initialized
+    const termContainer = document.getElementById('shell-terminal');
+    if (!termContainer) return;
+
+    requestAnimationFrame(() => {
+      term = new Terminal({
+        fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace",
+        fontSize: 13,
+        theme: { background: '#0f172a', foreground: '#e2e8f0', cursor: '#22d3ee' },
+        cursorBlink: true,
+        scrollback: 10000,
+      });
+      term.open(termContainer);
+
+      const sessId = getLastId() || ('sess_' + Date.now());
+      const wsUrl = 'ws://' + window.location.host + '/api/pty?session_id=' + encodeURIComponent(sessId);
+
+      ptyWs = new WebSocket(wsUrl);
+      ptyWs.binaryType = 'arraybuffer';
+
+      ptyWs.onopen = () => {
+        termReady = true;
+        term.writeln('\x1b[32m[xworkbench] 本地 Shell 已连接\x1b[0m\r\n');
+        if (typeof loadCliSetting === 'function') loadCliSetting();
+      };
+      ptyWs.onmessage = (e) => {
+        if (!termReady) return;
+        if (e.data instanceof ArrayBuffer) {
+          term.write(new Uint8Array(e.data));
+        } else {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'auth_required') {
+              term.writeln('\r\n\x1b[33m[xworkbench] 需要授权: ' + (msg.extra || '') + '\x1b[0m\r\n');
+            }
+          } catch {
+            term.write(e.data);
+          }
+        }
+      };
+      ptyWs.onclose = () => {
+        term.writeln('\r\n\x1b[33m[连接已关闭]\x1b[0m');
+        termReady = false;
+      };
+      ptyWs.onerror = () => {
+        term.writeln('\r\n\x1b[31m[WebSocket 错误]\x1b[0m');
+      };
+
+      term.onData(data => {
+        if (ptyWs && ptyWs.readyState === 1) ptyWs.send(data);
+      });
+      term.onResize(() => {
+        if (ptyWs && ptyWs.readyState === 1) {
+          ptyWs.send('resize,' + term.cols + ',' + term.rows);
+        }
+      });
+    });
+  }
+
+  window.onCliChange = async function(value) {
+    const disp = document.getElementById('cli-display');
+    if (disp) disp.textContent = value;
+    try {
+      await fetch('/api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ default_cli: value })
+      });
+    } catch {}
+  };
 
 })();
