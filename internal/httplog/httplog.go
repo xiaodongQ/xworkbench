@@ -16,12 +16,12 @@ import (
 
 // Middleware 包装 next，记录每次请求的处理结果。
 // logger 传 nil 时中间件为 no-op（不记录日志，避免 nil 崩溃）。
-// 对于需要 WebSocket 升级的路径（/api/pty, /ws），直接放行以避免
+// 对于需要 WebSocket 升级的路径（/api/pty、/ws、/api/rpty），直接放行以避免
 // statusRecorder 包装导致 http.Hijacker 接口无法通过检查。
 func Middleware(next http.Handler, logger *zap.SugaredLogger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// WebSocket 升级路径直接放行，不包装 statusRecorder
-		if r.URL.Path == "/api/pty" || r.URL.Path == "/ws" {
+		if r.URL.Path == "/api/pty" || r.URL.Path == "/ws" || r.URL.Path == "/api/rpty" {
 			next.ServeHTTP(w, r)
 			return
 		}

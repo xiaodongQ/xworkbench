@@ -1,6 +1,8 @@
 package httplog
 
 import (
+	"bufio"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,4 +83,61 @@ func TestMiddleware_NilLogger(t *testing.T) {
 	if rec.Code != 200 {
 		t.Errorf("code = %d, want 200", rec.Code)
 	}
+}
+
+// hijackableResponseWriter 真正实现 http.Hijacker 接口。
+// 用于测试中间件是否包装了 ResponseWriter 而丢失 Hijacker 能力。
+type hijackableResponseWriter struct {
+	header http.Header
+}
+
+func (h *hijackableResponseWriter) Header() http.Header { return h.header }
+func (h *hijackableResponseWriter) Write(b []byte) (int, error) {
+	return len(b), nil
+}
+func (h *hijackableResponseWriter) WriteHeader(code int) {}
+func (h *hijackableResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return nil, nil, nil
+}
+
+// TestMiddleware_WebSocketPaths_PreserveHijacker 验证 WebSocket 升级路径
+//（/api/pty、/ws、/api/rpty）的 ResponseWriter 不被 statusRecorder 包装，
+// 否则下游 gorilla/websocket Upgrade 会因 "response does not implement http.Hijacker" 失败。
+// 回归保护：2026-07 commit 18d8e2c 新增 /api/rpty 路由时漏改 httplog 白名单，导致远端 PTY 连不上。
+func TestMiddleware_WebSocketPaths_PreserveHijacker(t *testing.T) {
+	wsPaths := []string{"/api/pty", "/ws", "/api/rpty"}
+	for _, path := range wsPaths {
+		t.Run(path, func(t *testing.T) {
+			hijackable := &hijackableResponseWriter{header: http.Header{}}
+
+			var wrapped bool
+			var hijackOK bool
+			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, wrapped = w.(*statusRecorder)
+				_, hijackOK = w.(http.Hijacker)
+			})
+
+			req := httptest.NewRequest("GET", path, nil)
+			Middleware(h, nil).ServeHTTP(hijackable, req)
+
+			if wrapped {
+				t.Errorf("path %q: ResponseWriter was wrapped by statusRecorder, must pass through", path)
+			}
+			if !hijackOK {
+				t.Errorf("path %q: ResponseWriter does not implement http.Hijacker, websocket upgrade will fail", path)
+			}
+		})
+	}
+}
+
+// TestMiddleware_NonWebSocketPath_Wraps 验证非 WebSocket 路径仍被 statusRecorder 包装
+// （保证常规 HTTP 日志中间件行为不变）。
+func TestMiddleware_NonWebSocketPath_Wraps(t *testing.T) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := w.(*statusRecorder); !ok {
+			t.Error("non-WS path should be wrapped by statusRecorder")
+		}
+		w.WriteHeader(200)
+	})
+	Middleware(h, nil).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/tasks", nil))
 }

@@ -191,7 +191,13 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 		keyPath := executor.ResolveKeyPath(dir)
 		keyData, kerr := os.ReadFile(keyPath)
 		if kerr == nil {
-			signer, serr := ssh.ParsePrivateKey(keyData)
+			var signer ssh.Signer
+			var serr error
+			if dir.KeyPassword != "" {
+				signer, serr = ssh.ParsePrivateKeyWithPassphrase(keyData, []byte(dir.KeyPassword))
+			} else {
+				signer, serr = ssh.ParsePrivateKey(keyData)
+			}
 			if serr == nil {
 				authMethods = append(authMethods, ssh.PublicKeys(signer))
 			}
