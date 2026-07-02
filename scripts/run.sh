@@ -79,6 +79,11 @@ Options:
   --log            跟踪日志（tail -f）
   --help           显示本帮助
 
+Windows 模式说明：
+  Windows 上自动使用 Windows Service 方式启动（--service install + net start）
+  关闭终端后服务不受影响，开机自启。
+  如需手动管理：xworkbench.exe --service install|run|uninstall
+
 环境变量：
   DB_PATH          SQLite 路径（默认 ./data/xworkbench.db）
   ADDR             监听地址（默认 :8902，可被 --port 覆盖）
@@ -165,6 +170,22 @@ is_port_in_use() {
 
 # 停止进程
 stop() {
+  # Windows：优先尝试 net stop（Service 模式）
+  if [ "$os" = "windows" ]; then
+    if powershell -NoProfile -Command "Get-Service xworkbench -ErrorAction SilentlyContinue" >/dev/null 2>&1; then
+      echo "${YELLOW}==> 停止（Service 模式）${NC}"
+      cmd.exe //c "net stop xworkbench /yes" >/dev/null 2>&1
+      sleep 1
+      local remaining=$(find_pid_by_port)
+      if [ -z "$remaining" ]; then
+        echo "${GREEN}✓ 已停止（Service 模式）${NC}"
+        return 0
+      fi
+      echo "${YELLOW}⚠ Service 已停止但进程仍存在，继续强制终止...${NC}"
+    fi
+  fi
+
+  # 非 Windows 或 fallback：SIGTERM / taskkill
   local port=$(listen_port)
   local pid=$(find_pid_by_port)
 
@@ -175,12 +196,9 @@ stop() {
 
   echo "${YELLOW}==> 停止${NC}  端口 $port  pid=$pid"
 
-  # 发送终止信号
   printf "  SIGTERM → ... "
   local term_ok=0
   if [ "$os" = "windows" ]; then
-    # Windows 下控制台程序不响应 WM_CLOSE，直接用 /F 强制终止
-    # Git Bash 会把 /F 转换成路径，通过 cmd.exe 调用避免此问题
     cmd.exe //c "taskkill /F /PID $pid" >/dev/null 2>&1 && term_ok=1
   else
     kill "$pid" 2>/dev/null && term_ok=1
@@ -191,7 +209,6 @@ stop() {
     echo "${YELLOW}失败${NC}"
   fi
 
-  # 等待优雅退出（进程退出且端口释放）
   local remaining=""
   for i in 1 2 3 4 5 6 7 8 9 10; do
     remaining=$(find_pid_by_port)
@@ -199,14 +216,12 @@ stop() {
     sleep 0.5
   done
 
-  # 仍未退出则强制（杀掉所有找到的进程，最多重试3次）
   all_pids=$(find_pid_by_port)
   if [ -n "$all_pids" ]; then
     for i in 1 2 3; do
       echo "  ${YELLOW}SIGKILL ($i/3) →${NC}  pids=$all_pids"
       for p in $all_pids; do
         if [ "$os" = "windows" ]; then
-          # Git Bash 路径转换问题：通过 cmd.exe 调用
           cmd.exe //c "taskkill /F /PID $p" >/dev/null 2>&1
         else
           kill -9 "$p" 2>/dev/null
@@ -225,10 +240,8 @@ stop() {
     fi
   fi
 
-  # 最终确认（进程退出且端口释放）
   final_check=$(find_pid_by_port)
   if [ -z "$final_check" ]; then
-    # 再等一下确保端口释放（CLOSE_WAIT 需要等待对方完成 TCP 关闭握手）
     for i in 1 2 3 4 5; do
       printf "  等待端口释放 ($i/5)... "
       sleep 1
@@ -241,7 +254,6 @@ stop() {
     done
     echo "${RED}✗ 进程已终止但端口未释放（CLOSE_WAIT 等待中）${NC}"
     dump_port_info "$port"
-    echo "  提示：CLOSE_WAIT 连接会在几分钟后自动消失，可直接运行 start 启动服务"
     return 1
   else
     echo "${RED}✗ 停止失败，残留 pid=$final_check${NC}"
@@ -264,7 +276,64 @@ start() {
 
   local port=$(listen_port)
 
-  # 端口已被占用
+  # Windows Service 模式：优先用 --service install + net start
+  if [ "$os" = "windows" ]; then
+    # 检查服务是否已注册
+    if powershell -NoProfile -Command "Get-Service xworkbench -ErrorAction SilentlyContinue" >/dev/null 2>&1; then
+      echo "${YELLOW}⚠ Windows Service 已存在，使用 net start${NC}"
+      cmd.exe //c "net start xworkbench" >/dev/null 2>&1
+      sleep 1
+      local svc_pid=$(find_pid_by_port)
+      if [ -n "$svc_pid" ]; then
+        echo "${GREEN}✓ 启动成功（Service 模式）${NC}  pid=$svc_pid"
+        echo "  浏览器：${CYAN}http://localhost${ADDR}${NC}"
+        return 0
+      fi
+    fi
+
+    # 端口被占用时先停止
+    if is_port_in_use; then
+      local existing_pid=$(find_pid_by_port)
+      if [ -n "$existing_pid" ]; then
+        echo "${YELLOW}⚠ 端口 $port 已被占用 (pid=$existing_pid)，先停止...${NC}"
+        stop
+        sleep 1
+      fi
+    fi
+
+    mkdir -p "$(dirname "$DB_PATH")"
+    echo "  Windows Service 模式启动..."
+    local start_time=$(date +%s)
+    # 用 --service install 先注册服务，再用 net start 启动
+    cmd.exe //c ""$BIN" --service install" >/dev/null 2>&1
+    cmd.exe //c "net start xworkbench" >/dev/null 2>&1
+
+    local started=0
+    local actual_pid=""
+    for i in 1 2 3 4 5 6 7 8; do
+      sleep 0.5
+      actual_pid=$(find_pid_by_port)
+      if [ -n "$actual_pid" ]; then
+        started=1
+        break
+      fi
+    done
+
+    if [ "$started" -eq 1 ]; then
+      local end_time=$(date +%s)
+      echo "${GREEN}✓ 启动成功（Service 模式）${NC}  pid=$actual_pid"
+      echo "  耗时：$((end_time - start_time))s"
+      echo "  浏览器：${CYAN}http://localhost${ADDR}${NC}"
+    else
+      echo "${RED}✗ 启动失败（Service 模式）${NC}"
+      echo "  查看日志：${YELLOW}tail -f ${PROJECT_ROOT}/data/logs/xworkbench.log${NC}"
+      exit 1
+    fi
+    return 0
+  fi
+
+  # Linux/macOS：使用 nohup 后台启动（关闭终端不影响）
+  # 端口被占用时先停止
   if is_port_in_use; then
     local existing_pid=$(find_pid_by_port)
     if [ -n "$existing_pid" ]; then
@@ -276,7 +345,6 @@ start() {
       case "$os" in
         darwin) echo "  查看：${YELLOW}lsof -i :$port${NC}" ;;
         linux)  echo "  查看：${YELLOW}ss -tlnp | grep :$port${NC}" ;;
-        *)      echo "  查看：${YELLOW}netstat -ano | findstr :$port${NC}" ;;
       esac
       exit 1
     fi
@@ -291,14 +359,9 @@ start() {
   echo
 
   local start_time=$(date +%s)
-  DB_PATH="$DB_PATH" ADDR="$ADDR" nohup "$BIN" -config "$CONFIG_PATH" &
-  local pid=$!
+  DB_PATH="$DB_PATH" ADDR="$ADDR" nohup "$BIN" -config "$CONFIG_PATH" >> "${PROJECT_ROOT}/data/logs/xworkbench.log" 2>&1 &
   sleep 1
 
-  # 检查启动是否成功
-  # 注意：Git Bash on Windows 下 nohup 启动后台进程时，$! 捕获的是 shell 包装进程的 PID，
-  # 而非实际二进制进程的 PID。shell 包装进程很快退出，因此不能依赖 is_process_alive。
-  # 改为检测端口是否被监听来判断启动是否成功。
   local started=0
   local actual_pid=""
   for i in 1 2 3 4 5 6 7 8; do
