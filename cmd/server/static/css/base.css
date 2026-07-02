@@ -553,5 +553,17 @@ tr:last-child td { border-bottom: none; }
 .dir-item:hover .dir-term { opacity: 1; }
 .dir-item .dir-term:hover { color: var(--accent, #22d3ee); }
 
+/* Web 内嵌终端按钮 */
+.dir-item .dir-rterm {
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-right: 2px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.dir-item:hover .dir-rterm { opacity: 1; }
+.dir-item .dir-rterm:hover { color: var(--accent, #22d3ee); }
+
 /* ===== AI Chat（单 Tab，无需多 Tab 样式） ===== */
 /* 注：之前这里有 #tab-bar / .tab-btn / .tab-add-btn 等多 Tab 样式，已移除。*/
