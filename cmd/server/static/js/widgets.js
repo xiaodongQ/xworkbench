@@ -113,7 +113,6 @@ async function loadDirs() {
       <span class="drag-handle" title="拖动排序"></span>
       <span class="dir-icon" onclick="openDir('${d.id}')">${d.type === 'remote' ? '🌐' : '📁'}</span>
       <span class="dir-term" onclick="event.stopPropagation();openDirTerminal('${d.id}')" title="打开外部终端">⬢</span>
-      ${d.type === 'remote' ? '<span class="dir-rterm" onclick="event.stopPropagation();openRptyForDir(\'' + d.id + '\', \'' + esc(d.name) + '\')" title="Web 内嵌终端">⌷</span>' : ''}
       <span class="dir-text" onclick="openDir('${d.id}')">
         <span class="dir-name">${esc(d.name)}</span>
         <span class="dir-path" title="${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}">${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}</span>
