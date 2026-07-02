@@ -72,7 +72,7 @@ func appendExpBlock(b *strings.Builder, suffix string, exp *backend.Experience) 
 const OutputDirHintTpl = `
 
 ## 输出目录约定
-本次任务的输出文件全部写到 ` + "`%s`" + ` 目录（CWD 已设为该目录）：
+若存在文件输出，全部写到 ` + "`%s`" + ` 目录（CWD 已设为该目录）：
 - 不要修改源码树（internal/、cmd/、go.mod 等）；只在该目录内读写
 - 命名前缀建议：本次 task 简述 + 文件用途，如 ` + "`feat-foo_test.go`" + `
 - 任务完成后可列出该目录内容便于评估

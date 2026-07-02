@@ -260,7 +260,7 @@ function showRunTaskModal(task) {
   const modelSel = document.getElementById('run-task-model');
   modelSel.innerHTML = buildModelOptions(typeSel.value);
   modelSel.value = task.model || getDefaultModel(typeSel.value) || '';
-  // 默认填上次同任务的 session_id（实现“续传”便捷入口）：异步拉最近一次 execution
+  // 默认填上次同任务的 session_id（实现”续传”便捷入口）：异步拉最近一次 execution
   const resumeInput = document.getElementById('run-task-resume');
   if (resumeInput) {
     resumeInput.value = '';
@@ -277,7 +277,6 @@ function showRunTaskModal(task) {
   }
   // 填充 agent 列表（异步：拉 + 绑定了远程 dir_shortcut 的 agent）
   loadRunTaskAgentOptions();
-  document.getElementById('run-task-modal').classList.remove('hidden');
   // 存当前 taskId 供 submit 用
   document.getElementById('run-task-modal').dataset.taskId = task.id;
   // type 切换时联动 model 是否可选
@@ -285,6 +284,15 @@ function showRunTaskModal(task) {
   // 注意：任务运行 modal 的 model onchange 不再调 saveDefaultModel，
   // 避免任务页选其他模型时污染系统配置的 default。
   // 任务运行仍然用下拉当前值；重新打开 modal 时下拉重置为系统配置的 default。
+
+  // 执行控制区：加载执行历史和 Loop 进度
+  loadRunTaskExecHistory(task.id);
+  restoreRunLoopProgress(task.id);
+
+  // goal_mode 回显（从 task 读取，支持本次勾选/取消）
+  document.getElementById('run-task-goal-mode').checked = task.goal_mode || false;
+
+  document.getElementById('run-task-modal').classList.remove('hidden');
 }
 
 // 填充“运行位置”下拉：列出所有绑定了 dir_shortcut 的 agent。
@@ -342,9 +350,10 @@ async function submitRunTask() {
   const model = document.getElementById('run-task-model').value;
   const agentId = document.getElementById('run-task-agent') ? document.getElementById('run-task-agent').value : '';
   const resumeSessionId = document.getElementById('run-task-resume') ? document.getElementById('run-task-resume').value.trim() : '';
+  const goalMode = document.getElementById('run-task-goal-mode') ? document.getElementById('run-task-goal-mode').checked : false;
   closeRunTaskModal();
   try {
-    const body = JSON.stringify({command_type: type, model: model, agent_id: agentId, resume_session_id: resumeSessionId});
+    const body = JSON.stringify({command_type: type, model: model, agent_id: agentId, resume_session_id: resumeSessionId, goal_mode: goalMode});
     const r = await fetchJSON(API + '/api/tasks/' + taskId + '/run', {method:'POST', headers:{'Content-Type':'application/json'}, body});
     const summary = type + (type !== 'shell' ? ' / ' + model : '') + (agentId ? ' / 远端 agent' : ' / 本机') + (resumeSessionId ? ' / 续传' : '');
     // 询问是否跳转到自动化 Tab 看流式输出
@@ -420,28 +429,6 @@ function viewTask(id) {
   _taskConvLoaded = false;
   try { loadTaskConversation(); } catch(e) { console.warn('loadTaskConversation:', e.message); }
   try { loadTaskEvents(); } catch(e) { console.warn('loadTaskEvents:', e.message); }
-  // AI 自治：加载开关状态、决定是否显示 AI 自治区块；也用于判断启动按钮是否该禁用
-  if (typeof loadAILoopStatus === 'function') loadAILoopStatus(t.id);
-  // 重置 Run Loop 表单状态
-  const lp = document.getElementById('loop-prompt');
-  if (lp) lp.value = t.description || t.title || '';
-  const lt = document.getElementById('loop-threshold');
-  if (lt) lt.value = '7';
-  const lm = document.getElementById('loop-maxiter');
-  if (lm) lm.value = '3';
-  const runBtn = document.getElementById('btn-run-loop');
-  if (runBtn) {
-    runBtn.disabled = false;
-    runBtn.textContent = '▶ 启动';
-  }
-  const progWrap = document.getElementById('ai-loop-progress');
-  if (progWrap) progWrap.classList.add('hidden');
-  const histEl = document.getElementById('ai-loop-progress-history');
-  if (histEl) histEl.dataset.history = '[]';
-  // 尝试恢复上次 loop 结果（避免关闭弹窗后进度丢失）
-  restoreLoopProgress(t.id);
-  // 加载执行历史
-  loadTaskExecHistory(t.id);
 }
 
 async function editTask(id) {
@@ -452,16 +439,30 @@ async function editTask(id) {
   }
   if (t) {
     showTaskModal(t);
-    loadTaskExecHistory(t.id);
   }
 }
 
-// onGoalModeToggle goal mode 勾选切换：控制说明区显示/隐藏。
+// onGoalModeToggle goal mode 勾选切换（已简化为无说明区，保留函数兼容）
 function onGoalModeToggle() {
-  const info = document.getElementById('goal-mode-info');
-  if (!info) return;
-  const checked = document.getElementById('task-goal-mode').checked;
-  info.classList.toggle('hidden', !checked);
+  // goal-mode-info 已移除，不再需要切换说明区
+}
+
+// toggleGoalInfo 点击 ⓘ 切换 Goal 说明弹窗
+function toggleGoalInfo(e) {
+  const popup = document.getElementById('goal-info-popup');
+  if (!popup) return;
+  popup.classList.toggle('hidden');
+  e.stopPropagation();
+  // 点击其他区域关闭
+  if (!popup.classList.contains('hidden')) {
+    document.addEventListener('click', closeGoalInfo, { once: true });
+  }
+}
+function closeGoalInfo(e) {
+  const popup = document.getElementById('goal-info-popup');
+  if (popup && !popup.classList.contains('hidden')) {
+    popup.classList.add('hidden');
+  }
 }
 
 // onTaskTypeChange task_type 切换：remote 类型时显示目标机器选择。
@@ -510,7 +511,9 @@ async function showTaskModal(task) {
   // goal_mode 回显
   const goalMode = task ? (task.goal_mode || false) : false;
   document.getElementById('task-goal-mode').checked = goalMode;
-  onGoalModeToggle();
+  // 操作区：新建时隐藏，编辑时显示
+  const opsSection = document.getElementById('task-ops-section');
+  if (opsSection) opsSection.classList.toggle('hidden', !task);
   // 目标机器选择（remote 类型）
   await loadAgentListForTask();
   onTaskTypeChange();
@@ -549,7 +552,9 @@ async function showTaskModal(task) {
     renderTaskExpChips();
   }
   document.getElementById('task-modal').classList.remove('hidden');
-  if (task) loadTaskComments(task.id);
+  if (task) {
+    loadTaskComments(task.id);
+  }
 }
 
 function closeTaskModal() {
@@ -919,12 +924,16 @@ function _eventEsc(s) {
 // 错误处理：后端返 403 “未启用”时提示用户去 dashboard 开。
 
 function _currentTaskId() {
+  // 优先从运行弹窗获取（reevaluate/learn/runLoop 在 run-task-modal 内）
+  const runModalId = document.getElementById('run-task-modal')?.dataset?.taskId;
+  if (runModalId) return runModalId;
+  // 降级从 task-modal 获取
   return document.getElementById('task-id')?.value || '';
 }
 
 function _aiLoopProgressShow(text, threshold) {
-  const wrap = document.getElementById('ai-loop-progress');
-  const textEl = document.getElementById('ai-loop-status-text');
+  const wrap = document.getElementById('run-ai-loop-progress');
+  const textEl = document.getElementById('run-ai-loop-status-text');
   if (wrap) wrap.classList.remove('hidden');
   if (textEl) textEl.textContent = text || '进行中...';
 }
@@ -933,9 +942,9 @@ function _aiLoopProgressShow(text, threshold) {
 var _loopCurrentIter = 0;
 
 function _aiLoopProgressRenderHistory(history, threshold) {
-  const histEl = document.getElementById('ai-loop-progress-history');
-  const pctEl = document.getElementById('ai-loop-progress-pct');
-  const barEl = document.getElementById('ai-loop-bar');
+  const histEl = document.getElementById('run-ai-loop-progress-history');
+  const pctEl = document.getElementById('run-ai-loop-progress-pct');
+  const barEl = document.getElementById('run-ai-loop-bar');
   if (!histEl) return;
   const th = threshold || _loopThreshold || 7;
   const max = _loopMaxIter || 3;
@@ -981,16 +990,16 @@ function _aiLoopErrorHandler(e) {
 // handleRunLoopProgress (在 ws-client.js) 增量渲染。3 分钟级别的循环不再阻塞
 // HTTP 连接，配合服务端 WriteTimeout=0 和 signal handler 优雅关闭。
 async function runTaskLoop() {
-  const id = _currentTaskId();
+  const id = document.getElementById('run-task-modal')?.dataset?.taskId;
   if (!id) return;
-  const loopPrompt = document.getElementById('loop-prompt')?.value?.trim();
+  const loopPrompt = document.getElementById('run-loop-prompt')?.value?.trim();
   if (!loopPrompt) {
     alert('⚠️ 请填写 Run Loop 的描述内容');
     return;
   }
-  const threshold = parseFloat(document.getElementById('loop-threshold')?.value) || 7;
-  const maxIter = parseInt(document.getElementById('loop-maxiter')?.value) || 3;
-  const runBtn = document.getElementById('btn-run-loop');
+  const threshold = parseFloat(document.getElementById('run-loop-threshold')?.value) || 7;
+  const maxIter = parseInt(document.getElementById('run-loop-maxiter')?.value) || 3;
+  const runBtn = document.getElementById('run-btn-run-loop');
   if (runBtn) runBtn.disabled = true;
   _loopStart(id, threshold, maxIter);
   try {
@@ -1014,7 +1023,7 @@ function _loopStart(id, threshold, maxIter) {
   _loopThreshold = threshold;
   _loopMaxIter = maxIter;
   _loopCurrentIter = 0;
-  const runBtn = document.getElementById('btn-run-loop');
+  const runBtn = document.getElementById('run-btn-run-loop');
   if (runBtn) {
     runBtn.disabled = true;
     runBtn.textContent = '⏳ 运行中';
@@ -1024,7 +1033,7 @@ function _loopStart(id, threshold, maxIter) {
 }
 
 function _aiLoopDone() {
-  const runBtn = document.getElementById('btn-run-loop');
+  const runBtn = document.getElementById('run-btn-run-loop');
   if (runBtn) {
     runBtn.disabled = false;
     runBtn.textContent = '▶ 启动';
@@ -1032,10 +1041,10 @@ function _aiLoopDone() {
   // 持久化最终结果到 localStorage（关闭弹窗再打开可恢复）
   const id = _currentTaskId();
   if (id) {
-    const histEl = document.getElementById('ai-loop-progress-history');
+    const histEl = document.getElementById('run-ai-loop-progress-history');
     const hist = histEl?.dataset.history ? JSON.parse(histEl.dataset.history) : [];
     const th = _loopThreshold || 7;
-    const statusText = document.getElementById('ai-loop-status-text')?.textContent || '';
+    const statusText = document.getElementById('run-ai-loop-status-text')?.textContent || '';
     saveLoopProgress(id, { history: hist, threshold: th, statusText });
   }
 }
@@ -1055,6 +1064,7 @@ function restoreLoopProgress(taskId) {
     if (!entry || !entry.history || entry.history.length === 0) return;
     // 超过 24 小时的记录忽略
     if (Date.now() - entry.savedAt > 86400000) return;
+    // task-modal 版本的 ID（已移除，保留兼容）
     const histEl = document.getElementById('ai-loop-progress-history');
     const progWrap = document.getElementById('ai-loop-progress');
     const statusEl = document.getElementById('ai-loop-status-text');
@@ -1074,15 +1084,41 @@ function restoreLoopProgress(taskId) {
   } catch (_) {}
 }
 
+// restoreRunLoopProgress 恢复运行弹窗内的 Loop 进度
+function restoreRunLoopProgress(taskId) {
+  try {
+    const all = JSON.parse(localStorage.getItem('loop_progress') || '{}');
+    const entry = all[taskId];
+    if (!entry || !entry.history || entry.history.length === 0) return;
+    if (Date.now() - entry.savedAt > 86400000) return;
+    const histEl = document.getElementById('run-ai-loop-progress-history');
+    const progWrap = document.getElementById('run-ai-loop-progress');
+    const statusEl = document.getElementById('run-ai-loop-status-text');
+    const barEl = document.getElementById('run-ai-loop-bar');
+    const pctEl = document.getElementById('run-ai-loop-progress-pct');
+    if (histEl) {
+      histEl.dataset.history = JSON.stringify(entry.history);
+      if (typeof _aiLoopProgressRenderHistory === 'function') {
+        _aiLoopProgressRenderHistory(entry.history, entry.threshold);
+      }
+    }
+    if (statusEl) statusEl.textContent = entry.statusText || '上次优化结果';
+    if (progWrap) progWrap.classList.remove('hidden');
+    const max = _loopMaxIter || 3;
+    if (barEl) barEl.style.width = max > 0 ? Math.round((entry.history.length / max) * 100) + '%' : '0%';
+    if (pctEl) pctEl.textContent = entry.history.length + '/' + max + '轮';
+  } catch (_) {}
+}
+
 async function reevaluateTask() {
   const id = _currentTaskId();
   if (!id) return;
-  const btn = document.getElementById('btn-reevaluate');
+  const btn = document.getElementById('run-btn-reevaluate');
   if (btn?.disabled) {
     alert('⚠️ Reevaluate 需要先运行一次任务，才能评估执行结果。\n\n请先点击「▶ 运行」按钮执行该任务。');
     return;
   }
-  const model = document.getElementById('task-run-model')?.value || '';
+  const model = document.getElementById('run-task-model')?.value || '';
   if (!confirm('用新模型重新评估该 task 的最新 execution？')) return;
   _aiLoopProgressShow('重评中...');
   try {
@@ -1102,14 +1138,14 @@ async function reevaluateTask() {
 async function learnFromTask() {
   const id = _currentTaskId();
   if (!id) return;
-  const btn = document.getElementById('btn-learn');
+  const btn = document.getElementById('run-btn-learn');
   if (btn) btn.disabled = true;
   if (!confirm('从该 task 的执行记录生成经验写入 experiences 表？')) {
     if (btn) btn.disabled = false;
     return;
   }
-  const progWrap = document.getElementById('ai-loop-progress');
-  const textEl = document.getElementById('ai-loop-status-text');
+  const progWrap = document.getElementById('run-ai-loop-progress');
+  const textEl = document.getElementById('run-ai-loop-status-text');
   if (progWrap) progWrap.classList.remove('hidden');
   if (textEl) textEl.textContent = '📚 正在分析执行记录生成经验...';
   try {
@@ -1141,6 +1177,18 @@ async function loadTaskExecHistory(taskId) {
   renderTaskExecHistory();
 }
 
+// loadRunTaskExecHistory 由 showRunTaskModal 调用，加载执行历史到运行弹窗
+async function loadRunTaskExecHistory(taskId) {
+  _taskExecTaskId = taskId;
+  _taskExecPage = 1;
+  try {
+    _taskExecList = await fetchJSON(API + '/api/tasks/' + taskId + '/executions');
+  } catch (e) {
+    _taskExecList = [];
+  }
+  renderRunTaskExecHistory();
+}
+
 // 根据执行记录数量同步 AI 自治按钮的可用状态（有记录才可点）
 function syncAILoopButtons() {
   const hasExec = _taskExecList.length > 0;
@@ -1157,30 +1205,37 @@ function syncAILoopButtons() {
 }
 
 function renderTaskExecHistory() {
-  const container = document.getElementById('task-exec-history');
-  const listEl = document.getElementById('task-exec-history-list');
-  const infoEl = document.getElementById('task-exec-history-info');
-  const pageEl = document.getElementById('task-exec-history-page');
-  const prevBtn = document.getElementById('task-exec-prev');
-  const nextBtn = document.getElementById('task-exec-next');
-  if (!container) return;
+  // task-modal 已移除执行历史，仅做兼容保留
+}
+
+function prevTaskExecs() {
+  if (_taskExecPage > 1) { _taskExecPage--; renderRunTaskExecHistory(); }
+}
+
+function nextTaskExecs() {
+  const totalPages = Math.ceil(_taskExecList.length / _taskExecPageSize);
+  if (_taskExecPage < totalPages) { _taskExecPage++; renderRunTaskExecHistory(); }
+}
+
+// renderRunTaskExecHistory 渲染运行弹窗内的执行历史
+function renderRunTaskExecHistory() {
+  const opsSection = document.getElementById('run-task-ops-section');
+  const listEl = document.getElementById('run-task-exec-history-list');
+  const infoEl = document.getElementById('run-task-exec-history-info');
+  const pageEl = document.getElementById('run-task-exec-history-page');
+  const prevBtn = document.getElementById('run-task-exec-prev');
+  const nextBtn = document.getElementById('run-task-exec-next');
+  if (!opsSection) return;
 
   const total = _taskExecList.length;
   const totalPages = Math.max(1, Math.ceil(total / _taskExecPageSize));
   if (_taskExecPage > totalPages) _taskExecPage = totalPages;
 
-  if (total === 0) {
-    container.classList.remove('hidden');
-    listEl.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;text-align:center;padding:12px">暂无执行记录</div>';
-    infoEl.textContent = '';
-    pageEl.textContent = '';
-    prevBtn.classList.add('hidden');
-    nextBtn.classList.add('hidden');
-    syncAILoopButtons();
-    return;
-  }
+  // 根据是否有执行记录决定是否显示执行控制区
+  opsSection.classList.toggle('hidden', total === 0);
 
-  container.classList.remove('hidden');
+  if (total === 0) return;
+
   infoEl.textContent = `共 ${total} 条，第 ${_taskExecPage}/${totalPages} 页`;
 
   const start = (_taskExecPage - 1) * _taskExecPageSize;
@@ -1208,41 +1263,27 @@ function renderTaskExecHistory() {
     '</div>';
   }).join('');
 
-  // 鼠标跟随 tooltip
-  var tooltip = document.getElementById('task-exec-tooltip');
-  if (!tooltip) {
-    tooltip = document.createElement('div');
-    tooltip.id = 'task-exec-tooltip';
-    tooltip.style.cssText = 'position:fixed;z-index:9999;background:#333;color:#fff;font-size:11px;padding:4px 8px;border-radius:4px;pointer-events:none;opacity:0;transition:opacity 0.1s';
-    document.body.appendChild(tooltip);
-  }
-  listEl.onmousemove = function(e) {
-    var tip = e.target.closest('.task-exec-item');
-    if (tip) {
-      tooltip.textContent = tip.dataset.tip;
-      tooltip.style.left = (e.clientX + 12) + 'px';
-      tooltip.style.top = (e.clientY - 28) + 'px';
-      tooltip.style.opacity = '1';
-    }
-  };
-  listEl.onmouseleave = function() {
-    tooltip.style.opacity = '0';
-  };
+  // 同步 Run Loop 按钮可用状态
+  syncRunTaskAILoopButtons();
 
   prevBtn.classList.toggle('hidden', _taskExecPage <= 1);
   nextBtn.classList.toggle('hidden', _taskExecPage >= totalPages);
   pageEl.textContent = '';
-  // 同步 AI 自治按钮可用状态
-  syncAILoopButtons();
 }
 
-function prevTaskExecs() {
-  if (_taskExecPage > 1) { _taskExecPage--; renderTaskExecHistory(); }
-}
-
-function nextTaskExecs() {
-  const totalPages = Math.ceil(_taskExecList.length / _taskExecPageSize);
-  if (_taskExecPage < totalPages) { _taskExecPage++; renderTaskExecHistory(); }
+// syncRunTaskAILoopButtons 同步运行弹窗内 AI 按钮状态
+function syncRunTaskAILoopButtons() {
+  const hasExec = _taskExecList.length > 0;
+  const revalBtn = document.getElementById('run-btn-reevaluate');
+  const learnBtn = document.getElementById('run-btn-learn');
+  if (revalBtn) {
+    revalBtn.disabled = !hasExec;
+    revalBtn.title = hasExec ? '重新评估最新执行结果' : '需要先运行一次任务';
+  }
+  if (learnBtn) {
+    learnBtn.disabled = !hasExec;
+    learnBtn.title = hasExec ? '从执行记录生成经验写入知识库' : '需要先运行一次任务';
+  }
 }
 
 function jumpToExecDetail(execId) {

@@ -362,6 +362,26 @@ tr:last-child td { border-bottom: none; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 
+/* 任务 modal 操作区区块分隔线 */
+.section-divider {
+  font-size: 11px; color: var(--text-secondary);
+  padding: 8px 0; margin: 12px 0 8px;
+  border-bottom: 1px dashed var(--border);
+}
+
+/* Goal 模式说明弹窗 */
+.info-btn {
+  font-size: 13px; color: var(--primary); cursor: pointer; margin-left: 4px;
+}
+.info-btn:hover { opacity: 0.7; }
+.info-popup {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px; margin-top: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  max-width: 340px;
+  line-height: 1.5;
+}
+
 /* ===== Sidebar 内的目录区（紧贴 AI 对话，带抬头 + 轻框） ===== */
 .dir-section {
   margin: 0 6px 4px;

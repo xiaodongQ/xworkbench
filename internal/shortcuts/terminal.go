@@ -96,7 +96,12 @@ func buildRemoteArgs(termType string, dir *backend.DirShortcut, keyPath string) 
 		template = termDef.RemoteArgs
 	} else {
 		// 兜底：泛用 ssh 命令
-		template = []string{"ssh", "-i", "{key_path}", "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}"}
+		// 只有密钥文件存在时才传 -i 参数，避免 "Identity file not accessible" 警告
+		if keyPath != "" && fileExists(keyPath) {
+			template = []string{"ssh", "-i", "{key_path}", "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}"}
+		} else {
+			template = []string{"ssh", "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}"}
+		}
 	}
 
 	// 变量替换
@@ -110,6 +115,12 @@ func buildRemoteArgs(termType string, dir *backend.DirShortcut, keyPath string) 
 		result = append(result, arg)
 	}
 	return result
+}
+
+// fileExists 检查文件是否存在
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // buildShellCmd 构建远端执行的 shell 命令。
@@ -199,7 +210,7 @@ func execRemoteTerminal(termType, binPath string, remoteArgs []string) error {
 	}
 
 	// 用终端类型的本地唤起方式包装远程命令
-	localArgs := buildLocalArgsForRemote(termType, termDef, remoteArgs)
+	localArgs := buildLocalArgsForRemote(termType, remoteArgs)
 
 	logger.Logger.Infow("[execRemoteTerminal]",
 		"bin", bin, "localArgs", localArgs)
@@ -210,7 +221,7 @@ func execRemoteTerminal(termType, binPath string, remoteArgs []string) error {
 // buildLocalArgsForRemote 根据终端类型构建本地唤起参数，把 remoteArgs 作为子命令传入。
 // 例如 wezterm: ["start", "--", "ssh", "-i", "...", "user@host"]
 // 例如 iterm2: ["-e", "tell app \"iTerm2\" to create window command \"...\""]
-func buildLocalArgsForRemote(termType string, termDef config.TerminalTypeDef, remoteArgs []string) []string {
+func buildLocalArgsForRemote(termType string, remoteArgs []string) []string {
 	// 将 remoteArgs 拼成空白分隔的字符串（用于嵌入 osascript/powershell）
 	remoteCmdStr := strings.Join(remoteArgs, " ")
 
