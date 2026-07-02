@@ -137,6 +137,9 @@ type Config struct {
 	Terminal TerminalConfig `json:"terminal"`
 	Models   ModelsConfig   `json:"models"`
 	SSH      SSHKeyConfig   `json:"ssh"`
+
+	// AI Chat 配置（模型 API + 函数调用）
+	AIChat AIChatConfig `json:"ai_chat"`
 }
 
 // SupportedCLIs 允许的 CLI 名（不区分大小写）
@@ -196,6 +199,31 @@ type ModelOption struct {
 }
 
 // Load 加载配置（自动找路径或用默认）
+
+// AIChatConfig AI Chat 对话配置（OpenAI / Anthropic）。
+type AIChatConfig struct {
+	Provider     string  `json:"provider,omitempty"`     // "openai" | "anthropic"，空=未启用
+	APIKey       string  `json:"api_key,omitempty"`      // API Key（不写入日志）
+	Model        string  `json:"model,omitempty"`        // 模型名
+	BaseURL      string  `json:"base_url,omitempty"`     // 可选代理地址
+	Temperature  float64 `json:"temperature,omitempty"`  // 0.0-2.0，默认 0.7
+	MaxTokens    int     `json:"max_tokens,omitempty"`   // 默认 4096
+	SystemPrompt string  `json:"system_prompt,omitempty"`
+}
+
+// IsEnabled returns true only when provider and api_key are both non-empty.
+func (c AIChatConfig) IsEnabled() bool {
+	return c.Provider != "" && c.APIKey != ""
+}
+
+// MaskedAPIKey returns a masked version of the API key (first 4 + last 4 chars visible, middle masked).
+func (c AIChatConfig) MaskedAPIKey() string {
+	if len(c.APIKey) <= 8 {
+		return "sk-" + strings.Repeat("•", max(0, len(c.APIKey)-3))
+	}
+	// Show first 4 + last 4, mask the middle
+	return c.APIKey[:4] + strings.Repeat("•", len(c.APIKey)-8) + c.APIKey[len(c.APIKey)-4:]
+}
 // Save 将当前 AppConfig 写回 config.json
 func Save() error {
 	// 读 AppConfig 用 RLock。Marshal 期间我们仍持有 RLock，其它 goroutine
