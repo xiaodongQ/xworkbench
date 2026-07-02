@@ -14,14 +14,14 @@ import (
 // SSHConfig 描述一次 SSH 远程执行的连接配置。
 // 从 DirShortcut 派生（host/user/password/key_path/auth_method/port）。
 type SSHConfig struct {
-	Host       string // IP 或域名
-	Port       int    // 默认 22
-	User       string
-	AuthMethod string // "password" | "key"，默认 "password"
-	Password   string // AuthMethod=password 时使用
-	KeyPath    string // AuthMethod=key 时使用
-	// TimeoutSec SSH 连接超时（秒），默认 10
-	TimeoutSec int
+	Host         string // IP 或域名
+	Port         int    // 默认 22
+	User         string
+	AuthMethod   string // "password" | "key"，默认 "password"
+	Password     string // AuthMethod=password 时使用
+	KeyPath      string // AuthMethod=key 时使用
+	KeyPassword  string // AuthMethod=key 时使用（加密私钥的密码，为空表示无密码）
+	TimeoutSec   int    // SSH 连接超时（秒），默认 10
 }
 
 // sshClient 抽象 *ssh.Client 的方法，便于 mock 测试。
@@ -55,7 +55,7 @@ func dialSSH(cfg SSHConfig) (*ssh.Client, error) {
 		if cfg.KeyPath == "" {
 			return nil, errors.New("ssh: key_path required for key auth")
 		}
-		key, err := readPrivateKey(cfg.KeyPath)
+		key, err := readPrivateKey(cfg.KeyPath, cfg.KeyPassword)
 		if err != nil {
 			return nil, fmt.Errorf("ssh: read key: %w", err)
 		}

@@ -12,11 +12,14 @@ import (
 )
 
 // readPrivateKey 从文件读取 ssh.Signer（支持 RSA / Ed25519 / ECDSA）。
-// 用 ssh.ParsePrivateKey 自动识别 PEM 格式；带密码的 key 不在本期支持范围。
-func readPrivateKey(path string) (ssh.Signer, error) {
+// passphrase 为空时使用 ssh.ParsePrivateKey；非空时使用 ssh.ParsePrivateKeyWithPassphrase 解密。
+func readPrivateKey(path string, passphrase string) (ssh.Signer, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
+	}
+	if passphrase != "" {
+		return ssh.ParsePrivateKeyWithPassphrase(data, []byte(passphrase))
 	}
 	return ssh.ParsePrivateKey(data)
 }
