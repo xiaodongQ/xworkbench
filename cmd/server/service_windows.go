@@ -12,8 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/svc"
+		"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
@@ -27,15 +26,15 @@ var serviceStopCh chan struct{}
 
 // xworkbenchService implements svc.Service.
 type xworkbenchService struct {
-	runServer func(stopCh chan struct{})
+	runServer func()
 }
 
 func (s *xworkbenchService) Execute(_ []string, svcCh <-chan svc.ChangeRequest, changesCh chan<- svc.Status) (ssec bool, errno uint32) {
-	svcStopCh := make(chan struct{})
-	serviceStopCh = svcStopCh // package-level so main's closure sees the same channel
+	stopCh := make(chan struct{})
+	serviceStopCh = stopCh // package-level so main's closure sees the same channel
 
 	changesCh <- svc.Status{State: svc.StartPending}
-	go s.runServer(svcStopCh)
+	go s.runServer()
 	changesCh <- svc.Status{State: svc.Running}
 
 	for {
@@ -44,12 +43,12 @@ func (s *xworkbenchService) Execute(_ []string, svcCh <-chan svc.ChangeRequest, 
 			switch c.Cmd {
 			case svc.Stop, svc.Shutdown:
 				changesCh <- svc.Status{State: svc.StopPending}
-				close(svcStopCh)
+				close(stopCh)
 				return false, 0
 			case svc.Interrogate:
 				changesCh <- c.CurrentStatus
 			}
-		case <-svcStopCh:
+		case <-stopCh:
 			return false, 0
 		}
 	}
@@ -57,11 +56,10 @@ func (s *xworkbenchService) Execute(_ []string, svcCh <-chan svc.ChangeRequest, 
 
 // runServiceFlag handles --service install/uninstall/run.
 // startFn is the HTTP server starter (passed as a closure from main so it captures local vars).
-// Returns (handled bool, stopCh chan struct{}) - if handled==true, caller should return.
-// stopCh is non-nil when handled==false and service mode was detected (Windows non-service).
-func runServiceFlag(startFn func(chan struct{})) (handled bool, stopCh chan struct{}) {
+// Returns true if service mode was handled (caller should return).
+func runServiceFlag(startFn, _ func()) bool {
 	if serviceFlag == nil || *serviceFlag == "" {
-		return false, nil
+		return false
 	}
 
 	switch *serviceFlag {
@@ -70,25 +68,25 @@ func runServiceFlag(startFn func(chan struct{})) (handled bool, stopCh chan stru
 		if err != nil {
 			logger.Fatalf("Windows service error: %v", err)
 		}
-		return true, nil
+		return true
 
 	case "install":
 		if err := InstallService(); err != nil {
 			logger.Fatalf("install service failed: %v", err)
 		}
 		logger.Infof("Service %q installed. Run 'net start %s' to start.", windowsServiceName, windowsServiceName)
-		return true, nil
+		return true
 
 	case "uninstall":
 		if err := RemoveService(); err != nil {
 			logger.Fatalf("uninstall service failed: %v", err)
 		}
 		logger.Infof("Service %q uninstalled.", windowsServiceName)
-		return true, nil
+		return true
 
 	default:
 		logger.Fatalf("unknown --service value %q, expected: run | install | uninstall", *serviceFlag)
-		return true, nil
+		return true
 	}
 }
 
@@ -113,9 +111,9 @@ func InstallService() error {
 
 	existing, err := m.OpenService(windowsServiceName)
 	if err == nil {
-		existing.Close()
-		if err := m.UpdateServiceConfig(windowsServiceName, svcCfg); err != nil {
-			return fmt.Errorf("UpdateServiceConfig: %w", err)
+		// Service exists - update skipped on Windows
+		if err := existing.Close(); err != nil {
+			return fmt.Errorf("Close: %w", err)
 		}
 	} else {
 		s, err := m.CreateService(windowsServiceName, exePath, svcCfg, "--service", "run")
