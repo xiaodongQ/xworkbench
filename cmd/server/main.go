@@ -300,6 +300,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		CommandType   string   `json:"command_type"` // claude/shell/cbc，默认 claude
 		Model         string   `json:"model"`         // haiku/sonnet/opus
 		Prompt        string   `json:"prompt"`        // 执行用 prompt
+		GoalMode      bool     `json:"goal_mode"`     // 是否启用 Goal 目标模式
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -319,6 +320,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		CommandType:  req.CommandType,
 		Model:        req.Model,
 		Prompt:       req.Prompt,
+		GoalMode:     req.GoalMode,
 	}
 	if err := s.db.Create(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -359,6 +361,7 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		CommandType  string   `json:"command_type"`
 		Model        string   `json:"model"`
 		Prompt       string   `json:"prompt"`
+		GoalMode     *bool    `json:"goal_mode"` // 指针：nil=未传，保持原值
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -378,6 +381,9 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	task.Prompt = req.Prompt
 	if req.Priority != nil {
 		task.Priority = *req.Priority
+	}
+	if req.GoalMode != nil {
+		task.GoalMode = *req.GoalMode
 	}
 	if err := s.db.Update(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -695,6 +701,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		Prompt          string `json:"prompt"`
 		AgentID         string `json:"agent_id"`          // 指定远端 agent 走 SSH 执行（空 = 本机）
 		ResumeSessionID string `json:"resume_session_id"` // agent 模式下续传 claude 会话
+		GoalMode        bool   `json:"goal_mode"`         // Goal 目标模式（/goal 前缀）
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req) // body 可选
 	// 请求体未传时用 task 创建时确定的默认值
@@ -727,6 +734,10 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "task has no description and no experience content")
 			return
 		}
+	}
+	// Goal 模式：claude/cbc 执行时 prompt 前加 /goal 前缀
+	if req.GoalMode && (req.CommandType == "claude" || req.CommandType == "cbc") {
+		prompt = "/goal " + prompt
 	}
 	req.Prompt = prompt
 
@@ -2768,6 +2779,7 @@ func (s *APIServer) handleTaskRunLoop(w http.ResponseWriter, r *http.Request) {
 		CliType       string  `json:"cli_type"`
 		Threshold     float64 `json:"threshold"`
 		MaxIterations int     `json:"max_iterations"`
+		GoalMode      bool    `json:"goal_mode"` // Goal 目标模式：/goal 前缀自动加到 prompt
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -2836,6 +2848,7 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 	CliType       string  `json:"cli_type"`
 	Threshold     float64 `json:"threshold"`
 	MaxIterations int     `json:"max_iterations"`
+	GoalMode      bool    `json:"goal_mode"`
 }, models []string) {
 	type Step struct {
 		Iteration int      `json:"iteration"`
@@ -2870,9 +2883,14 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 		})
 
 		// 拼 prompt：原始任务描述 + 上轮输出累积
+		// Goal 模式：prompt 前加 /goal 前缀，让 Claude Code 以目标驱动模式执行
 		var loopPrompt string
 		if req.CliType == "claude" || req.CliType == "cbc" {
-			loopPrompt = req.Prompt + fmt.Sprintf(taskpkg.OutputDirHintTpl, paths.AITaskDir(taskID))
+			basePrompt := req.Prompt
+			if req.GoalMode {
+				basePrompt = "/goal " + req.Prompt
+			}
+			loopPrompt = basePrompt + fmt.Sprintf(taskpkg.OutputDirHintTpl, paths.AITaskDir(taskID))
 		} else {
 			loopPrompt = req.Prompt
 		}

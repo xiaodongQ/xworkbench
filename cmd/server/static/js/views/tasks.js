@@ -456,6 +456,14 @@ async function editTask(id) {
   }
 }
 
+// onGoalModeToggle goal mode 勾选切换：控制说明区显示/隐藏。
+function onGoalModeToggle() {
+  const info = document.getElementById('goal-mode-info');
+  if (!info) return;
+  const checked = document.getElementById('task-goal-mode').checked;
+  info.classList.toggle('hidden', !checked);
+}
+
 async function showTaskModal(task) {
   // 先确保模型列表加载完成（CLI_MODELS 可能还未初始化）
   if (typeof loadCLIModels === 'function') await loadCLIModels();
@@ -468,6 +476,10 @@ async function showTaskModal(task) {
   document.getElementById('task-acceptance').value = task ? (task.acceptance || '') : '';
   document.getElementById('task-acceptance').readOnly = false;
   document.getElementById('task-type').value = task ? (task.task_type || 'manual') : 'manual';
+  // goal_mode 回显
+  const goalMode = task ? (task.goal_mode || false) : false;
+  document.getElementById('task-goal-mode').checked = goalMode;
+  onGoalModeToggle();
 
   // command_type / model：新建默认 claude+haiku；编辑时回填已有值
   const cmdType = task ? (task.command_type || 'claude') : 'claude';
@@ -518,6 +530,7 @@ async function submitTask() {
     task_type: document.getElementById('task-type').value,
     command_type: document.getElementById('task-command-type').value,
     model: document.getElementById('task-model').value,
+    goal_mode: document.getElementById('task-goal-mode').checked,
   };
   if (id) {
     await fetch(API + '/api/tasks/' + id, {

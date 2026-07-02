@@ -785,6 +785,49 @@
         <select id="task-model" style="width:100%"></select>
       </div>
     </div>
+    <!-- Goal 目标模式 -->
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex-wrap:wrap">
+        <input type="checkbox" id="task-goal-mode" onchange="onGoalModeToggle()" style="width:16px;height:16px;cursor:pointer">
+        <span style="font-weight:500">🤖 Goal 目标模式</span>
+        <span class="field-hint">自主多轮迭代，适合大型重构、批量修复</span>
+      </label>
+    </div>
+
+    <!-- Goal 模式说明（默认收起，勾选后展开） -->
+    <div id="goal-mode-info" class="hidden" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);margin-bottom:12px">
+      <div style="margin-bottom:10px;font-size:12px;color:var(--text-secondary);line-height:1.5">
+        <strong style="color:var(--text)">Goal 目标模式</strong>：你只定义<strong>可验证的完成条件</strong>，Claude Code 自动多轮迭代执行+验证，每轮由独立评估模型判断是否达标，<strong>达标自动停</strong>，不用逐轮发指令。
+      </div>
+
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;color:#22c55e;font-weight:600;margin-bottom:4px">✅ 正确写法（可量化、有验证手段）</div>
+        <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:6px;padding:8px 10px;font-size:12px;font-family:monospace;line-height:1.6">
+          全部 go test 单元测试退出码0，无失败用例<br>
+          tsc --noEmit 零 TypeScript 报错<br>
+          全部 ssh 连接用例通过，全程无密码交互弹窗
+        </div>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;color:#ef4444;font-weight:600;margin-bottom:4px">❌ 错误写法（模糊、无法验证）</div>
+        <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:6px;padding:8px 10px;font-size:12px;font-family:monospace;line-height:1.6">
+          优化代码质量<br>
+          完善 ssh 模块<br>
+          写得更好看
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:11px;color:#3b82f6;font-weight:600;margin-bottom:4px">📝 建议模板</div>
+        <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:6px;padding:8px 10px;font-size:12px;font-family:monospace;line-height:1.7">
+          <strong>/goal</strong> 重构 xworkbench SSH 连接模块，支持密码和私钥免登，Windows/Linux 双平台兼容<br>
+          <strong>验证方式</strong>：执行 ssh 测试脚本，全部用例通过，无密码交互弹窗<br>
+          <strong>兜底限制</strong>：最多 20 轮停止，防止无限循环
+        </div>
+      </div>
+    </div>
+
     <div class="form-group">
       <label>关联经验库 <span class="field-hint">点击右侧按钮多选</span></label>
       <div style="display:flex;gap:8px;align-items:flex-start">
@@ -792,7 +835,7 @@
         <button class="btn btn-small" type="button" onclick="openExpPicker()">📚 选择</button>
       </div>
     </div>
-    <div class="form-group"><label>验收标准 <span class="field-hint">正向+反向用例</span></label><textarea id="task-acceptance" class="code" placeholder="正向用例:\n输入... → 输出...\n\n反向用例:\n输入... → 预期行为..."></textarea></div>
+    <div class="form-group"><label>验收标准 <span class="field-hint">(可选) 正向+反向用例，提示词里也可能写验收标准</span></label><textarea id="task-acceptance" class="code" placeholder="正向用例:\n输入... → 输出...\n\n反向用例:\n输入... → 预期行为..."></textarea></div>
     <!-- 待交互内容（waiting_input 状态时显示） -->
     <div id="task-waiting-input-section" class="form-group hidden">
       <label>⚠️ 待交互内容 <span class="field-hint" style="background:rgba(202,138,4,0.15);color:#ca8a04">需要人工介入</span></label>

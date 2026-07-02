@@ -53,6 +53,7 @@ type Task struct {
 	CommandType   string `json:"command_type,omitempty"` // claude/shell/cbc
 	Model         string `json:"model,omitempty"`       // haiku/sonnet/opus
 	Prompt        string `json:"prompt,omitempty"`       // 执行用 prompt
+	GoalMode      bool   `json:"goal_mode,omitempty"`    // 是否启用 Goal 目标模式（/goal 前缀）
 	// 远程 Agent 相关
 	TaskType         string   `json:"task_type,omitempty"`
 	ClaimerAgentID   string   `json:"claimer_agent_id,omitempty"`
