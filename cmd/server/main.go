@@ -2696,7 +2696,7 @@ func main() {
 	}
 
 	// 初始化 skill 插件注册中心（扫描 tools/ 目录）
-	// 查找顺序：cwd/tools > 二进制../tools > /home/workspace/repo/xworkbench/tools
+	// 查找顺序：cwd/tools（开发，从 repo 根启动）> 二进制同级 tools/（生产部署）
 	var skillToolsDir string
 	var candidates []string
 	if wd, err := os.Getwd(); err == nil {
@@ -2704,14 +2704,9 @@ func main() {
 	}
 	if execPath, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(execPath)
-		prodTools := filepath.Join(execDir, "..", "tools")
-		if absDir, err := filepath.Abs(prodTools); err == nil {
-			prodTools = absDir
-		}
-		candidates = append(candidates, prodTools)
+		// binary 与 tools 同级：/opt/xworkbench/xworkbench + /opt/xworkbench/tools
+		candidates = append(candidates, filepath.Join(execDir, "tools"))
 	}
-	// 固定 fallback：xworkbench 源码目录
-	candidates = append(candidates, "/home/workspace/repo/xworkbench/tools")
 	for _, dir := range candidates {
 		if _, err := os.Stat(dir); err == nil {
 			skillToolsDir = dir
