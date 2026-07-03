@@ -1509,30 +1509,32 @@ func (s *APIServer) handleLinkOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cmd string
-	var args []string
-	switch runtime.GOOS {
-	case "darwin":
-		cmd, args = "open", []string{req.URL}
-	case "windows":
-		cmd, args = "cmd", []string{"/c", "start", "", req.URL}
-	default:
-		// linux / unix
-		cmd, args = "xdg-open", []string{req.URL}
-	}
-
+	url := req.URL
 	var err error
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// 用 shell 包装，处理 file:// 和绝对路径
-	err = osexec.CommandContext(ctx, cmd, args...).Run()
-	if err != nil {
-		// xdg-open 失败时尝试 dbus-launch
-		if runtime.GOOS == "linux" {
-			err = osexec.CommandContext(ctx, "sh", "-c", "dbus-launch xdg-open "+req.URL).Run()
+
+	tryOpen := func(c string, args ...string) bool {
+		err = osexec.CommandContext(ctx, c, args...).Run()
+		return err == nil
+	}
+
+	opened := false
+	switch runtime.GOOS {
+	case "darwin":
+		opened = tryOpen("open", url)
+	case "windows":
+		opened = tryOpen("cmd", "/c", "start", "", url)
+	default:
+		// linux: xdg-open 为主，fallback 为 gio open
+		opened = tryOpen("xdg-open", url)
+		if !opened && err != nil {
+			// gio open 通常在 GNOME 桌面环境可用
+			opened = tryOpen("gio", "open", url)
 		}
 	}
-	if err != nil {
+
+	if !opened {
 		writeErr(w, http.StatusInternalServerError, "failed to open: "+err.Error())
 		return
 	}
@@ -2694,27 +2696,30 @@ func main() {
 	}
 
 	// 初始化 skill 插件注册中心（扫描 tools/ 目录）
-	// 优先从 cwd 找（开发模式），再从二进制目录的上一级找（生产模式）
+	// 查找顺序：cwd/tools > 二进制../tools > /home/workspace/repo/xworkbench/tools
 	var skillToolsDir string
+	var candidates []string
 	if wd, err := os.Getwd(); err == nil {
-		cwdTools := filepath.Join(wd, "tools")
-		if execPath, err := os.Executable(); err == nil {
-			execDir := filepath.Dir(execPath)
-			prodTools := filepath.Join(execDir, "..", "tools")
-			if absDir, err := filepath.Abs(prodTools); err == nil {
-				prodTools = absDir
-			}
-			// 开发模式 cwdTools 优先；否则用生产模式路径
-			if _, err := os.Stat(cwdTools); err == nil {
-				skillToolsDir = cwdTools
-			} else {
-				skillToolsDir = prodTools
-			}
-		} else {
-			skillToolsDir = cwdTools
+		candidates = append(candidates, filepath.Join(wd, "tools"))
+	}
+	if execPath, err := os.Executable(); err == nil {
+		execDir := filepath.Dir(execPath)
+		prodTools := filepath.Join(execDir, "..", "tools")
+		if absDir, err := filepath.Abs(prodTools); err == nil {
+			prodTools = absDir
+		}
+		candidates = append(candidates, prodTools)
+	}
+	// 固定 fallback：xworkbench 源码目录
+	candidates = append(candidates, "/home/workspace/repo/xworkbench/tools")
+	for _, dir := range candidates {
+		if _, err := os.Stat(dir); err == nil {
+			skillToolsDir = dir
+			break
 		}
 	}
 	if skillToolsDir != "" {
+		logger.Infow("skill init", "dir", skillToolsDir)
 		if err := skill.Init(skillToolsDir); err != nil {
 			logger.Warnw("skill init failed", "err", err, "dir", skillToolsDir)
 		} else {
