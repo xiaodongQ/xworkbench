@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	osexec "os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -176,6 +177,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/web-links", s.handleWebLinkCreate)
 	mux.HandleFunc("PUT /api/web-links/{id}", s.handleWebLinkUpdate)
 	mux.HandleFunc("DELETE /api/web-links/{id}", s.handleWebLinkDelete)
+	mux.HandleFunc("POST /api/links/open", s.handleLinkOpen)
 
 	mux.HandleFunc("GET /api/dir-shortcuts", s.handleDirShortcuts)
 	mux.HandleFunc("POST /api/dir-shortcuts", s.handleDirShortcutCreate)
@@ -1495,6 +1497,46 @@ func (s *APIServer) handleWebLinkDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+// handleLinkOpen 用系统原生工具打开 URL 或本地路径（支持 file:// 和绝对路径）。
+func (s *APIServer) handleLinkOpen(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		writeErr(w, http.StatusBadRequest, "url is required")
+		return
+	}
+
+	var cmd string
+	var args []string
+	switch runtime.GOOS {
+	case "darwin":
+		cmd, args = "open", []string{req.URL}
+	case "windows":
+		cmd, args = "cmd", []string{"/c", "start", "", req.URL}
+	default:
+		// linux / unix
+		cmd, args = "xdg-open", []string{req.URL}
+	}
+
+	var err error
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// 用 shell 包装，处理 file:// 和绝对路径
+	err = osexec.CommandContext(ctx, cmd, args...).Run()
+	if err != nil {
+		// xdg-open 失败时尝试 dbus-launch
+		if runtime.GOOS == "linux" {
+			err = osexec.CommandContext(ctx, "sh", "-c", "dbus-launch xdg-open "+req.URL).Run()
+		}
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to open: "+err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"status": "opened"})
 }
 
 // --- Dir Shortcuts ---

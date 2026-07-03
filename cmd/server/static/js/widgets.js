@@ -18,6 +18,25 @@ async function reorderAndSave(type, idsInNewOrder) {
   await Promise.all(promises);
 }
 
+// openLink 打开链接：HTTP 用浏览器，本地路径/file:// 用系统原生工具
+async function openLink(url) {
+  // 判断是否本地路径（绝对路径、~、file://）
+  const isLocal = /^(file:\/\/|\/[^/]|~|\\)/.test(url);
+  if (!isLocal) {
+    window.open(url, '_blank');
+    return;
+  }
+  try {
+    await fetchJSON('/api/links/open', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url}),
+    });
+  } catch(e) {
+    alert('打不开：' + e.message);
+  }
+}
+
 // ===== 链接（列表样式：每行一条） =====
 async function loadLinks() {
   const list = sortByOrder(await fetchJSON('/api/web-links'));
@@ -34,8 +53,8 @@ async function loadLinks() {
     return `<div class="link-row" draggable="true" data-id="${l.id}" data-idx="${idx}"
         ondragstart="widgetDragStart(event, 'web-links')" ondragover="widgetDragOver(event)" ondrop="widgetDrop(event, 'web-links', loadLinks)" ondragleave="widgetDragLeave(event)">
       <span class="drag-handle" title="拖动排序">⋮⋮</span>
-      <div class="link-icon" onclick="window.open('${esc(l.url)}','_blank')">${icon}</div>
-      <div class="link-text" onclick="window.open('${esc(l.url)}','_blank')" title="${esc(l.url)}">
+      <div class="link-icon" onclick="openLink('${esc(l.url)}')">${icon}</div>
+      <div class="link-text" onclick="openLink('${esc(l.url)}')" title="${esc(l.url)}">
         <div class="link-name">${esc(l.name)}</div>
         <div class="link-url">${esc(l.url)}</div>
       </div>
