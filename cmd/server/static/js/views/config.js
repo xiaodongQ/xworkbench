@@ -644,11 +644,30 @@ async function executeSkillTestFromForm(name, btn) {
     });
     const output = data.output || {};
     const status = data.status;
+    const rawErr = data.raw_err || '';
+
+    let summary = '';
+    if (status === 'ok') {
+      if (output.status === 'sent') {
+        summary = '✓ 通知已发送';
+      } else if (output.status === 'reachable') {
+        summary = '✓ 服务可达 (延迟 ' + (output.latency_ms >= 0 ? output.latency_ms + 'ms' : 'N/A') + ')';
+      } else if (output.status === 'running') {
+        summary = '✓ 进程运行中 PID=' + (output.pid || '?');
+      } else if (output.backup_path) {
+        summary = '✓ 已备份至 ' + output.backup_path.split('/').pop();
+      } else {
+        const keys = Object.keys(output).filter(k => k !== 'status');
+        summary = '✓ ' + keys.slice(0,3).map(k => k + '=' + String(output[k]).slice(0,30)).join(', ');
+      }
+    } else {
+      summary = '✗ ' + (output.error || rawErr || status);
+    }
+
     if (resultSpan) {
-      const text = status === 'ok' ? '✓ ' + JSON.stringify(output) : '✗ ' + (output.error || JSON.stringify(output));
-      resultSpan.textContent = text.length > 100 ? text.substring(0, 100) + '…' : text;
+      resultSpan.textContent = summary.length > 120 ? summary.substring(0, 120) + '…' : summary;
       resultSpan.style.color = status === 'ok' ? 'var(--success)' : 'var(--exception)';
-      resultSpan.title = text;
+      resultSpan.title = summary;
     }
     overlay.remove();
   } catch (e) {
@@ -674,8 +693,32 @@ async function executeSkillTest(name, params, resultSpan) {
     });
     const output = data.output || {};
     const status = data.status;
-    const text = status === 'ok' ? '✓ ' + JSON.stringify(output) : '✗ ' + (output.error || JSON.stringify(output));
-    resultSpan.textContent = text.length > 100 ? text.substring(0, 100) + '…' : text;
+    const rawErr = data.raw_err || '';
+
+    // 构建人类可读的结果描述
+    let summary = '';
+    if (status === 'ok') {
+      if (output.status === 'sent') {
+        summary = '✓ 通知已发送';
+      } else if (output.status === 'reachable') {
+        summary = '✓ 服务可达 (延迟 ' + (output.latency_ms >= 0 ? output.latency_ms + 'ms' : 'N/A') + ')';
+      } else if (output.status === 'running') {
+        summary = '✓ 进程运行中 PID=' + (output.pid || '?');
+      } else if (output.raw && typeof output.raw === 'object') {
+        summary = '✓ ' + Object.keys(output.raw).slice(0,3).map(k => k + '=' + JSON.stringify(output.raw[k]).slice(0,20)).join(', ');
+      } else if (output.backup_path) {
+        summary = '✓ 已备份至 ' + output.backup_path.split('/').pop();
+      } else {
+        // fallback: 取前3个非status字段
+        const keys = Object.keys(output).filter(k => k !== 'status');
+        summary = '✓ ' + keys.slice(0,3).map(k => k + '=' + String(output[k]).slice(0,30)).join(', ');
+      }
+    } else {
+      summary = '✗ ' + (output.error || rawErr || status);
+    }
+
+    const text = summary;
+    resultSpan.textContent = text.length > 120 ? text.substring(0, 120) + '…' : text;
     resultSpan.style.color = status === 'ok' ? 'var(--success)' : 'var(--exception)';
     resultSpan.title = text;
   } catch (e) {
