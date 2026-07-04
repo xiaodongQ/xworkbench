@@ -343,6 +343,11 @@ func mergeConfig(dst, src *Config) {
 		}
 		dst.Models[cliType] = dstGroup
 	}
+
+	// ai_chat（Provider 非空时才更新，避免用零值覆盖已有配置）
+	if src.AIChat.Provider != "" {
+		dst.AIChat = src.AIChat
+	}
 }
 
 func configPath() string {

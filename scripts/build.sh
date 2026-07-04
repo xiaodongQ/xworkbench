@@ -118,6 +118,7 @@ build_all() {
   build_one linux amd64 "" || failed=1
   build_one linux arm64 "" || failed=1
   build_one windows amd64 ".exe" || failed=1
+  build_one windows arm64 ".exe" || failed=1
 
   local end_time=$(date +%s)
   echo

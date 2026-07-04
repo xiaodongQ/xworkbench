@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/xiaodongQ/xworkbench/internal/config"
 )
@@ -286,9 +287,17 @@ func NewAnthropicProvider(baseURL, apiKey, model string, temperature float64, ma
 }
 
 func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
-	anthropicMsgs := make([]map[string]string, len(messages))
+	anthropicMsgs := make([]map[string]any, len(messages))
 	for i, m := range messages {
-		anthropicMsgs[i] = map[string]string{"role": m.Role, "content": m.Content}
+		// Tool result messages have Content as JSON array format for Anthropic
+		if m.Role == "user" && strings.HasPrefix(m.Content, "[{") {
+			var contentArr []any
+			if err := json.Unmarshal([]byte(m.Content), &contentArr); err == nil {
+				anthropicMsgs[i] = map[string]any{"role": m.Role, "content": contentArr}
+				continue
+			}
+		}
+		anthropicMsgs[i] = map[string]any{"role": m.Role, "content": m.Content}
 	}
 
 	reqBody := map[string]any{
@@ -334,7 +343,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message, tools 
 			Type   string `json:"type"`
 			Text   string `json:"text"`
 			Name   string `json:"name"`
-			Input_ string `json:"input"`
+			Input_ any    `json:"input"` // can be string or object (tool call args)
 		} `json:"content"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
@@ -346,11 +355,19 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message, tools 
 		if c.Type == "text" {
 			result.Message = Message{Role: "assistant", Content: c.Text}
 		} else if c.Type == "tool_use" {
-			inputJSON, _ := json.Marshal(c.Input_)
+			var inputJSON []byte
+			var argsStr string
+			switch v := c.Input_.(type) {
+			case string:
+				argsStr = v
+			case map[string]any:
+				inputJSON, _ = json.Marshal(v)
+				argsStr = string(inputJSON)
+			}
 			result.ToolCalls = append(result.ToolCalls, ToolCall{
 				ID:   "call_anthropic",
 				Name: c.Name,
-				Args: string(inputJSON),
+				Args: argsStr,
 			})
 		}
 	}

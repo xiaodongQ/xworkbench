@@ -33,12 +33,13 @@
           <div class="aichat-session-list" id="aichat-session-list"></div>
         </aside>
         <main class="aichat-main">
-          <div class="aichat-subtabs">
-            <button class="subtab active" data-tab="chat">AI 助手</button>
-            <button class="subtab" data-tab="shell">网页终端</button>
-            <button class="subtab" data-tab="config">⚙️ AI 助手配置</button>
+          <div class="aichat-toolbar">
+            <span class="aichat-toolbar-title">AI 助手</span>
+            <button class="btn-icon" id="aichat-toggle-term" title="网页终端（体验功能）" aria-label="toggle terminal">⌨</button>
+            <button class="btn-icon" id="aichat-open-config" title="AI 助手配置" aria-label="open config">⚙</button>
           </div>
-          <div class="aichat-panel" id="panel-chat">
+
+          <div class="aichat-chat-region" id="aichat-chat-region">
             <div class="aichat-messages" id="aichat-messages"></div>
             <div class="aichat-input-area">
               <textarea id="aichat-input" placeholder="发送消息，AI 将通过工具帮你操作任务、目录、经验库..." rows="3"></textarea>
@@ -48,8 +49,10 @@
               </div>
             </div>
           </div>
-          <div class="aichat-panel hidden" id="panel-shell">
-            <div class="terminal-wrap">
+
+          <div class="aichat-term-region hidden" id="aichat-term-region">
+            <div class="resize-handle-h" id="aichat-term-resizer"></div>
+            <div class="terminal-wrap" style="margin-bottom:0;border-radius:0">
               <div class="terminal-header">
                 <div class="terminal-dot red"></div>
                 <div class="terminal-dot yellow"></div>
@@ -64,14 +67,24 @@
                     <option value="shell">shell</option>
                   </select>
                 </div>
+                <button class="btn-icon" id="aichat-close-term" title="关闭终端" aria-label="close terminal" style="margin-left:6px">✕</button>
               </div>
               <div id="shell-terminal"></div>
             </div>
           </div>
-          <div class="aichat-panel hidden" id="panel-config">
+        </main>
+      </div>
+
+      <div class="modal-backdrop hidden" id="aichat-config-modal">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>AI 助手配置</h3>
+            <button class="btn-icon" id="aichat-config-close" aria-label="close">✕</button>
+          </div>
+          <div class="modal-body" id="aichat-config-body">
             ${configPanelHTML()}
           </div>
-        </main>
+        </div>
       </div>
     `;
 
@@ -84,7 +97,7 @@
   function configPanelHTML() {
     return `<div class="aichat-config">
       <h3>AI 助手配置</h3>
-      <p class="aichat-config-hint">支持官方 API 或第三方代理（类似 Claude Code 的 <code>ANTHROPIC_BASE_URL</code> / <code>ANTHROPIC_AUTH_TOKEN</code>）。</p>
+      <p class="aichat-config-hint">支持官方 API 或第三方代理（类似 Claude Code 的 <code>ANTHROPIC_BASE_URL</code> / <code>ANTHROPIC_AUTH_TOKEN</code>）。<br/>配置 MiniMax 等第三方 API 时：填入其 base_url（如 <code>https://api.minimaxi.com/anthropic</code>）和模型名（如 <code>MiniMax-M3</code>）。</p>
       <div class="form-group"><label>协议 (Provider)</label>
         <select id="cfg-provider" onchange="onCfgProviderChange()">
           <option value="anthropic">Anthropic</option>
@@ -99,7 +112,8 @@
         <input type="password" id="cfg-api-key" placeholder="sk-ant-... / sk-cp-..." />
       </div>
       <div class="form-group"><label>Model</label>
-        <input type="text" id="cfg-model" placeholder="claude-sonnet-4 / gpt-4o" />
+        <input type="text" id="cfg-model" placeholder="claude-sonnet-4 / gpt-4o / MiniMax-M3 等" />
+        <small class="form-hint">支持任意 Anthropic 兼容模型（填入第三方 API 的模型名即可）。</small>
       </div>
       <div class="form-actions">
         <button class="btn btn-secondary" id="cfg-test-btn">测试连接</button>
@@ -110,8 +124,9 @@
   }
 
   // 协议默认 URL 与示例 model（用户留空时回填）
+  // 支持第三方兼容 API：只需修改 base_url 和 model 即可（如 MiniMax API）
   const CFG_DEFAULTS = {
-    anthropic: { url: 'https://api.anthropic.com', model: 'claude-sonnet-4' },
+    anthropic: { url: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
     openai:    { url: 'https://api.openai.com/v1',  model: 'gpt-4o' },
   };
   window.onCfgProviderChange = function() {
@@ -125,18 +140,44 @@
 
   // ── Events ─────────────────────────────────────────────────
   function bindEvents(root) {
-    // Subtab switching
-    root.querySelectorAll('.subtab').forEach(btn => {
-      btn.addEventListener('click', () => {
-        root.querySelectorAll('.subtab').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        root.querySelectorAll('.aichat-panel').forEach(p => p.classList.add('hidden'));
-        root.querySelector('#panel-' + btn.dataset.tab).classList.remove('hidden');
-        if (btn.dataset.tab === 'shell') initShellTerminal();
-        if (btn.dataset.tab === 'config') loadConfig(root);
-      });
+    // 1) Terminal 抽屉开关
+    const termBtn   = root.querySelector('#aichat-toggle-term');
+    const closeBtn  = root.querySelector('#aichat-close-term');
+    const termRegion = () => root.querySelector('#aichat-term-region');
+    const openTerm = () => {
+      const r = termRegion(); if (!r) return;
+      r.classList.remove('hidden');
+      termBtn?.classList.add('active');
+      ensureTerminalHeight();
+      initShellTerminal(); // 已存在的惰性初始化（幂等：if (term) return）
+    };
+    const closeTerm = () => {
+      const r = termRegion(); if (!r) return;
+      r.classList.add('hidden');
+      termBtn?.classList.remove('active');
+      // xterm + WS 实例保留（体验功能定位：复用长会话）
+    };
+    termBtn?.addEventListener('click', () => {
+      termRegion().classList.contains('hidden') ? openTerm() : closeTerm();
+    });
+    closeBtn?.addEventListener('click', closeTerm);
+
+    // 2) 配置 modal
+    const cfgBtn   = root.querySelector('#aichat-open-config');
+    const cfgModal = root.querySelector('#aichat-config-modal');
+    const cfgClose = root.querySelector('#aichat-config-close');
+    cfgBtn?.addEventListener('click', () => {
+      cfgModal.classList.remove('hidden');
+      loadConfig(root);
+    });
+    const closeCfg = () => cfgModal?.classList.add('hidden');
+    cfgClose?.addEventListener('click', closeCfg);
+    cfgModal?.addEventListener('click', e => { if (e.target === cfgModal) closeCfg(); });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && cfgModal && !cfgModal.classList.contains('hidden')) closeCfg();
     });
 
+    // 3) 其余原 handler（聊天 / 会话 / 清空 / 配置保存）
     root.querySelector('#aichat-new-btn').addEventListener('click', () => createSession(root));
     root.querySelector('#aichat-send-btn').addEventListener('click', () => sendMessage(root));
     root.querySelector('#aichat-input').addEventListener('keydown', e => {
@@ -148,6 +189,45 @@
     });
     root.querySelector('#cfg-save-btn')?.addEventListener('click', () => saveConfig(root));
     root.querySelector('#cfg-test-btn')?.addEventListener('click', () => testConfig(root));
+
+    // 4) 终端抽屉高度拖拽
+    initTermResizer();
+  }
+
+  // ── Terminal 抽屉高度持久化 ─────────────────────────────────
+  const TERM_H_KEY = 'sf_aichat_term_h';
+  const TERM_H_DEFAULT = 280;
+
+  function ensureTerminalHeight() {
+    const r = document.getElementById('aichat-term-region');
+    if (!r) return;
+    const h = parseInt(localStorage.getItem(TERM_H_KEY) || TERM_H_DEFAULT, 10);
+    r.style.height = h + 'px';
+  }
+
+  function initTermResizer() {
+    const handle = document.getElementById('aichat-term-resizer');
+    const region = document.getElementById('aichat-term-region');
+    if (!handle || !region) return;
+    ensureTerminalHeight();
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      document.body.style.cursor = 'row-resize';
+      const startY = e.clientY;
+      const startH = region.getBoundingClientRect().height;
+      const onMove = ev => {
+        const h = Math.max(120, Math.min(window.innerHeight - 200, startH + (startY - ev.clientY)));
+        region.style.height = h + 'px';
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        localStorage.setItem(TERM_H_KEY, String(Math.round(region.getBoundingClientRect().height)));
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
   }
 
   // ── Sessions ─────────────────────────────────────────────────
@@ -186,11 +266,6 @@
     const s = sessions.find(s => s.id === id);
     renderSessionList(root);
     renderMessages(s ? s.messages : []);
-    // Ensure chat subtab active
-    root.querySelectorAll('.subtab').forEach(b => b.classList.remove('active'));
-    root.querySelector('[data-tab="chat"]')?.classList.add('active');
-    root.querySelectorAll('.aichat-panel').forEach(p => p.classList.add('hidden'));
-    root.querySelector('#panel-chat')?.classList.remove('hidden');
   }
 
   function deleteSession(root, id) {
@@ -316,6 +391,11 @@
       root.querySelector('#cfg-provider').value = provider;
       root.querySelector('#cfg-model').value = cfg.model || '';
       root.querySelector('#cfg-base-url').value = cfg.base_url || '';
+      // api_key 不回填值（安全），只显示已配置提示
+      const apiKeyInput = root.querySelector('#cfg-api-key');
+      if (apiKeyInput && cfg.api_key && cfg.api_key !== '') {
+        apiKeyInput.placeholder = '已配置（修改请重新输入）';
+      }
       // 触发 placeholder 更新
       window.onCfgProviderChange();
     } catch {}

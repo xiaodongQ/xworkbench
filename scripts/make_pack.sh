@@ -39,9 +39,8 @@ cp config.json "$OUT/"
 cp scripts/run.sh "$OUT/scripts/"
 chmod +x "$OUT/scripts/run.sh"
 
-# 拷贝 Windows 启动脚本
-cp run.bat "$OUT/" 2>/dev/null || true
-cp run.ps1 "$OUT/" 2>/dev/null || true
+# 拷贝 Windows PowerShell 脚本
+cp scripts/run_background.ps1 "$OUT/scripts/" 2>/dev/null || true
 
 # 3. 生成 README
 cat > "$OUT/README.md" << EOF
@@ -60,9 +59,11 @@ cat > "$OUT/README.md" << EOF
 \`\`\`
 
 ### Windows
-\`\`\`cmd
-run.bat   # 启动（需安装 Git Bash）
-run.ps1   # 或使用 PowerShell
+\`\`\`powershell
+# 启动（后台运行，可关闭终端）
+powershell -ExecutionPolicy Bypass -File scripts/run_background.ps1
+powershell -ExecutionPolicy Bypass -File scripts/run_background.ps1 -Action stop  # 停止
+powershell -ExecutionPolicy Bypass -File scripts/run_background.ps1 -Action status  # 状态
 \`\`\`
 
 然后浏览器打开 http://localhost:8902
@@ -75,10 +76,9 @@ run.ps1   # 或使用 PowerShell
 │   └── $bin_name
 ├── data/               # 数据目录（运行时创建数据库）
 ├── scripts/            # 脚本目录
-│   └── run.sh
+│   ├── run.sh          # macOS/Linux 启动脚本
+│   └── run_background.ps1  # Windows 后台运行脚本
 ├── config.json         # 配置文件
-├── run.bat             # Windows 启动脚本
-├── run.ps1             # PowerShell 启动脚本
 └── README.md
 \`\`\`
 

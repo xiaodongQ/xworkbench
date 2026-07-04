@@ -105,10 +105,16 @@ func NewAPIServer(
 }
 
 // checkRelayAuth returns a middleware that checks API key for relay endpoints.
-// Skips auth when Relay.APIKey is empty (disabled).
+// Skips auth when Relay.APIKey is empty (disabled) or for same-origin browser requests.
 func checkRelayAuth() func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 同源请求（浏览器 UI）直接放行
+			origin := r.Header.Get("Origin")
+			if origin == "" || origin == r.URL.Scheme+"://"+r.Host {
+				next.ServeHTTP(w, r)
+				return
+			}
 			cfg := config.Get()
 			if cfg != nil && cfg.Relay.APIKey != "" {
 				key := r.Header.Get("Authorization")
@@ -2623,10 +2629,14 @@ func main() {
 
 	// 日志写入文件（包含源文件行号，时间戳用友好格式）
 	logDir := filepath.Join(filepath.Dir(dbPath), "logs")
-	if err := os.MkdirAll(logDir, 0755); err == nil {
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		logger.Warnw("创建日志目录失败，将仅输出到stderr", "logDir", logDir, "err", err)
+	} else {
 		logFile := filepath.Join(logDir, "xworkbench.log")
 		f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err == nil {
+		if err != nil {
+			logger.Warnw("打开日志文件失败，将仅输出到stderr", "logFile", logFile, "err", err)
+		} else {
 			encCfg := zap.NewProductionEncoderConfig()
 			encCfg.TimeKey = "time"
 			encCfg.EncodeTime = zapcore.ISO8601TimeEncoder // 2026-01-02T15:04:05.000Z

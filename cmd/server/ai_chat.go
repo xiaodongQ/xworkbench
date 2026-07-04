@@ -35,15 +35,26 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 
 	cfg := config.Snapshot()
 	if cfg == nil || !cfg.AIChat.IsEnabled() {
+		logger.Warnw("handleAIChat: AI chat not configured", "provider", cfg.AIChat.Provider, "apiKeySet", cfg != nil && cfg.AIChat.APIKey != "")
 		writeErr(w, http.StatusServiceUnavailable, "AI chat not configured")
 		return
 	}
 
 	provider := NewAIProviderFromConfig(cfg)
 	if provider == nil {
+		logger.Warnw("handleAIChat: AI provider not available", "provider", cfg.AIChat.Provider, "model", cfg.AIChat.Model, "baseURL", cfg.AIChat.BaseURL)
 		writeErr(w, http.StatusServiceUnavailable, "AI provider not available")
 		return
 	}
+	// Find last user message for logging
+	lastUserMsg := ""
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		if req.Messages[i].Role == "user" {
+			lastUserMsg = req.Messages[i].Content
+			break
+		}
+	}
+	logger.Infow("handleAIChat: calling AI provider", "provider", cfg.AIChat.Provider, "model", cfg.AIChat.Model, "baseURL", cfg.AIChat.BaseURL, "messages", len(req.Messages), "lastUserMsg", lastUserMsg)
 
 	tools := GetTools()
 
@@ -68,9 +79,11 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := provider.Chat(context.Background(), req.Messages, tools)
 	if err != nil {
+		logger.Errorw("handleAIChat: provider.Chat failed", "provider", cfg.AIChat.Provider, "model", cfg.AIChat.Model, "baseURL", cfg.AIChat.BaseURL, "err", err)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	logger.Infow("handleAIChat: response received", "provider", cfg.AIChat.Provider, "model", cfg.AIChat.Model, "contentLen", len(resp.Message.Content), "toolCalls", len(resp.ToolCalls))
 
 	// Execute tool calls if present
 	if len(resp.ToolCalls) > 0 {
@@ -83,9 +96,15 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 				tc.Name, tc.Args,
 			)
 			// Append tool result as a special message and continue
+			// Anthropic requires: role=user, content=[{type:"tool_result",tool_use_id:"...",content:"..."}]
+			toolResultContent, _ := json.Marshal(map[string]any{
+				"type":        "tool_result",
+				"tool_use_id": tc.ID,
+				"content":     tc.Result,
+			})
 			req.Messages = append(req.Messages, Message{
-				Role:    "tool",
-				Content: tc.Result,
+				Role:    "user",
+				Content: string(toolResultContent),
 			})
 		}
 		// Continue conversation with tool results
@@ -219,9 +238,20 @@ func (s *APIServer) handleAIConfigTest(w http.ResponseWriter, r *http.Request) {
 }
 
 // isAuthenticated checks if the request has a valid session token.
+// 同源请求（浏览器）或带有有效 Bearer token 的请求允许通过。
 func (s *APIServer) isAuthenticated(r *http.Request) bool {
-	// For now: check Bearer token in Authorization header
-	// TODO: implement proper session token validation
+	origin := r.Header.Get("Origin")
+	// 同源请求（无 Origin header，或 Origin 与请求源一致）直接放行
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	sameOrigin := origin == "" || origin == scheme+"://"+r.Host
+	logger.Infow("isAuthenticated check", "origin", origin, "host", r.Host, "scheme", scheme, "sameOrigin", sameOrigin)
+	if sameOrigin {
+		return true
+	}
+	// 跨域 API 调用需要 Bearer token
 	token := extractBearerToken(r)
 	return token != "" || r.Header.Get("X-User-ID") != ""
 }

@@ -33,7 +33,7 @@ function Get-XworkbenchPid {
 function Start-Server {
     if (-not (Test-Path $BIN)) {
         Write-Host "ERROR: Binary not found: $BIN" -ForegroundColor Red
-        Write-Host "  Run: .\scripts\build.ps1" -ForegroundColor Cyan
+        Write-Host "  Run: .\scripts\build.sh" -ForegroundColor Cyan
         exit 1
     }
 

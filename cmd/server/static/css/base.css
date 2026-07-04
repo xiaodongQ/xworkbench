@@ -226,11 +226,11 @@ body {
 .section-title { font-size: 16px; font-weight: 500; }
 table { width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 4px; overflow: hidden; }
 th { text-align: left; padding: 12px 16px; font-size: 11px; font-weight: 500; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
-td { padding: 5px 12px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+td { padding: 5px 12px; font-size: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 tr:hover td { background: var(--hover); }
 tr:last-child td { border-bottom: none; }
 .task-title-cell { display: block; vertical-align: middle; width: 100%; }
-.task-title-cell .title { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-title-cell .title { display: block; font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task-title-cell .desc { display: block; font-size: 11px; color: var(--text-secondary); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 表格：固定列宽，防止溢出 */
@@ -679,6 +679,73 @@ tr:last-child td { border-bottom: none; }
 /* Panel */
 .aichat-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .aichat-panel.hidden { display: none; }
+
+/* ===== AI Chat v2: chat-primary / terminal-secondary ===== */
+.aichat-toolbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; margin-bottom: 8px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+}
+.aichat-toolbar-title {
+  font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-right: auto;
+}
+
+.aichat-chat-region {
+  flex: 1; display: flex; flex-direction: column; min-height: 0;
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+}
+.aichat-chat-region > .aichat-messages {
+  flex: 1; overflow-y: auto; padding: 12px;
+  border: none; border-radius: 0; margin-bottom: 0;
+}
+.aichat-chat-region > .aichat-input-area {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px; background: var(--card);
+}
+.aichat-chat-region > .aichat-input-area textarea {
+  width: 100%; box-sizing: border-box; resize: vertical;
+}
+.aichat-chat-region > .aichat-input-area .aichat-input-row {
+  display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px;
+}
+
+.aichat-term-region {
+  flex: 0 0 auto; display: flex; flex-direction: column;
+  min-height: 120px; margin-top: 8px;
+  background: #0f172a; border-radius: 8px; overflow: hidden;
+}
+.aichat-term-region > .resize-handle-h { margin: -3px 0; }
+.aichat-term-region > .terminal-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.aichat-term-region > .terminal-wrap > #shell-terminal { flex: 1 1 auto; min-height: 0; padding: 8px; }
+
+.btn-icon {
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); border-radius: 6px; cursor: pointer; font-size: 14px;
+  transition: background 0.15s;
+}
+.btn-icon:hover { background: var(--hover-bg); color: var(--text-primary); }
+.btn-icon.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* ===== Config modal ===== */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.modal-card {
+  width: min(640px, 92vw); max-height: 86vh;
+  display: flex; flex-direction: column;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+}
+.modal-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { margin: 0; font-size: 15px; flex: 1; }
+.modal-body { padding: 16px; overflow-y: auto; }
 
 /* Messages */
 .aichat-messages {
