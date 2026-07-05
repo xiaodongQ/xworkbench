@@ -333,11 +333,14 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "add_todo",
-			Description: "向 Todo 列表添加一个项目。",
+			Description: "向 Todo 列表添加一个项目。支持截止日期、标签、备注。",
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"text": {"type": "string", "description": "Todo 内容"}
+					"text":     {"type": "string", "description": "Todo 内容"},
+					"due_date": {"type": "string", "description": "截止日期 YYYY-MM-DD 或 MM-DD（可选）"},
+					"tags":     {"type": "string", "description": "逗号分隔的标签，如 personal,shopping（可选）"},
+					"note":     {"type": "string", "description": "详细备注（可选）"}
 				},
 				"required": ["text"]
 			}`),
@@ -590,7 +593,9 @@ func execListTasks(ctx context.Context, db *backend.TaskRepo, argsJSON string) s
 }
 
 func execGetTask(ctx context.Context, db *backend.TaskRepo, execDB *backend.ExecutionRepo, argsJSON string) string {
-	var args struct{ TaskID string `json:"task_id"` }
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	task, err := db.Get(args.TaskID)
 	if err != nil {
@@ -753,18 +758,18 @@ func execCreateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 		return "⚠️ local 类型快捷方式需要 path"
 	}
 	shortcut := &backend.DirShortcut{
-		ID:             newUUID(),
-		Name:           args.Name,
-		Type:           args.Type,
-		Path:           args.Path,
-		RemoteHost:     args.RemoteHost,
-		RemotePort:     args.RemotePort,
-		RemoteUser:     args.RemoteUser,
-		RemotePath:     args.RemotePath,
-		AuthMethod:     args.AuthMethod,
-		KeyPath:        args.KeyPath,
-		TerminalCmd:    args.TerminalCmd,
-		SortOrder:      dirDB.NextSortOrder(),
+		ID:          newUUID(),
+		Name:        args.Name,
+		Type:        args.Type,
+		Path:        args.Path,
+		RemoteHost:  args.RemoteHost,
+		RemotePort:  args.RemotePort,
+		RemoteUser:  args.RemoteUser,
+		RemotePath:  args.RemotePath,
+		AuthMethod:  args.AuthMethod,
+		KeyPath:     args.KeyPath,
+		TerminalCmd: args.TerminalCmd,
+		SortOrder:   dirDB.NextSortOrder(),
 	}
 	if err := dirDB.Create(shortcut); err != nil {
 		return fmt.Sprintf("创建失败: %v", err)
@@ -773,7 +778,9 @@ func execCreateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 }
 
 func execListDirShortcuts(ctx context.Context, dirDB *backend.DirShortcutRepo, argsJSON string) string {
-	var args struct{ Type string `json:"type"` }
+	var args struct {
+		Type string `json:"type"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	list, err := dirDB.List()
 	if err != nil {
@@ -801,16 +808,16 @@ func execListDirShortcuts(ctx context.Context, dirDB *backend.DirShortcutRepo, a
 
 func execUpdateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, argsJSON string) string {
 	var args struct {
-		ID           string `json:"id"`
-		Name         string `json:"name"`
-		Path         string `json:"path"`
-		Type         string `json:"type"`
-		RemoteHost   string `json:"remote_host"`
-		RemoteUser   string `json:"remote_user"`
-		RemotePath   string `json:"remote_path"`
-		AuthMethod   string `json:"auth_method"`
-		KeyPath      string `json:"key_path"`
-		TerminalCmd  string `json:"terminal_cmd"`
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Path        string `json:"path"`
+		Type        string `json:"type"`
+		RemoteHost  string `json:"remote_host"`
+		RemoteUser  string `json:"remote_user"`
+		RemotePath  string `json:"remote_path"`
+		AuthMethod  string `json:"auth_method"`
+		KeyPath     string `json:"key_path"`
+		TerminalCmd string `json:"terminal_cmd"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.ID == "" {
@@ -854,7 +861,9 @@ func execUpdateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 }
 
 func execDeleteDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, argsJSON string) string {
-	var args struct{ ID string `json:"id"` }
+	var args struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.ID == "" {
 		return "⚠️ id 是必填字段"
@@ -866,7 +875,9 @@ func execDeleteDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 }
 
 func execOpenDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, argsJSON string) string {
-	var args struct{ ID string `json:"id"` }
+	var args struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	entry, err := dirDB.GetByID(args.ID)
 	if err != nil || entry == nil {
@@ -1009,7 +1020,9 @@ func execUpdateExperience(ctx context.Context, expDB *backend.ExperienceRepo, ar
 }
 
 func execDeleteExperience(ctx context.Context, expDB *backend.ExperienceRepo, argsJSON string) string {
-	var args struct{ ID string `json:"id"` }
+	var args struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.ID == "" {
 		return "⚠️ id 是必填字段"
@@ -1090,7 +1103,9 @@ func execUpdateWebLink(ctx context.Context, linkDB *backend.WebLinkRepo, argsJSO
 }
 
 func execDeleteWebLink(ctx context.Context, linkDB *backend.WebLinkRepo, argsJSON string) string {
-	var args struct{ ID string `json:"id"` }
+	var args struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.ID == "" {
 		return "⚠️ id 是必填字段（必须是列表中 [xxx] 格式的 UUID，不是链接名称）"
@@ -1107,7 +1122,9 @@ func execDeleteWebLink(ctx context.Context, linkDB *backend.WebLinkRepo, argsJSO
 }
 
 func execOpenWebLink(ctx context.Context, argsJSON string) string {
-	var args struct{ URL string `json:"url"` }
+	var args struct {
+		URL string `json:"url"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.URL == "" {
 		return "⚠️ url 是必填字段"
@@ -1146,10 +1163,11 @@ func execListTodos(ctx context.Context, argsJSON string) string {
 	if path == "" {
 		return "⚠️ Todo 路径未配置（todo_md_path）"
 	}
-	items, err := todo.ReadAndParse(path)
+	tree, err := todo.ReadAndParse(path)
 	if err != nil {
 		return fmt.Sprintf("读取 Todo 失败: %v", err)
 	}
+	items := todo.Flatten(tree)
 	if len(items) == 0 {
 		return "📝 Todo 列表为空"
 	}
@@ -1165,16 +1183,33 @@ func execListTodos(ctx context.Context, argsJSON string) string {
 }
 
 func execAddTodo(ctx context.Context, argsJSON string) string {
-	var args struct{ Text string `json:"text"` }
+	var args struct {
+		Text    string `json:"text"`
+		DueDate string `json:"due_date,omitempty"`
+		Tags    string `json:"tags,omitempty"` // 逗号分隔字符串
+		Note    string `json:"note,omitempty"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.Text == "" {
 		return "⚠️ text 是必填字段"
 	}
+
+	// 解析 tags（逗号分隔字符串 → 切片）
+	var tagsList []string
+	if args.Tags != "" {
+		for _, t := range strings.Split(args.Tags, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				tagsList = append(tagsList, t)
+			}
+		}
+	}
+
 	path := todoMDPath()
 	if path == "" {
 		return "⚠️ Todo 路径未配置（todo_md_path）"
 	}
-	if err := todo.AddAndWrite(path, args.Text); err != nil {
+	if err := todo.AddAndWrite(path, args.Text, args.DueDate, tagsList, args.Note); err != nil {
 		return fmt.Sprintf("添加失败: %v", err)
 	}
 	return fmt.Sprintf("✅ 已添加: %s", args.Text)
@@ -1193,15 +1228,18 @@ func execToggleTodo(ctx context.Context, argsJSON string) string {
 	if path == "" {
 		return "⚠️ Todo 路径未配置（todo_md_path）"
 	}
-	items, err := todo.ReadAndParse(path)
+	tree, err := todo.ReadAndParse(path)
 	if err != nil {
 		return fmt.Sprintf("读取失败: %v", err)
 	}
+	items := todo.Flatten(tree)
 	var found bool
+	var foundIdx int
 	for i := range items {
 		if items[i].LineNo == args.LineNo {
 			items[i].Done = args.Done
 			found = true
+			foundIdx = i
 			break
 		}
 	}
@@ -1215,11 +1253,13 @@ func execToggleTodo(ctx context.Context, argsJSON string) string {
 	if !args.Done {
 		status = "未完成"
 	}
-	return fmt.Sprintf("✅ 已标记为 [%s]: %s", status, items[args.LineNo-1].Text)
+	return fmt.Sprintf("✅ 已标记为 [%s]: %s", status, items[foundIdx].Text)
 }
 
 func execDeleteTodo(ctx context.Context, argsJSON string) string {
-	var args struct{ LineNo int `json:"line_no"` }
+	var args struct {
+		LineNo int `json:"line_no"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.LineNo <= 0 {
 		return "⚠️ line_no 是必填字段且必须 > 0"
@@ -1258,8 +1298,8 @@ func execStartLocalShell(ctx context.Context, state *LocalShellState, argsJSON s
 
 func execRunLocalCommand(ctx context.Context, state *LocalShellState, argsJSON string) string {
 	var args struct {
-		Command  string `json:"command"`
-		CLIType  string `json:"cli_type"`
+		Command string `json:"command"`
+		CLIType string `json:"cli_type"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if !state.Active {

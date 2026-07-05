@@ -113,7 +113,7 @@
         <span>
           <button class="btn btn-small" onclick="showTodoAddModal()">+ 添加</button>
           <button class="btn btn-small" onclick="showTodoPathModal()">设置</button>
-          <span id="todo-show-all-icon" style="font-size:13px;cursor:pointer;opacity:0.5" onclick="toggleTodoShowAll()" title="显示全部">☐</span>
+          <button id="todo-filter-btn" class="btn btn-small" onclick="showTodoFilterMenu()" title="过滤">🔍</button>
         </span>
       </div>
       <div id="todo-container" style="overflow-y:auto;flex:1;min-height:0">
@@ -943,9 +943,24 @@
 
 <!-- Todo Add Modal -->
 <div id="todo-add-modal" class="modal-overlay hidden">
-  <div class="modal">
-    <h2>添加待办</h2>
-    <div class="form-group"><label>内容 <span class="field-hint">必填</span></label><input id="todo-add-input" placeholder="如 写周报"></div>
+  <div class="modal" style="min-width:400px">
+    <h2>添加任务</h2>
+    <div class="form-group">
+      <label>任务标题 <span class="field-hint">必填</span></label>
+      <input id="todo-add-title" placeholder="任务内容" style="width:100%;box-sizing:border-box">
+    </div>
+    <div class="form-group">
+      <label>截止日期</label>
+      <input id="todo-add-due" type="date" style="width:100%;box-sizing:border-box">
+    </div>
+    <div class="form-group">
+      <label>标签 <span class="field-hint">(逗号分隔)</span></label>
+      <input id="todo-add-tags" placeholder="personal,shopping" style="width:100%;box-sizing:border-box">
+    </div>
+    <div class="form-group">
+      <label>备注</label>
+      <textarea id="todo-add-note" placeholder="详细描述..." rows="3" style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTodoAddModal()">取消</button>
       <button class="btn btn-primary" onclick="submitTodoAdd()">添加</button>

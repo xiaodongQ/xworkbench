@@ -11,6 +11,7 @@
   --border: #e2e8f0;
   --hover: #f1f5f9;
   --hover-bg: #f1f5f9;
+  --bg-tertiary: #f1f5f9;
   --input-bg: #ffffff;
   --primary: #2563eb;
   --primary-hover: #dbeafe;
@@ -33,6 +34,7 @@
   --border: #334155;
   --hover: #334155;
   --hover-bg: #1e293b;
+  --bg-tertiary: #334155;
   --input-bg: #0f172a;
   --primary: #60a5fa;
   --primary-hover: #1e3a5f;
@@ -941,4 +943,75 @@ tr:last-child td { border-bottom: none; }
   font-size: 11px;
   color: var(--text-secondary);
   opacity: 0.7;
+}
+
+/* Todo 增强样式 */
+.todo-due {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+.todo-due.overdue {
+  color: #e53e3e;
+  background: #fed7d7;
+}
+.overdue-row {
+  background: #fff5f5;
+}
+.todo-tag {
+  font-size: 11px;
+  color: var(--accent-color, #3182ce);
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+
+/* Todo 展开详情面板 */
+.todo-detail-expanded {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px;
+    margin: 4px 0 4px 24px;
+}
+.todo-detail-content {
+    font-size: 13px;
+}
+.todo-detail-due {
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+.todo-detail-tags {
+    color: var(--accent-color, #3182ce);
+    margin-bottom: 4px;
+}
+.todo-detail-note {
+    margin: 8px 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+.todo-detail-label {
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+.todo-detail-note-text {
+    white-space: pre-wrap;
+    line-height: 1.5;
+}
+.todo-detail-children {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+.todo-child-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+    margin-left: 12px;
 }

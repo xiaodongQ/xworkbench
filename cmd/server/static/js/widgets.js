@@ -369,37 +369,56 @@ function deleteDir(id) {
 }
 
 // ===== 待办（支持增删 + 勾选） =====
-const TODO_SHOW_ALL_KEY = 'todo.showAll';
-function toggleTodoShowAll() {
-  const el = document.getElementById('todo-show-all-icon');
-  const active = el.textContent === '☑';
-  const newActive = !active;
-  el.textContent = newActive ? '☑' : '☐';
-  el.style.opacity = newActive ? '1' : '0.5';
-  localStorage.setItem(TODO_SHOW_ALL_KEY, newActive ? 'true' : 'false');
-  loadTodo();
+// 渲染单个 todo item（递归处理 children 子项）
+// _depth 是从扁平化过滤排序传入的层级（保留缩进），定义后跳过递归（避免重复渲染）
+function renderTodoItem(i, indent) {
+  if (indent === undefined) indent = (i._depth !== undefined ? i._depth : 0);
+  const today = new Date().toISOString().split('T')[0];
+  const isOverdue = i.due_date && !i.done && i.due_date < today;
+  const dueLabel = i.due_date ? i.due_date.slice(5) : ''; // MM-DD 格式
+
+  let extraHtml = '';
+  if (i.due_date) {
+    extraHtml += `<span class="todo-due ${isOverdue ? 'overdue' : ''}" title="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
+  }
+  if (i.tags && i.tags.length) {
+    extraHtml += i.tags.map(t => `<span class="todo-tag">#${esc(t)}</span>`).join('');
+  }
+
+  const paddingLeft = indent * 16 + 'px';
+  let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''}" style="padding-left:${paddingLeft}" onclick="toggleTodoExpand(this, ${i.line_no})">
+  <input type="checkbox" ${i.done?'checked':''} onchange="event.stopPropagation(); toggleTodo(${i.line_no}, this.checked)">
+  <span class="todo-text">${esc(i.text)}</span>
+  ${extraHtml}
+  <span class="todo-del" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no})" title="删除">×</span>
+</div>`;
+
+  // 递归渲染子项 - 如果 _depth 已设置（扁平化渲染），跳过递归（避免重复）
+  if (i._depth === undefined && i.children && i.children.length) {
+    for (const child of i.children) {
+      html += renderTodoItem(child, indent + 1);
+    }
+  }
+  return html;
 }
-function initTodoShowAll() {
-  const el = document.getElementById('todo-show-all-icon');
-  if (!el) return;
-  const saved = localStorage.getItem(TODO_SHOW_ALL_KEY);
-  const showAll = saved === 'true';
-  el.textContent = showAll ? '☑' : '☐';
-  el.style.opacity = showAll ? '1' : '0.5';
-}
+
 async function loadTodo() {
-  const showAll = document.getElementById('todo-show-all-icon')?.textContent === '☑';
   const data = await fetchJSON('/api/todo');
   const el = document.getElementById('todo-list');
   if (!data.path) { el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">未配置 todo.md 路径，点击"设置"</div>'; return; }
-  const items = showAll ? (data.items || []) : (data.items || []).filter(i => !i.done);
+  // 应用过滤 + 排序（基于 _todoFilter 状态）
+  const items = sortAndFilterItems(data.items || []);
+  // 保存数据供展开详情用
+  window._todoItems = items;
+  // 更新过滤按钮文字（全部模式显示 🔍，其它模式显示 🔍*）
+  const filterBtn = document.getElementById('todo-filter-btn');
+  if (filterBtn) filterBtn.textContent = getTodoFilterLabel() === '全部' ? '🔍' : '🔍*';
   if (items.length === 0) { el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">' + esc(data.path) + ' 无 todo 项</div>'; return; }
-  el.innerHTML = items.map(i =>
-    `<div class="todo-item ${i.done?'done':''}">
-      <input type="checkbox" ${i.done?'checked':''} onchange="toggleTodo(${i.line_no}, this.checked)">
-      <span class="todo-text">${esc(i.text)}</span>
-      <span class="todo-del" onclick="deleteTodoItem(${i.line_no})" title="删除">×</span>
-    </div>`).join('');
+  let html = '';
+  for (const item of items) {
+    html += renderTodoItem(item);
+  }
+  el.innerHTML = html;
 }
 function toggleTodo(lineNo, done) {
   fetch('/api/todo/' + lineNo, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({done})})
@@ -412,15 +431,45 @@ async function deleteTodoItem(lineNo) {
   loadTodo();
 }
 function showTodoAddModal() {
-  document.getElementById('todo-add-input').value = '';
+  document.getElementById('todo-add-title').value = '';
+  document.getElementById('todo-add-due').value = '';
+  document.getElementById('todo-add-tags').value = '';
+  document.getElementById('todo-add-note').value = '';
   document.getElementById('todo-add-modal').classList.remove('hidden');
-  setTimeout(() => document.getElementById('todo-add-input').focus(), 50);
+  setTimeout(() => document.getElementById('todo-add-title').focus(), 50);
 }
-function closeTodoAddModal() { document.getElementById('todo-add-modal').classList.add('hidden'); }
+function closeTodoAddModal() {
+  document.getElementById('todo-add-modal').classList.add('hidden');
+  // 清空表单
+  document.getElementById('todo-add-title').value = '';
+  document.getElementById('todo-add-due').value = '';
+  document.getElementById('todo-add-tags').value = '';
+  document.getElementById('todo-add-note').value = '';
+}
 async function submitTodoAdd() {
-  const text = document.getElementById('todo-add-input').value.trim();
-  if (!text) { alert('内容必填'); return; }
-  const r = await fetch('/api/todo', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})});
+  const text = document.getElementById('todo-add-title').value.trim();
+  if (!text) { alert('请输入任务标题'); return; }
+
+  const dueDate = document.getElementById('todo-add-due').value;
+  const tagsRaw = document.getElementById('todo-add-tags').value.trim();
+  const note = document.getElementById('todo-add-note').value.trim();
+
+  // 解析 tags 为数组（按逗号分割，trim，去空）
+  let tags = [];
+  if (tagsRaw) {
+    tags = tagsRaw.split(',').map(t => t.trim()).filter(t => t !== '');
+  }
+
+  const body = { text };
+  if (dueDate) body.due_date = dueDate;
+  if (tags.length > 0) body.tags = tags;
+  if (note) body.note = note;
+
+  const r = await fetch('/api/todo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
   if (!r.ok) { const b = await r.json().catch(() => ({})); alert('添加失败：' + (b.error || r.statusText)); return; }
   closeTodoAddModal();
   loadTodo();
@@ -485,6 +534,169 @@ async function widgetDrop(e, type, reloadFn) {
 // 初始化 todo 显示全部状态
 if (typeof window !== "undefined") {
   document.addEventListener("DOMContentLoaded", () => {
-    setTimeout(() => { initTodoShowAll(); loadTodo(); }, 100);
+    setTimeout(() => { loadTodo(); }, 100);
   });
+}
+
+// 展开 todo 行详情面板（点击行展开，再次点击收起）
+// 存储当前展开的行号
+let _expandedTodoLine = null;
+
+function toggleTodoExpand(el, lineNo) {
+    // 关闭已展开的
+    const existing = document.querySelector('.todo-detail-expanded');
+    if (existing) {
+        existing.remove();
+        if (_expandedTodoLine === lineNo) {
+            _expandedTodoLine = null;
+            return;
+        }
+    }
+
+    _expandedTodoLine = lineNo;
+
+    // 找到对应 item 数据
+    const itemData = findTodoItem(lineNo);
+    if (!itemData) return;
+
+    // 计算剩余天数
+    let dueInfo = '';
+    if (itemData.due_date) {
+        const daysLeft = daysUntil(itemData.due_date);
+        let statusText;
+        if (daysLeft < 0) {
+            statusText = `（已过期 ${Math.abs(daysLeft)} 天）`;
+        } else if (daysLeft === 0) {
+            statusText = '（今天）';
+        } else {
+            statusText = `（还有 ${daysLeft} 天）`;
+        }
+        dueInfo = `<div class="todo-detail-due">📅 截止：${itemData.due_date}${statusText}</div>`;
+    }
+
+    // 标签
+    let tagsInfo = '';
+    if (itemData.tags && itemData.tags.length) {
+        tagsInfo = `<div class="todo-detail-tags">标签：${itemData.tags.map(t => `<span class="todo-tag">#${esc(t)}</span>`).join(' ')}</div>`;
+    }
+
+    // 备注
+    let noteInfo = '';
+    if (itemData.note) {
+        noteInfo = `<div class="todo-detail-note"><div class="todo-detail-label">备注：</div><div class="todo-detail-note-text">${esc(itemData.note)}</div></div>`;
+    }
+
+    // 子任务
+    let childrenHtml = '';
+    if (itemData.children && itemData.children.length) {
+        childrenHtml = `<div class="todo-detail-children"><div class="todo-detail-label">子任务：</div>`;
+        for (const c of itemData.children) {
+            const cDue = c.due_date ? `📅 ${c.due_date.slice(5)}` : '';
+            childrenHtml += `<div class="todo-child-item">
+              <input type="checkbox" ${c.done?'checked':''} onchange="toggleTodo(${c.line_no}, this.checked)">
+              <span class="${c.done?'done':''}">${esc(c.text)}</span>
+              ${cDue ? `<span class="todo-due">${cDue}</span>` : ''}
+            </div>`;
+        }
+        childrenHtml += '</div>';
+    }
+
+    const detailHtml = `<div class="todo-detail-expanded">
+      <div class="todo-detail-content">
+        ${dueInfo}
+        ${tagsInfo}
+        ${noteInfo}
+        ${childrenHtml}
+      </div>
+    </div>`;
+
+    el.insertAdjacentHTML('afterend', detailHtml);
+}
+
+function findTodoItem(lineNo) {
+    if (!window._todoItems) return null;
+    for (const item of window._todoItems) {
+        if (item.line_no === lineNo) return item;
+        if (item.children) {
+            for (const child of item.children) {
+                if (child.line_no === lineNo) return child;
+            }
+        }
+    }
+    return null;
+}
+
+function daysUntil(dueDate) {
+    const due = new Date(dueDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    due.setHours(0, 0, 0, 0);
+    return Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+}
+
+// ===== Todo 过滤 & 排序(Task 11)=====
+// 状态：showDone=false 隐藏已完成；tag='overdue' 仅过期；其它空 = 全部未完成
+let _todoFilter = {
+    showDone: false,
+    tag: '',
+};
+
+// 循环切换：仅未完成 → 仅过期 → 全部 → 仅未完成
+function showTodoFilterMenu() {
+    if (!_todoFilter.showDone && !_todoFilter.tag) {
+        _todoFilter.tag = 'overdue';
+    } else if (_todoFilter.tag === 'overdue') {
+        _todoFilter.showDone = true;
+        _todoFilter.tag = '';
+    } else {
+        _todoFilter.showDone = false;
+        _todoFilter.tag = '';
+    }
+    loadTodo();
+}
+
+function getTodoFilterLabel() {
+    if (!_todoFilter.showDone && _todoFilter.tag === 'overdue') return '仅过期';
+    if (!_todoFilter.showDone) return '仅未完成';
+    return '全部';
+}
+
+// 扁平化树（保留 _depth 用于缩进），供 sortAndFilterItems 使用
+function flattenItems(items, depth) {
+    if (depth === undefined) depth = 0;
+    let result = [];
+    for (const item of items) {
+        result.push(Object.assign({}, item, { _depth: depth }));
+        if (item.children) {
+            result = result.concat(flattenItems(item.children, depth + 1));
+        }
+    }
+    return result;
+}
+
+// 按过期/日期排序 + 应用过滤（showDone / overdue tag）
+function sortAndFilterItems(items) {
+    const today = new Date().toISOString().split('T')[0];
+
+    let filtered = flattenItems(items).filter(item => {
+        if (!_todoFilter.showDone && item.done) return false;
+        if (_todoFilter.tag === 'overdue' && (!item.due_date || item.due_date >= today)) return false;
+        return true;
+    });
+
+    return filtered.sort((a, b) => {
+        const aOverdue = a.due_date && !a.done && a.due_date < today;
+        const bOverdue = b.due_date && !b.done && b.due_date < today;
+
+        if (aOverdue && !bOverdue) return -1;
+        if (!aOverdue && bOverdue) return 1;
+
+        if (a.due_date && b.due_date) {
+            return a.due_date.localeCompare(b.due_date);
+        }
+        if (a.due_date && !b.due_date) return -1;
+        if (!a.due_date && b.due_date) return 1;
+
+        return (a.line_no || 0) - (b.line_no || 0);
+    });
 }
