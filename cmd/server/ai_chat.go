@@ -92,6 +92,7 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 			tc.Result = ExecuteTool(
 				context.Background(),
 				s.db, s.expDB, s.execDB, s.agentDB,
+				s.linkDB, s.dirDB,
 				nil, // localShellState - pass nil for now
 				tc.Name, tc.Args,
 			)
