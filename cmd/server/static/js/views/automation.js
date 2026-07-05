@@ -270,9 +270,17 @@ function updateSchedSortIcon() {
   const icon = document.getElementById('sched-sort-icon');
   if (icon) {
     icon.textContent = dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
-    const dirs = { asc: '升序', desc: '降序', '': '默认' };
-    icon.title = dirs[dir] ? '最近执行' + (dirs[dir] === '默认' ? '，点击按时间排序' : '排列，点击切换') : '';
+    icon.title = '点击排序（下一档：' + nextSortLabel(SCHED_SORT_KEY) + '）';
   }
+}
+
+// 返回 sortKey 对应的"下一档"提示文字（用于 tooltip）
+const nextSortLabel = (key) => {
+  const prev = localStorage.getItem(key) || 'asc';
+  const next = prev === 'asc' ? 'desc' : prev === 'desc' ? '' : 'asc';
+  if (next === 'asc') return '↑ 升序';
+  if (next === 'desc') return '↓ 降序';
+  return '按时间排序';
 }
 
 // 切换定时任务表格排序方向（asc → desc → '' → asc）

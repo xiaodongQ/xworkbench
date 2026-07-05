@@ -265,7 +265,7 @@ func GetTools() []Tool {
 		// ── Web Links ────────────────────────────────────────────
 		{
 			Name:        "list_web_links",
-			Description: "列出所有收藏链接。",
+			Description: "列出所有收藏链接。返回格式：- [uuid] 名称 | URL，其中 [uuid] 是删除时需要的 ID。",
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {}
@@ -302,11 +302,11 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "delete_web_link",
-			Description: "删除一个收藏链接。",
+			Description: "删除一个收藏链接。id 必须是 list_web_links 返回的 [uuid] 格式 ID（不是名称）。",
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"id": {"type": "string", "description": "链接ID"}
+					"id": {"type": "string", "description": "链接ID，必须是 list_web_links 返回的 [uuid] 格式，不是链接名称"}
 				},
 				"required": ["id"]
 			}`),
