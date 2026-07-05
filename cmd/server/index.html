@@ -562,6 +562,9 @@
       [data-theme="dark"] .relay-panel .panel-doc-body { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
       .relay-panel .panel-doc.open .panel-doc-body { display: block; }
       .relay-panel .result-box { margin-top: 10px; padding: 10px; border-radius: 4px; background: rgba(0,0,0,0.05); font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow-y: auto; display: none; font-family: monospace; }
+      /* 终端风格代码块（xwcli 安装命令等），自适应明暗主题 */
+      .cmd-terminal { background: #0f172a; color: #22d3ee; font-family: monospace; font-size: 11px; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; cursor: pointer; min-height: 40px; }
+      [data-theme="light"] .cmd-terminal { background: #1e293b; color: #67e8f9; }
       .relay-panel .form-row { display: flex; gap: 10px; margin-top: 8px; }
       .relay-panel .form-row > div { flex: 1; }
       .relay-panel .form-row > div:first-child { flex: 0 0 150px; }
@@ -722,7 +725,7 @@
         <div style="background:var(--hover);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
           <div style="font-size:12px;font-weight:600;margin-bottom:6px">📥 分发 xwcli 到新机器</div>
           <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">在目标 Linux 机器运行以下命令安装并注册 xwcli agent：</div>
-          <div id="xwcli-install-cmd" style="background:#0f172a;color:#22d3ee;font-family:monospace;font-size:11px;padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-word;cursor:pointer;min-height:40px" title="点击复制" onclick="copyXwcliInstallCmd(this)"></div>
+          <div id="xwcli-install-cmd" class="cmd-terminal" title="点击复制" onclick="copyXwcliInstallCmd(this)"></div>
         </div>
         <div id="agents-table" style="font-size:12px">
           <div style="color:var(--text-secondary);padding:20px;text-align:center">加载中...</div>

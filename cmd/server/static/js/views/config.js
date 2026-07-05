@@ -597,12 +597,12 @@ function showSkillTest(name, btn) {
   const onEsc = e => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } };
   document.addEventListener('keydown', onEsc);
   overlay.innerHTML = `
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:360px;max-width:500px">
+    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:360px;max-width:500px">
       <h3 style="margin:0 0 4px;font-size:15px">测试 ${esc(name)}</h3>
       <p style="margin:0 0 12px;font-size:12px;color:var(--text-secondary)">请输入参数值</p>
       ${formHTML}
       <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-        <button onclick="document.getElementById('skill-test-overlay').remove()" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font-size:13px">取消</button>
+        <button onclick="document.getElementById('skill-test-overlay').remove()" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);cursor:pointer;font-size:13px">取消</button>
         <button onclick="executeSkillTestFromForm('${esc(name)}', this)" style="padding:6px 12px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">▶ 执行</button>
       </div>
     </div>`;
