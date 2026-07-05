@@ -522,7 +522,98 @@ if (typeof window !== "undefined") {
   });
 }
 
-// TODO: Task 9 implement full detail view
+// 展开 todo 行详情面板（点击行展开，再次点击收起）
+// 存储当前展开的行号
+let _expandedTodoLine = null;
+
 function toggleTodoExpand(el, lineNo) {
-    // Placeholder - full implementation in Task 9
+    // 关闭已展开的
+    const existing = document.querySelector('.todo-detail-expanded');
+    if (existing) {
+        existing.remove();
+        if (_expandedTodoLine === lineNo) {
+            _expandedTodoLine = null;
+            return;
+        }
+    }
+
+    _expandedTodoLine = lineNo;
+
+    // 找到对应 item 数据
+    const itemData = findTodoItem(lineNo);
+    if (!itemData) return;
+
+    // 计算剩余天数
+    let dueInfo = '';
+    if (itemData.due_date) {
+        const daysLeft = daysUntil(itemData.due_date);
+        let statusText;
+        if (daysLeft < 0) {
+            statusText = `（已过期 ${Math.abs(daysLeft)} 天）`;
+        } else if (daysLeft === 0) {
+            statusText = '（今天）';
+        } else {
+            statusText = `（还有 ${daysLeft} 天）`;
+        }
+        dueInfo = `<div class="todo-detail-due">📅 截止：${itemData.due_date}${statusText}</div>`;
+    }
+
+    // 标签
+    let tagsInfo = '';
+    if (itemData.tags && itemData.tags.length) {
+        tagsInfo = `<div class="todo-detail-tags">标签：${itemData.tags.map(t => `<span class="todo-tag">#${esc(t)}</span>`).join(' ')}</div>`;
+    }
+
+    // 备注
+    let noteInfo = '';
+    if (itemData.note) {
+        noteInfo = `<div class="todo-detail-note"><div class="todo-detail-label">备注：</div><div class="todo-detail-note-text">${esc(itemData.note)}</div></div>`;
+    }
+
+    // 子任务
+    let childrenHtml = '';
+    if (itemData.children && itemData.children.length) {
+        childrenHtml = `<div class="todo-detail-children"><div class="todo-detail-label">子任务：</div>`;
+        for (const c of itemData.children) {
+            const cDue = c.due_date ? `📅 ${c.due_date.slice(5)}` : '';
+            childrenHtml += `<div class="todo-child-item">
+              <input type="checkbox" ${c.done?'checked':''} onchange="toggleTodo(${c.line_no}, this.checked)">
+              <span class="${c.done?'done':''}">${esc(c.text)}</span>
+              ${cDue ? `<span class="todo-due">${cDue}</span>` : ''}
+            </div>`;
+        }
+        childrenHtml += '</div>';
+    }
+
+    const detailHtml = `<div class="todo-detail-expanded">
+      <div class="todo-detail-content">
+        ${dueInfo}
+        ${tagsInfo}
+        ${noteInfo}
+        ${childrenHtml}
+      </div>
+    </div>`;
+
+    el.insertAdjacentHTML('afterend', detailHtml);
+}
+
+function findTodoItem(lineNo) {
+    if (!window._todoItems) return null;
+    for (const item of window._todoItems) {
+        if (item.line_no === lineNo) return item;
+        if (item.children) {
+            for (const child of item.children) {
+                if (child.line_no === lineNo) return child;
+            }
+        }
+    }
+    return null;
+}
+
+function daysUntil(dueDate) {
+    const due = new Date(dueDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    due.setHours(0, 0, 0, 0);
+    return Math.ceil((due - today) / (1000 * 60 * 60 * 24));
 }
