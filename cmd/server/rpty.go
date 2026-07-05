@@ -243,7 +243,7 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 
 	// 请求 PTY
 	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,
+		ssh.ECHO:          1, // 保留服务器 echo，但 xterm.js 也做本地 echo，双写可通过前端去重解决
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 	}

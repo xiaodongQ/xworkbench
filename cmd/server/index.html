@@ -48,23 +48,23 @@
     <div class="nav-item" data-tab="tasks" onclick="switchTab('tasks')" data-tooltip="任务&#10;手动创建的工作项（待认领/进行中/已完成）&#10;可查看 / 认领 / 归档">
       <span class="nav-icon">📋</span><span class="nav-text">手动任务</span>
     </div>
-    <div class="nav-item" data-tab="experiences" onclick="switchTab('experiences')" data-tooltip="经验库&#10;模块化最佳实践&#10;关键词/日志路径/工具命令/适用场景">
-      <span class="nav-icon">📚</span><span class="nav-text">经验库</span>
-    </div>
     <div class="nav-item" data-tab="automation" onclick="switchTab('automation')" data-tooltip="自动化&#10;定时任务（cron）+ 调度器启停&#10;AI CLI（claude/cbc/shell）定时执行">
       <span class="nav-icon">⚡</span><span class="nav-text">自动化</span>
+    </div>
+    <div class="nav-item" data-tab="experiences" onclick="switchTab('experiences')" data-tooltip="经验库&#10;模块化最佳实践&#10;关键词/日志路径/工具命令/适用场景">
+      <span class="nav-icon">📚</span><span class="nav-text">经验库</span>
     </div>
     <div class="nav-item" data-tab="relay" onclick="switchTab('relay')" data-tooltip="代理&#10;命令执行 / HTTP 代理转发&#10;跨平台操作桥梁">
       <span class="nav-icon">🔀</span><span class="nav-text">代理</span>
     </div>
-    <div class="nav-item" data-tab="config" onclick="switchTab('config')" data-tooltip="系统配置&#10;导入 / 导出 / 默认设置&#10;快捷 / 经验 / 任务 / 默认 CLI">
-      <span class="nav-icon">⚙️</span><span class="nav-text">系统配置</span>
+    <div class="nav-item" data-tab="rterm" onclick="switchTab('rterm')" data-tooltip="远程终端&#10;Web 内嵌 SSH 交互式终端&#10;通过 dir shortcut 连接远程主机">
+      <span class="nav-icon">🖥️</span><span class="nav-text">远程终端</span>
     </div>
     <div class="nav-item" data-tab="aichat" onclick="switchTab('aichat')" data-tooltip="AI 助手&#10;对话管理任务/目录/经验库&#10;终端式 Claude/CBC/shell 交互">
       <span class="nav-icon">🤖</span><span class="nav-text">AI 助手</span>
     </div>
-    <div class="nav-item" data-tab="rterm" onclick="switchTab('rterm')" data-tooltip="远程终端&#10;Web 内嵌 SSH 交互式终端&#10;通过 dir shortcut 连接远程主机">
-      <span class="nav-icon">🖥️</span><span class="nav-text">远程终端</span>
+    <div class="nav-item" data-tab="config" onclick="switchTab('config')" data-tooltip="系统配置&#10;导入 / 导出 / 默认设置&#10;快捷 / 经验 / 任务 / 默认 CLI">
+      <span class="nav-icon">⚙️</span><span class="nav-text">系统配置</span>
     </div>
     <!-- 目录区（紧邻 AI 助手，带抬头 + 轻框区分） -->
     <div class="dir-section" id="dir-section">
@@ -797,7 +797,7 @@
       <div class="form-group" style="position:relative">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <input type="checkbox" id="task-goal-mode" style="width:16px;height:16px;cursor:pointer">
-          <span>🤖 Goal 目标模式</span>
+          <span style="font-size:12px">🤖 Goal 目标模式</span>
           <span class="field-hint">自主多轮迭代，适合大型重构</span>
           <span class="info-btn" onclick="toggleGoalInfo(event)" title="查看说明">ⓘ</span>
         </div>
