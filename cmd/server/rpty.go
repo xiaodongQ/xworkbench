@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -169,7 +170,11 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 构建 SSH 地址
-	addr := dir.RemoteHost
+	port := dir.RemotePort
+	if port == "" {
+		port = "22"
+	}
+	addr := net.JoinHostPort(dir.RemoteHost, port)
 	user := dir.RemoteUser
 	if user == "" {
 		user = "root"

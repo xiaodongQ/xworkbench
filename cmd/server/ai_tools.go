@@ -735,6 +735,7 @@ func execCreateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 		Type        string `json:"type"`
 		Path        string `json:"path"`
 		RemoteHost  string `json:"remote_host"`
+		RemotePort  string `json:"remote_port"`
 		RemoteUser  string `json:"remote_user"`
 		RemotePath  string `json:"remote_path"`
 		AuthMethod  string `json:"auth_method"`
@@ -757,6 +758,7 @@ func execCreateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 		Type:           args.Type,
 		Path:           args.Path,
 		RemoteHost:     args.RemoteHost,
+		RemotePort:     args.RemotePort,
 		RemoteUser:     args.RemoteUser,
 		RemotePath:     args.RemotePath,
 		AuthMethod:     args.AuthMethod,

@@ -1574,6 +1574,7 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		SortOrder      int    `json:"sort_order"`
 		Type           string `json:"type"`
 		RemoteHost     string `json:"remote_host"`
+		RemotePort     string `json:"remote_port"`
 		RemoteUser     string `json:"remote_user"`
 		RemotePath     string `json:"remote_path"`
 		RemotePassword string `json:"remote_password"`
@@ -1590,6 +1591,7 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		"path", req.Path,
 		"type", req.Type,
 		"remote_host", req.RemoteHost,
+		"remote_port", req.RemotePort,
 		"remote_user", req.RemoteUser,
 		"remote_path", req.RemotePath,
 	)
@@ -1638,6 +1640,7 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 		SortOrder      int    `json:"sort_order"`
 		Type           string `json:"type"`
 		RemoteHost     string `json:"remote_host"`
+		RemotePort     string `json:"remote_port"`
 		RemoteUser     string `json:"remote_user"`
 		RemotePath     string `json:"remote_path"`
 		RemotePassword string `json:"remote_password"`
@@ -1656,6 +1659,7 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 		SortOrder:      req.SortOrder,
 		Type:           req.Type,
 		RemoteHost:     req.RemoteHost,
+		RemotePort:     req.RemotePort,
 		RemoteUser:     req.RemoteUser,
 		RemotePath:     req.RemotePath,
 		RemotePassword: req.RemotePassword,

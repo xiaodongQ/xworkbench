@@ -451,6 +451,7 @@ func migrateDirShortcutsColumns(db *sql.DB) error {
 	add := []struct{ n, d string }{
 		{"type", "type TEXT DEFAULT 'local'"},
 		{"remote_host", "remote_host TEXT"},
+		{"remote_port", "remote_port TEXT"},
 		{"remote_user", "remote_user TEXT"},
 		{"remote_path", "remote_path TEXT"},
 		{"remote_password", "remote_password TEXT"},
