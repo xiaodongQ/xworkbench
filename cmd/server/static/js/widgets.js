@@ -388,8 +388,9 @@ function initTodoShowAll() {
   el.style.opacity = showAll ? '1' : '0.5';
 }
 // 渲染单个 todo item（递归处理 children 子项）
+// _depth 是从扁平化过滤排序传入的层级（保留缩进），定义后跳过递归（避免重复渲染）
 function renderTodoItem(i, indent) {
-  if (indent === undefined) indent = 0;
+  if (indent === undefined) indent = (i._depth !== undefined ? i._depth : 0);
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = i.due_date && !i.done && i.due_date < today;
   const dueLabel = i.due_date ? i.due_date.slice(5) : ''; // MM-DD 格式
@@ -410,8 +411,8 @@ function renderTodoItem(i, indent) {
   <span class="todo-del" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no})" title="删除">×</span>
 </div>`;
 
-  // 递归渲染子项
-  if (i.children && i.children.length) {
+  // 递归渲染子项 - 如果 _depth 已设置（扁平化渲染），跳过递归（避免重复）
+  if (i._depth === undefined && i.children && i.children.length) {
     for (const child of i.children) {
       html += renderTodoItem(child, indent + 1);
     }
@@ -420,13 +421,16 @@ function renderTodoItem(i, indent) {
 }
 
 async function loadTodo() {
-  const showAll = document.getElementById('todo-show-all-icon')?.textContent === '☑';
   const data = await fetchJSON('/api/todo');
   const el = document.getElementById('todo-list');
   if (!data.path) { el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">未配置 todo.md 路径，点击"设置"</div>'; return; }
-  const items = showAll ? (data.items || []) : (data.items || []).filter(i => !i.done);
+  // 应用过滤 + 排序（基于 _todoFilter 状态）
+  const items = sortAndFilterItems(data.items || []);
   // 保存数据供展开详情用
   window._todoItems = items;
+  // 更新过滤按钮文字（全部模式显示 🔍，其它模式显示 🔍*）
+  const filterBtn = document.getElementById('todo-filter-btn');
+  if (filterBtn) filterBtn.textContent = getTodoFilterLabel() === '全部' ? '🔍' : '🔍*';
   if (items.length === 0) { el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">' + esc(data.path) + ' 无 todo 项</div>'; return; }
   let html = '';
   for (const item of items) {
@@ -646,4 +650,71 @@ function daysUntil(dueDate) {
     today.setHours(0, 0, 0, 0);
     due.setHours(0, 0, 0, 0);
     return Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+}
+
+// ===== Todo 过滤 & 排序(Task 11)=====
+// 状态：showDone=false 隐藏已完成；tag='overdue' 仅过期；其它空 = 全部未完成
+let _todoFilter = {
+    showDone: false,
+    tag: '',
+};
+
+// 循环切换：仅未完成 → 仅过期 → 全部 → 仅未完成
+function showTodoFilterMenu() {
+    if (!_todoFilter.showDone && !_todoFilter.tag) {
+        _todoFilter.tag = 'overdue';
+    } else if (_todoFilter.tag === 'overdue') {
+        _todoFilter.showDone = true;
+        _todoFilter.tag = '';
+    } else {
+        _todoFilter.showDone = false;
+        _todoFilter.tag = '';
+    }
+    loadTodo();
+}
+
+function getTodoFilterLabel() {
+    if (!_todoFilter.showDone && _todoFilter.tag === 'overdue') return '仅过期';
+    if (!_todoFilter.showDone) return '仅未完成';
+    return '全部';
+}
+
+// 扁平化树（保留 _depth 用于缩进），供 sortAndFilterItems 使用
+function flattenItems(items, depth) {
+    if (depth === undefined) depth = 0;
+    let result = [];
+    for (const item of items) {
+        result.push(Object.assign({}, item, { _depth: depth }));
+        if (item.children) {
+            result = result.concat(flattenItems(item.children, depth + 1));
+        }
+    }
+    return result;
+}
+
+// 按过期/日期排序 + 应用过滤（showDone / overdue tag）
+function sortAndFilterItems(items) {
+    const today = new Date().toISOString().split('T')[0];
+
+    let filtered = flattenItems(items).filter(item => {
+        if (!_todoFilter.showDone && item.done) return false;
+        if (_todoFilter.tag === 'overdue' && (!item.due_date || item.due_date >= today)) return false;
+        return true;
+    });
+
+    return filtered.sort((a, b) => {
+        const aOverdue = a.due_date && !a.done && a.due_date < today;
+        const bOverdue = b.due_date && !b.done && b.due_date < today;
+
+        if (aOverdue && !bOverdue) return -1;
+        if (!aOverdue && bOverdue) return 1;
+
+        if (a.due_date && b.due_date) {
+            return a.due_date.localeCompare(b.due_date);
+        }
+        if (a.due_date && !b.due_date) return -1;
+        if (!a.due_date && b.due_date) return 1;
+
+        return (a.line_no || 0) - (b.line_no || 0);
+    });
 }
