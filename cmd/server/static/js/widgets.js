@@ -521,3 +521,8 @@ if (typeof window !== "undefined") {
     setTimeout(() => { initTodoShowAll(); loadTodo(); }, 100);
   });
 }
+
+// TODO: Task 9 implement full detail view
+function toggleTodoExpand(el, lineNo) {
+    // Placeholder - full implementation in Task 9
+}
