@@ -2292,7 +2292,7 @@ func todoPath() string {
 func (s *APIServer) handleTodo(w http.ResponseWriter, r *http.Request) {
 	path := todoPath()
 	if path == "" {
-		writeJSON(w, map[string]any{"path": "", "items": []todo.Item{}})
+		writeJSON(w, map[string]any{"path": "", "items": []*todo.Item{}})
 		return
 	}
 	items, err := todo.ReadAndParse(path)
@@ -2301,7 +2301,7 @@ func (s *APIServer) handleTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if items == nil {
-		items = []todo.Item{}
+		items = []*todo.Item{}
 	}
 	writeJSON(w, map[string]any{"path": path, "items": items})
 }
@@ -2326,10 +2326,12 @@ func (s *APIServer) handleTodoToggle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// 展平为扁平列表用于按 line_no 查找并回写
+	flat := todo.Flatten(items)
 	var found bool
-	for i := range items {
-		if items[i].LineNo == lineNo {
-			items[i].Done = req.Done
+	for i := range flat {
+		if flat[i].LineNo == lineNo {
+			flat[i].Done = req.Done
 			found = true
 			break
 		}
@@ -2338,7 +2340,7 @@ func (s *APIServer) handleTodoToggle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "line not found")
 		return
 	}
-	if err := todo.ToggleAndWrite(path, items); err != nil {
+	if err := todo.ToggleAndWrite(path, flat); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

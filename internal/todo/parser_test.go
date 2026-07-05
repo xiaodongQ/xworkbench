@@ -107,6 +107,123 @@ func TestReadAndParse_NonExist(t *testing.T) {
 	}
 }
 
+func TestBuildTree(t *testing.T) {
+	items := []*Item{
+		{LineNo: 1, Indent: "", Text: "任务1"},
+		{LineNo: 2, Indent: "  ", Text: "子任务1.1"},
+		{LineNo: 3, Indent: "    ", Text: "子任务1.1.1"},
+		{LineNo: 4, Indent: "  ", Text: "子任务1.2"},
+		{LineNo: 5, Indent: "", Text: "任务2"},
+	}
+
+	tree := BuildTree(items)
+
+	if len(tree) != 2 {
+		t.Fatalf("expected 2 root items, got %d", len(tree))
+	}
+	if len(tree[0].Children) != 2 {
+		t.Fatalf("expected 2 children for task1, got %d", len(tree[0].Children))
+	}
+	if len(tree[0].Children[0].Children) != 1 {
+		t.Fatalf("expected 1 child for subtask 1.1, got %d", len(tree[0].Children[0].Children))
+	}
+	if tree[0].Text != "任务1" {
+		t.Errorf("expected first root '任务1', got %q", tree[0].Text)
+	}
+	if tree[0].Children[0].Text != "子任务1.1" {
+		t.Errorf("expected first child '子任务1.1', got %q", tree[0].Children[0].Text)
+	}
+	if tree[0].Children[0].Children[0].Text != "子任务1.1.1" {
+		t.Errorf("expected grandchild '子任务1.1.1', got %q", tree[0].Children[0].Children[0].Text)
+	}
+	if tree[0].Children[1].Text != "子任务1.2" {
+		t.Errorf("expected second child '子任务1.2', got %q", tree[0].Children[1].Text)
+	}
+	if tree[1].Text != "任务2" {
+		t.Errorf("expected second root '任务2', got %q", tree[1].Text)
+	}
+	if len(tree[1].Children) != 0 {
+		t.Errorf("expected no children for task2, got %d", len(tree[1].Children))
+	}
+}
+
+func TestBuildTree_Empty(t *testing.T) {
+	if got := BuildTree(nil); got != nil {
+		t.Errorf("BuildTree(nil) = %v, want nil", got)
+	}
+	if got := BuildTree([]*Item{}); len(got) != 0 {
+		t.Errorf("BuildTree([]) len = %d, want 0", len(got))
+	}
+}
+
+func TestBuildTree_SingleLevel(t *testing.T) {
+	// 全部同级，应全部为根，Children 为空
+	items := []*Item{
+		{LineNo: 1, Indent: "", Text: "a"},
+		{LineNo: 2, Indent: "", Text: "b"},
+		{LineNo: 3, Indent: "", Text: "c"},
+	}
+	tree := BuildTree(items)
+	if len(tree) != 3 {
+		t.Fatalf("expected 3 roots, got %d", len(tree))
+	}
+	for i, it := range tree {
+		if len(it.Children) != 0 {
+			t.Errorf("tree[%d].Children len = %d, want 0", i, len(it.Children))
+		}
+	}
+}
+
+func TestReadAndParse_BuildsTree(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "todo.md")
+	content := "- [ ] 父任务1\n  - [ ] 子任务1.1\n    - [ ] 孙任务\n  - [x] 子任务1.2\n- [ ] 父任务2\n"
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	tree, err := ReadAndParse(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tree) != 2 {
+		t.Fatalf("expected 2 roots, got %d", len(tree))
+	}
+	if tree[0].Text != "父任务1" || len(tree[0].Children) != 2 {
+		t.Errorf("tree[0] = %+v, want 父任务1 with 2 children", tree[0])
+	}
+	if tree[0].Children[0].Text != "子任务1.1" || len(tree[0].Children[0].Children) != 1 {
+		t.Errorf("tree[0].Children[0] = %+v", tree[0].Children[0])
+	}
+	if tree[0].Children[0].Children[0].Text != "孙任务" {
+		t.Errorf("grandchild text = %q, want 孙任务", tree[0].Children[0].Children[0].Text)
+	}
+	if !tree[0].Children[1].Done {
+		t.Errorf("子任务1.2 should be done")
+	}
+}
+
+func TestFlatten(t *testing.T) {
+	items := []*Item{
+		{LineNo: 1, Indent: "", Text: "a"},
+		{LineNo: 2, Indent: "  ", Text: "a1"},
+		{LineNo: 3, Indent: "    ", Text: "a1a"},
+		{LineNo: 4, Indent: "  ", Text: "a2"},
+		{LineNo: 5, Indent: "", Text: "b"},
+	}
+	tree := BuildTree(items)
+	flat := Flatten(tree)
+	if len(flat) != 5 {
+		t.Fatalf("Flatten len = %d, want 5", len(flat))
+	}
+	want := []string{"a", "a1", "a1a", "a2", "b"}
+	for i, w := range want {
+		if flat[i].Text != w {
+			t.Errorf("flat[%d].Text = %q, want %q", i, flat[i].Text, w)
+		}
+	}
+}
+
 func TestToggleAndWrite(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "todo.md")
@@ -115,8 +232,9 @@ func TestToggleAndWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	items, _ := ReadAndParse(p)
-	items[0].Done = true
-	if err := ToggleAndWrite(p, items); err != nil {
+	flat := Flatten(items)
+	flat[0].Done = true
+	if err := ToggleAndWrite(p, flat); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(p)

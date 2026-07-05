@@ -120,8 +120,52 @@ func parseMetadata(text string) (string, string, []string) {
 	return strings.TrimSpace(text), dueDate, tags
 }
 
-// ReadAndParse 读文件 + 解析。文件不存在返回 (nil, nil)。
-func ReadAndParse(path string) ([]Item, error) {
+// BuildTree 将扁平 Item 列表按缩进构建为父子树结构。
+// level 由 len(Indent)/2 推导（每级缩进 2 空格）。返回的 slice 是原 items 的子集（根节点）。
+func BuildTree(items []*Item) []*Item {
+	if len(items) == 0 {
+		return items
+	}
+
+	var roots []*Item
+	var stack []*Item
+
+	for _, item := range items {
+		level := len(item.Indent) / 2
+
+		for len(stack) > level {
+			stack = stack[:len(stack)-1]
+		}
+
+		if len(stack) == 0 {
+			roots = append(roots, item)
+		} else {
+			parent := stack[len(stack)-1]
+			parent.Children = append(parent.Children, item)
+		}
+
+		stack = append(stack, item)
+	}
+
+	return roots
+}
+
+// Flatten 将树结构（深度优先）展平为扁平列表。
+// 供 ToggleAndWrite 等需要扁平 LineNo 的函数使用。
+func Flatten(items []*Item) []Item {
+	var out []Item
+	for _, it := range items {
+		if it == nil {
+			continue
+		}
+		out = append(out, *it)
+		out = append(out, Flatten(it.Children)...)
+	}
+	return out
+}
+
+// ReadAndParse 读文件 + 解析 + 构建树。文件不存在返回 (nil, nil)。
+func ReadAndParse(path string) ([]*Item, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -129,7 +173,13 @@ func ReadAndParse(path string) ([]Item, error) {
 		}
 		return nil, err
 	}
-	return Parse(string(data)), nil
+	flat := Parse(string(data))
+	// 转指针列表以便 BuildTree 设置 Children
+	ptrs := make([]*Item, len(flat))
+	for i := range flat {
+		ptrs[i] = &flat[i]
+	}
+	return BuildTree(ptrs), nil
 }
 
 // ToggleAndWrite 把 items 的 Done 状态写回文件（先 .bak 再 atomic rename）。

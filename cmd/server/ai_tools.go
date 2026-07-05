@@ -1146,10 +1146,11 @@ func execListTodos(ctx context.Context, argsJSON string) string {
 	if path == "" {
 		return "⚠️ Todo 路径未配置（todo_md_path）"
 	}
-	items, err := todo.ReadAndParse(path)
+	tree, err := todo.ReadAndParse(path)
 	if err != nil {
 		return fmt.Sprintf("读取 Todo 失败: %v", err)
 	}
+	items := todo.Flatten(tree)
 	if len(items) == 0 {
 		return "📝 Todo 列表为空"
 	}
@@ -1193,15 +1194,18 @@ func execToggleTodo(ctx context.Context, argsJSON string) string {
 	if path == "" {
 		return "⚠️ Todo 路径未配置（todo_md_path）"
 	}
-	items, err := todo.ReadAndParse(path)
+	tree, err := todo.ReadAndParse(path)
 	if err != nil {
 		return fmt.Sprintf("读取失败: %v", err)
 	}
+	items := todo.Flatten(tree)
 	var found bool
+	var foundIdx int
 	for i := range items {
 		if items[i].LineNo == args.LineNo {
 			items[i].Done = args.Done
 			found = true
+			foundIdx = i
 			break
 		}
 	}
@@ -1215,7 +1219,7 @@ func execToggleTodo(ctx context.Context, argsJSON string) string {
 	if !args.Done {
 		status = "未完成"
 	}
-	return fmt.Sprintf("✅ 已标记为 [%s]: %s", status, items[args.LineNo-1].Text)
+	return fmt.Sprintf("✅ 已标记为 [%s]: %s", status, items[foundIdx].Text)
 }
 
 func execDeleteTodo(ctx context.Context, argsJSON string) string {
