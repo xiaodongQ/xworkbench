@@ -3,6 +3,7 @@ package todo
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -26,6 +27,26 @@ not a todo
 	}
 	if got[2].Text != "改 PR" || !got[2].Done {
 		t.Errorf("got[2] = %+v", got[2])
+	}
+}
+
+func TestParseMetadata(t *testing.T) {
+	tests := []struct {
+		input   string
+		expText string
+		expDue  string
+		expTags []string
+	}{
+		{"买牛奶 due:2026-07-08", "买牛奶", "2026-07-08", nil},
+		{"购物 tags:personal,shopping", "购物", "", []string{"personal", "shopping"}},
+		{"任务 due:2026-07-10 tags:work,urgent", "任务", "2026-07-10", []string{"work", "urgent"}},
+		{"普通任务", "普通任务", "", nil},
+	}
+	for _, tt := range tests {
+		text, due, tags := parseMetadata(tt.input)
+		if text != tt.expText || due != tt.expDue || !reflect.DeepEqual(tags, tt.expTags) {
+			t.Errorf("parseMetadata(%q) = (%q, %q, %v), want (%q, %q, %v)", tt.input, text, due, tags, tt.expText, tt.expDue, tt.expTags)
+		}
 	}
 }
 

@@ -6,14 +6,19 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Item 单个待办项。
 type Item struct {
-	LineNo int    `json:"line_no"` // 1-based
-	Indent string `json:"indent"`
-	Done   bool   `json:"done"`
-	Text   string `json:"text"`
+	LineNo   int      `json:"line_no"` // 1-based
+	Indent   string   `json:"indent"`
+	Done     bool     `json:"done"`
+	Text     string   `json:"text"`
+	DueDate  string   `json:"due_date,omitempty"` // "YYYY-MM-DD"，""=未设
+	Tags     []string `json:"tags,omitempty"`
+	Note     string   `json:"note,omitempty"`
+	Children []*Item  `json:"children,omitempty"` // 前端用，不写入文件
 }
 
 var itemRe = regexp.MustCompile(`^(\s*)-\s+\[( |x|X)\]\s+(.+)$`)
@@ -26,14 +31,49 @@ func Parse(content string) []Item {
 		if m == nil {
 			continue
 		}
+		text, dueDate, tags := parseMetadata(m[3])
 		items = append(items, Item{
-			LineNo: i + 1,
-			Indent: m[1],
-			Done:   m[2] != " ",
-			Text:   m[3],
+			LineNo:  i + 1,
+			Indent:  m[1],
+			Done:    m[2] != " ",
+			Text:    text,
+			DueDate: dueDate,
+			Tags:    tags,
 		})
 	}
 	return items
+}
+
+// parseMetadata 从文本末尾提取 due: 和 tags: 元数据，返回 (cleanText, dueDate, tags)。
+func parseMetadata(text string) (string, string, []string) {
+	var dueDate string
+	var tags []string
+
+	// 提取 due:YYYY-MM-DD 或 due:MM-DD
+	if dueRe := regexp.MustCompile(`\s+due:(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})\b`); dueRe.MatchString(text) {
+		match := dueRe.FindStringSubmatch(text)
+		dueDate = match[1]
+		// 如果是 MM-DD 格式，补上当前年份
+		if len(dueDate) == 5 {
+			dueDate = fmt.Sprintf("%d-%s", time.Now().Year(), dueDate)
+		}
+		// 从原文中移除 due:... 部分
+		text = dueRe.ReplaceAllString(text, "")
+	}
+
+	// 提取 tags:tag1,tag2
+	if tagsRe := regexp.MustCompile(`\s+tags:([\w,]+)`); tagsRe.MatchString(text) {
+		match := tagsRe.FindStringSubmatch(text)
+		for _, t := range strings.Split(match[1], ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				tags = append(tags, t)
+			}
+		}
+		text = tagsRe.ReplaceAllString(text, "")
+	}
+
+	return strings.TrimSpace(text), dueDate, tags
 }
 
 // ReadAndParse 读文件 + 解析。文件不存在返回 (nil, nil)。
