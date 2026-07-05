@@ -85,11 +85,17 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	}
 	logger.Infow("handleAIChat: response received", "provider", cfg.AIChat.ActiveProvider, "contentLen", len(resp.Message.Content), "toolCalls", len(resp.ToolCalls))
 
-	// Execute tool calls if present
+	// Multi-round tool calling: keep looping until AI stops calling tools
 	refreshWidgets := make(map[string]bool)
-	if len(resp.ToolCalls) > 0 {
+	maxRounds := 20
+	for round := 0; round < maxRounds; round++ {
+		if len(resp.ToolCalls) == 0 {
+			break
+		}
+		logger.Infow("handleAIChat: round start", "round", round+1, "toolCount", len(resp.ToolCalls))
 		for i := range resp.ToolCalls {
 			tc := &resp.ToolCalls[i]
+			logger.Infow("handleAIChat: tool call", "round", round+1, "tool", tc.Name, "args", tc.Args)
 			tc.Result = ExecuteTool(
 				context.Background(),
 				s.db, s.expDB, s.execDB, s.agentDB,
@@ -97,6 +103,12 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 				nil, // localShellState - pass nil for now
 				tc.Name, tc.Args,
 			)
+			// Truncate result for logging if too long
+			resultPreview := tc.Result
+			if len(resultPreview) > 200 {
+				resultPreview = resultPreview[:200] + "..."
+			}
+			logger.Infow("handleAIChat: tool result", "round", round+1, "tool", tc.Name, "result", resultPreview)
 			// Track widget refresh needs (same list as config.js import)
 			switch tc.Name {
 			case "create_web_link", "delete_web_link", "update_web_link":
@@ -118,13 +130,16 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 				Content: string(toolResultContent),
 			})
 		}
-		// Continue conversation with tool results
-		resp, err = provider.Chat(context.Background(), req.Messages, nil)
+		// Continue conversation with tool results — keep tools enabled for next round
+		resp, err = provider.Chat(context.Background(), req.Messages, tools)
 		if err != nil {
+			logger.Errorw("handleAIChat: tool result feedback failed", "round", round+1, "err", err)
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		logger.Infow("handleAIChat: round end", "round", round+1, "contentLen", len(resp.Message.Content), "toolCalls", len(resp.ToolCalls))
 	}
+	logger.Infow("handleAIChat: final response", "contentLen", len(resp.Message.Content))
 
 	// Build refresh list
 	refreshList := make([]string, 0, len(refreshWidgets))
