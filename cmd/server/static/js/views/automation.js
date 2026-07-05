@@ -639,6 +639,8 @@ let currentExecId = null;
 
 async function viewExecutionDetail(id) {
   currentExecId = id;
+  // 清除继续对话反馈条带，切换执行时不应带过去
+  document.getElementById('continue-feedback-strip')?.remove();
   // 立刻重置继续对话按钮状态,避免上一次 viewExecutionDetail 留下的
   // disabled + 误导性 tooltip 在 fetch 完成前被用户 hover 看到。
   const cbInit = document.getElementById('exec-continue-btn');
@@ -838,7 +840,7 @@ async function submitContinue() {
     loadRecentExecutions();
     // 不立即关 modal：用户刚发的 prompt 重要，要让用户看到反馈。
     // 在 modal 顶部插入一条反馈条带（包含新 exec ID + 点击跳转详情）。
-    _showContinueFeedback(execId, newExecId, prompt);
+    _showContinueFeedback(newExecId, prompt);
     // 刷新 exec-detail-modal 里的对话历史 timeline（修 bug：之前只刷 task-modal，
     // exec-detail-modal 的 timeline 一直停留，跑到结束 modal 重开才"出现"，体验割裂）。
     if (typeof loadExecConversation === 'function') {
@@ -864,10 +866,7 @@ async function submitContinue() {
 // _showContinueFeedback 在 exec-detail-modal 顶部插入一条反馈条带，
 // 告诉用户“你刚发的 prompt 是什么 / 产生的新执行 ID / 点此跳详情”。
 // 这解决了之前 closeExecDetailModal 后用户丢失上下文的 UX 问题。
-function _showContinueFeedback(continuedExecId, newExecId, promptText) {
-  // 只在当前查看的 exec 与新提交的一致时才显示反馈条带
-  // 切换到其他 exec 时旧条带自动失效，不应带过去
-  if (currentExecId !== continuedExecId) return;
+function _showContinueFeedback(newExecId, promptText) {
   // 移除旧条带（如果有）
   const old = document.getElementById('continue-feedback-strip');
   if (old) old.remove();
