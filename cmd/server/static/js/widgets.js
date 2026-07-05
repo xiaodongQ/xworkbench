@@ -369,24 +369,6 @@ function deleteDir(id) {
 }
 
 // ===== 待办（支持增删 + 勾选） =====
-const TODO_SHOW_ALL_KEY = 'todo.showAll';
-function toggleTodoShowAll() {
-  const el = document.getElementById('todo-show-all-icon');
-  const active = el.textContent === '☑';
-  const newActive = !active;
-  el.textContent = newActive ? '☑' : '☐';
-  el.style.opacity = newActive ? '1' : '0.5';
-  localStorage.setItem(TODO_SHOW_ALL_KEY, newActive ? 'true' : 'false');
-  loadTodo();
-}
-function initTodoShowAll() {
-  const el = document.getElementById('todo-show-all-icon');
-  if (!el) return;
-  const saved = localStorage.getItem(TODO_SHOW_ALL_KEY);
-  const showAll = saved === 'true';
-  el.textContent = showAll ? '☑' : '☐';
-  el.style.opacity = showAll ? '1' : '0.5';
-}
 // 渲染单个 todo item（递归处理 children 子项）
 // _depth 是从扁平化过滤排序传入的层级（保留缩进），定义后跳过递归（避免重复渲染）
 function renderTodoItem(i, indent) {
@@ -552,7 +534,7 @@ async function widgetDrop(e, type, reloadFn) {
 // 初始化 todo 显示全部状态
 if (typeof window !== "undefined") {
   document.addEventListener("DOMContentLoaded", () => {
-    setTimeout(() => { initTodoShowAll(); loadTodo(); }, 100);
+    setTimeout(() => { loadTodo(); }, 100);
   });
 }
 
