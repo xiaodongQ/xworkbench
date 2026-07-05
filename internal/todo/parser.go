@@ -182,7 +182,27 @@ func ReadAndParse(path string) ([]*Item, error) {
 	return BuildTree(ptrs), nil
 }
 
-// ToggleAndWrite 把 items 的 Done 状态写回文件（先 .bak 再 atomic rename）。
+// itemToLine 将 Item 转换回 Markdown 行，保留 due_date、tags 元数据。
+// note 行（`> ...`）不从此函数输出，由调用方在追加时单独处理。
+func itemToLine(item *Item) string {
+	done := " "
+	if item.Done {
+		done = "x"
+	}
+
+	text := item.Text
+	if item.DueDate != "" {
+		text += " due:" + item.DueDate
+	}
+	if len(item.Tags) > 0 {
+		text += " tags:" + strings.Join(item.Tags, ",")
+	}
+
+	return fmt.Sprintf("%s- [%s] %s", item.Indent, done, text)
+}
+
+// ToggleAndWrite 把 items 写回文件（先 .bak 再 atomic rename）。
+// 用 itemToLine 重新生成目标行，保留 due_date / tags。
 func ToggleAndWrite(path string, items []Item) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -193,22 +213,20 @@ func ToggleAndWrite(path string, items []Item) error {
 		if it.LineNo < 1 || it.LineNo > len(lines) {
 			return fmt.Errorf("line_no %d out of range", it.LineNo)
 		}
-		marker := " "
-		if it.Done {
-			marker = "x"
-		}
-		lines[it.LineNo-1] = it.Indent + "- [" + marker + "] " + it.Text
+		lines[it.LineNo-1] = itemToLine(&it)
 	}
 	return atomicWrite(path, strings.Join(lines, "\n"))
 }
 
-// AddAndWrite 在文件末尾追加一行 `- [ ] text`（先 .bak 再 atomic rename）。
+// AddAndWrite 在文件末尾追加一项（含 due_date / tags / note 元数据）。
 // 文件不存在时直接创建。
-func AddAndWrite(path, text string) error {
+func AddAndWrite(path, text, dueDate string, tags []string, note string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return fmt.Errorf("text is empty")
 	}
+
+	// 读取已有内容，确保末尾换行
 	var content string
 	if data, err := os.ReadFile(path); err == nil {
 		content = string(data)
@@ -218,11 +236,31 @@ func AddAndWrite(path, text string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	content += "- [ ] " + text + "\n"
+
+	// 用 Item + itemToLine 生成主行，保留 metadata
+	item := &Item{
+		Text:    text,
+		DueDate: dueDate,
+		Tags:    tags,
+	}
+	content += itemToLine(item) + "\n"
+
+	// 追加 note（缩进 2 空格 + `> ...`）
+	if note != "" {
+		for _, line := range strings.Split(strings.TrimRight(note, "\n"), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			content += "  > " + line + "\n"
+		}
+	}
+
 	return atomicWrite(path, content)
 }
 
 // DeleteAndWrite 删除指定行号的项（按 1-based line_no）。
+// 直接按行号切除并写回，note 行不会被误删（note 是单独的 `>` 行，不在 item 行号范围内）。
 func DeleteAndWrite(path string, lineNo int) error {
 	data, err := os.ReadFile(path)
 	if err != nil {

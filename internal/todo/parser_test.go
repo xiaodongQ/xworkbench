@@ -251,7 +251,7 @@ func TestAddAndWrite(t *testing.T) {
 	if err := os.WriteFile(p, []byte("# h\n- [ ] a\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := AddAndWrite(p, "new item"); err != nil {
+	if err := AddAndWrite(p, "new item", "", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(p)
@@ -260,8 +260,96 @@ func TestAddAndWrite(t *testing.T) {
 		t.Errorf("got:  %q\nwant: %q", string(data), want)
 	}
 	// 空文本应报错
-	if err := AddAndWrite(p, "  "); err == nil {
+	if err := AddAndWrite(p, "  ", "", nil, ""); err == nil {
 		t.Error("expected error for empty text")
+	}
+}
+
+func TestAddAndWrite_WithMetadata(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "todo.md")
+	if err := os.WriteFile(p, []byte("# h\n- [ ] a\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddAndWrite(p, "购物", "2026-07-08", []string{"personal", "shopping"}, "记得带环保袋\n别忘卡"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(p)
+	want := "# h\n- [ ] a\n- [ ] 购物 due:2026-07-08 tags:personal,shopping\n  > 记得带环保袋\n  > 别忘卡\n"
+	if string(data) != want {
+		t.Errorf("got:  %q\nwant: %q", string(data), want)
+	}
+}
+
+func TestItemToLine_PreservesMetadata(t *testing.T) {
+	tests := []struct {
+		name string
+		item *Item
+		want string
+	}{
+		{
+			name: "plain unchecked",
+			item: &Item{Text: "购物"},
+			want: "- [ ] 购物",
+		},
+		{
+			name: "checked",
+			item: &Item{Text: "购物", Done: true},
+			want: "- [x] 购物",
+		},
+		{
+			name: "with due",
+			item: &Item{Text: "购物", DueDate: "2026-07-08"},
+			want: "- [ ] 购物 due:2026-07-08",
+		},
+		{
+			name: "with tags",
+			item: &Item{Text: "购物", Tags: []string{"personal", "shopping"}},
+			want: "- [ ] 购物 tags:personal,shopping",
+		},
+		{
+			name: "with due and tags",
+			item: &Item{Text: "任务", Done: true, DueDate: "2026-07-10", Tags: []string{"work", "urgent"}},
+			want: "- [x] 任务 due:2026-07-10 tags:work,urgent",
+		},
+		{
+			name: "indented",
+			item: &Item{Indent: "  ", Text: "子任务", Done: true, Tags: []string{"sub"}},
+			want: "  - [x] 子任务 tags:sub",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := itemToLine(tt.item)
+			if got != tt.want {
+				t.Errorf("itemToLine() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestToggleAndWrite_PreservesMetadata(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "todo.md")
+	original := "# h\n- [ ] 购物 due:2026-07-08 tags:personal\n- [ ] 任务 tags:work\n"
+	if err := os.WriteFile(p, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := ReadAndParse(p)
+	flat := Flatten(items)
+	// 标记第一个为 done
+	for i := range flat {
+		if flat[i].LineNo == 2 {
+			flat[i].Done = true
+		}
+	}
+	if err := ToggleAndWrite(p, flat); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(p)
+	want := "# h\n- [x] 购物 due:2026-07-08 tags:personal\n- [ ] 任务 tags:work\n"
+	if string(data) != want {
+		t.Errorf("got:  %q\nwant: %q", string(data), want)
 	}
 }
 

@@ -2354,7 +2354,10 @@ func (s *APIServer) handleTodoAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Text string `json:"text"`
+		Text    string   `json:"text"`
+		DueDate string   `json:"due_date,omitempty"`
+		Tags    []string `json:"tags,omitempty"`
+		Note    string   `json:"note,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -2364,7 +2367,7 @@ func (s *APIServer) handleTodoAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	if err := todo.AddAndWrite(path, req.Text); err != nil {
+	if err := todo.AddAndWrite(path, req.Text, req.DueDate, req.Tags, req.Note); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

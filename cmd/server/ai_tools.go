@@ -1166,7 +1166,12 @@ func execListTodos(ctx context.Context, argsJSON string) string {
 }
 
 func execAddTodo(ctx context.Context, argsJSON string) string {
-	var args struct{ Text string `json:"text"` }
+	var args struct {
+		Text    string   `json:"text"`
+		DueDate string   `json:"due_date,omitempty"`
+		Tags    []string `json:"tags,omitempty"`
+		Note    string   `json:"note,omitempty"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.Text == "" {
 		return "⚠️ text 是必填字段"
@@ -1175,7 +1180,7 @@ func execAddTodo(ctx context.Context, argsJSON string) string {
 	if path == "" {
 		return "⚠️ Todo 路径未配置（todo_md_path）"
 	}
-	if err := todo.AddAndWrite(path, args.Text); err != nil {
+	if err := todo.AddAndWrite(path, args.Text, args.DueDate, args.Tags, args.Note); err != nil {
 		return fmt.Sprintf("添加失败: %v", err)
 	}
 	return fmt.Sprintf("✅ 已添加: %s", args.Text)
