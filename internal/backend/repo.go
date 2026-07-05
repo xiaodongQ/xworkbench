@@ -931,7 +931,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		claimed_at,maintainer,repo_address,archived_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
 		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
-		command_type,model,prompt
+		command_type,model,prompt,goal_mode
 		FROM tasks`
 	var args []any
 	var where []string
@@ -967,12 +967,13 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		var lastHeartbeat sql.NullTime
 		var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
 		var priority int
+		var goalMode int
 		err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 			&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 			&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 			&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
 			&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
-			&cmdType, &mdl, &prompt)
+			&cmdType, &mdl, &prompt, &goalMode)
 		t.Acceptance = acc.String
 		t.Result = res.String
 		t.Maintainer = maintainer.String
@@ -987,6 +988,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		t.ClaimerAgentID = claimerAgentID.String
 		t.ResultOutput = resultOutput.String
 		t.Priority = priority
+		t.GoalMode = goalMode != 0
 		if claimedAt.Valid {
 			t.ClaimedAt = &claimedAt.Time
 		}
