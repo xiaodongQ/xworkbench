@@ -333,11 +333,14 @@ func GetTools() []Tool {
 		},
 		{
 			Name:        "add_todo",
-			Description: "向 Todo 列表添加一个项目。",
+			Description: "向 Todo 列表添加一个项目。支持截止日期、标签、备注。",
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"text": {"type": "string", "description": "Todo 内容"}
+					"text":     {"type": "string", "description": "Todo 内容"},
+					"due_date": {"type": "string", "description": "截止日期 YYYY-MM-DD 或 MM-DD（可选）"},
+					"tags":     {"type": "string", "description": "逗号分隔的标签，如 personal,shopping（可选）"},
+					"note":     {"type": "string", "description": "详细备注（可选）"}
 				},
 				"required": ["text"]
 			}`),
@@ -1167,20 +1170,32 @@ func execListTodos(ctx context.Context, argsJSON string) string {
 
 func execAddTodo(ctx context.Context, argsJSON string) string {
 	var args struct {
-		Text    string   `json:"text"`
-		DueDate string   `json:"due_date,omitempty"`
-		Tags    []string `json:"tags,omitempty"`
-		Note    string   `json:"note,omitempty"`
+		Text    string `json:"text"`
+		DueDate string `json:"due_date,omitempty"`
+		Tags    string `json:"tags,omitempty"` // 逗号分隔字符串
+		Note    string `json:"note,omitempty"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.Text == "" {
 		return "⚠️ text 是必填字段"
 	}
+
+	// 解析 tags（逗号分隔字符串 → 切片）
+	var tagsList []string
+	if args.Tags != "" {
+		for _, t := range strings.Split(args.Tags, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				tagsList = append(tagsList, t)
+			}
+		}
+	}
+
 	path := todoMDPath()
 	if path == "" {
 		return "⚠️ Todo 路径未配置（todo_md_path）"
 	}
-	if err := todo.AddAndWrite(path, args.Text, args.DueDate, args.Tags, args.Note); err != nil {
+	if err := todo.AddAndWrite(path, args.Text, args.DueDate, tagsList, args.Note); err != nil {
 		return fmt.Sprintf("添加失败: %v", err)
 	}
 	return fmt.Sprintf("✅ 已添加: %s", args.Text)
