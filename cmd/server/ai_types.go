@@ -61,30 +61,29 @@ type AIProvider interface {
 }
 
 // NewAIProviderFromConfig creates a provider from config.AIChat.
-// Returns nil if AI Chat is not enabled (provider or api_key empty).
+// Returns nil if AI Chat is not enabled (no provider has api_key + model).
 func NewAIProviderFromConfig(cfg *config.Config) AIProvider {
 	if !cfg.AIChat.IsEnabled() {
 		return nil
 	}
-	switch cfg.AIChat.Provider {
+	active := cfg.AIChat.GetActive()
+	switch cfg.AIChat.ActiveProvider {
 	case "openai":
 		return NewOpenAIProvider(
-			cfg.AIChat.BaseURL,
-			cfg.AIChat.APIKey,
-			cfg.AIChat.Model,
-			cfg.AIChat.Temperature,
-			cfg.AIChat.MaxTokens,
-		)
-	case "anthropic":
-		return NewAnthropicProvider(
-			cfg.AIChat.BaseURL,
-			cfg.AIChat.APIKey,
-			cfg.AIChat.Model,
-			cfg.AIChat.Temperature,
-			cfg.AIChat.MaxTokens,
+			active.BaseURL,
+			active.APIKey,
+			active.Model,
+			active.Temperature,
+			active.MaxTokens,
 		)
 	default:
-		return nil
+		return NewAnthropicProvider(
+			active.BaseURL,
+			active.APIKey,
+			active.Model,
+			active.Temperature,
+			active.MaxTokens,
+		)
 	}
 }
 

@@ -1,12 +1,12 @@
 {
   "_comment": "xworkbench 配置模板。复制成 config.json 后按需修改。本文件随仓库分发，config.json 本身在 .gitignore。字段说明见 README.md「配置」章节。",
-  "default_terminal": "powershell",
+  "default_terminal": "wezterm",
   "preferred_cli": "claude",
   "ai_loop_enabled": false,
   "aichat_default_cli": "claude",
   "dangerously_skip_permissions": false,
   "todo_md_path": "",
-  "scheduler_enabled": true,
+  "scheduler_enabled": false,
   "relay": {
     "_comment": "代理接口认证 token。空=关闭认证（仅本机）。非空=Bearer token（也支持 X-API-Key 头）。生产环境请改成一个长随机串。",
     "api_key": "xworkbench"
@@ -24,6 +24,7 @@
       "powershell": {"bin": "powershell.exe", "args": ["-NoExit", "-Command", "cd \"{dir}\""],            "name": "PowerShell",       "plate": "windows",  "path": ""},
       "pwsh":       {"bin": "pwsh.exe",   "args": ["-NoExit", "-Command", "cd \"{dir}\""],               "name": "PowerShell Core",  "plate": "windows",  "path": ""},
       "pwsh7":      {"bin": "pwsh",       "args": ["-NoExit", "-c", "cd '{dir}'"],                       "name": "PowerShell 7",     "plate": "all",      "path": ""},
+      "iterm2":     {"bin": "osascript",   "args": ["-e", "tell application \"iTerm2\" to create window with default profile"], "name": "iTerm2",          "plate": "darwin",   "path": ""},
       "terminal":   {"bin": "osascript",   "args": ["-e", "tell application \"Terminal\" to do script \"cd {dir}\""], "name": "Terminal.app", "plate": "darwin", "path": ""},
       "gnome":      {"bin": "gnome-terminal", "args": ["--", "--working-directory={dir}"],              "name": "GNOME Terminal",   "plate": "linux",    "path": ""},
       "xterm":      {"bin": "xterm",       "args": ["-e", "bash -c 'cd {dir}; exec bash'"],              "name": "xterm",             "plate": "linux",    "path": ""},
@@ -42,7 +43,7 @@
       ]
     },
     "cbc": {
-      "default": "glm-5.0",
+      "default": "glm-4.7",
       "eval_default": "deepseek-v4-pro",
       "options": [
         {"value": "glm-5.1",          "label": "GLM-5.1（x1.06）"},
@@ -60,5 +61,28 @@
         {"value": "deepseek-v3-2-volc","label": "DeepSeek-V3.2（x0.29）"}
       ]
     }
+  },
+  "ssh": {
+    "_comment": "SSH 密钥全局配置。default_key_path 为默认私钥路径，单个远程目录可覆盖。",
+    "default_key_path": ""
+  },
+  "ai_chat": {
+    "_comment": "AI Chat 对话配置（Anthropic / OpenAI 双 Provider 共存）。active_provider 为当前激活的 provider（openai | anthropic）。",
+    "active_provider": "anthropic",
+    "anthropic": {
+      "api_key": "",
+      "base_url": "",
+      "model": "",
+      "temperature": 0.7,
+      "max_tokens": 4096
+    },
+    "openai": {
+      "api_key": "",
+      "base_url": "",
+      "model": "",
+      "temperature": 0.7,
+      "max_tokens": 4096
+    },
+    "system_prompt": ""
   }
 }

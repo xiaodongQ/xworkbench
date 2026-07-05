@@ -89,10 +89,10 @@ func TestAIProviderFromDisabledConfig(t *testing.T) {
 // TestAIProviderFromOpenAIConfig returns OpenAI provider.
 func TestAIProviderFromOpenAIConfig(t *testing.T) {
 	cfg := snapshotEmptyConfig()
-	cfg.AIChat.Provider = "openai"
-	cfg.AIChat.APIKey = "sk-test-key"
-	cfg.AIChat.Model = "gpt-4o"
-	cfg.AIChat.Temperature = 0.9
+	cfg.AIChat.ActiveProvider = "openai"
+	cfg.AIChat.OpenAI.APIKey = "sk-test-key"
+	cfg.AIChat.OpenAI.Model = "gpt-4o"
+	cfg.AIChat.OpenAI.Temperature = 0.9
 
 	p := NewAIProviderFromConfig(cfg)
 	if p == nil {
@@ -107,9 +107,9 @@ func TestAIProviderFromOpenAIConfig(t *testing.T) {
 // TestAIProviderFromAnthropicConfig returns Anthropic provider.
 func TestAIProviderFromAnthropicConfig(t *testing.T) {
 	cfg := snapshotEmptyConfig()
-	cfg.AIChat.Provider = "anthropic"
-	cfg.AIChat.APIKey = "sk-ant-test"
-	cfg.AIChat.Model = "claude-sonnet-4"
+	cfg.AIChat.ActiveProvider = "anthropic"
+	cfg.AIChat.Anthropic.APIKey = "sk-ant-test"
+	cfg.AIChat.Anthropic.Model = "claude-sonnet-4"
 
 	p := NewAIProviderFromConfig(cfg)
 	if p == nil {

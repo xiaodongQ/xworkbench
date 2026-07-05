@@ -8,7 +8,7 @@
 // 依赖 api.js (fetchJSON/esc/fmt)
 
 // ---- 状态 ----
-let currentCfgTab = 'dir_shortcuts'; // dir_shortcuts | web_links | default_cli
+let currentCfgTab = 'default_cli'; // default_cli | dir_shortcuts | web_links | skills
 let _cfgPreviewCache = null;     // 最近一次 preview 结果，供"确认导入"使用
 
 const CFG_TAB_LABEL = {
@@ -184,9 +184,9 @@ function renderPreview(tab, result) {
     <table class="exp-table" style="width:100%">
       <thead><tr>
         <th style="width:50px;text-align:left">#</th>
-        <th style="width:60px;text-align:left">状态</th>
+        <th style="width:80px;text-align:left">状态</th>
         <th style="text-align:left">摘要</th>
-        <th style="text-align:left">说明</th>
+        <th style="min-width:120px;text-align:left">说明</th>
       </tr></thead>
       <tbody>${result.items.map(it => `
         <tr style="background:${it.valid ? (it.reason ? '#fef3c7' : 'transparent') : '#fee2e2'}">
@@ -591,14 +591,18 @@ function showSkillTest(name, btn) {
   formHTML += '</div>';
 
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000';
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  overlay.id = 'skill-test-overlay';
+  overlay.style.cssText = `position:fixed;inset:0;background:${isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.6)'};display:flex;align-items:center;justify-content:center;z-index:1000`;
+  const onEsc = e => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } };
+  document.addEventListener('keydown', onEsc);
   overlay.innerHTML = `
     <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:360px;max-width:500px">
       <h3 style="margin:0 0 4px;font-size:15px">测试 ${esc(name)}</h3>
       <p style="margin:0 0 12px;font-size:12px;color:var(--text-secondary)">请输入参数值</p>
       ${formHTML}
       <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-        <button onclick="this.closest('[style*=&quot;position:fixed&quot;]').remove()" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font-size:13px">取消</button>
+        <button onclick="document.getElementById('skill-test-overlay').remove()" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font-size:13px">取消</button>
         <button onclick="executeSkillTestFromForm('${esc(name)}', this)" style="padding:6px 12px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">▶ 执行</button>
       </div>
     </div>`;
@@ -730,9 +734,13 @@ async function executeSkillTest(name, params, resultSpan) {
 // ---- 新建工具弹窗 ----
 function showCreateSkill() {
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000';
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  overlay.id = 'create-skill-overlay';
+  overlay.style.cssText = `position:fixed;inset:0;background:${isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.6)'};display:flex;align-items:center;justify-content:center;z-index:1000`;
+  const onEsc = e => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } };
+  document.addEventListener('keydown', onEsc);
   overlay.innerHTML = `
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:480px;max-width:600px;max-height:90vh;overflow-y:auto">
+    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:480px;max-width:600px;max-height:90vh;overflow-y:auto">
       <h3 style="margin:0 0 4px;font-size:16px">新建工具</h3>
       <p style="margin:0 0 16px;font-size:12px;color:var(--text-secondary)">通过 URL + 输出映射快速创建网络查询类工具，自动生成 SKILL.md 和脚本。</p>
 
@@ -777,7 +785,7 @@ function showCreateSkill() {
       </div>
 
       <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
-        <button onclick="this.closest('[style*=\"position:fixed\"]').remove()" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font-size:13px">取消</button>
+        <button onclick="document.getElementById('create-skill-overlay').remove()" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font-size:13px">取消</button>
         <button onclick="createSkillSubmit(this)" style="padding:8px 16px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">创建</button>
       </div>
     </div>`;

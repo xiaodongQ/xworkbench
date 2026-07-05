@@ -149,7 +149,7 @@ func TestOpenAIProviderWithTools(t *testing.T) {
 
 func TestAIProviderFromConfig(t *testing.T) {
 	// When config is disabled, should return nil provider
-	cfg := &config.Config{AIChat: config.AIChatConfig{Provider: "", APIKey: ""}}
+	cfg := &config.Config{AIChat: config.AIChatConfig{ActiveProvider: "anthropic"}}
 	p := NewAIProviderFromConfig(cfg)
 	if p != nil {
 		t.Errorf("expected nil provider for disabled config, got %T", p)
@@ -157,8 +157,11 @@ func TestAIProviderFromConfig(t *testing.T) {
 
 	// When openai configured, should return OpenAI provider
 	cfg2 := &config.Config{AIChat: config.AIChatConfig{
-		Provider: "openai", APIKey: "sk-test2", Model: "gpt-4o",
-		BaseURL: "https://api.openai.com", Temperature: 0.5, MaxTokens: 2048,
+		ActiveProvider: "openai",
+		OpenAI: config.ProviderConfig{
+			APIKey: "sk-test2", Model: "gpt-4o",
+			BaseURL: "https://api.openai.com", Temperature: 0.5, MaxTokens: 2048,
+		},
 	}}
 	p2 := NewAIProviderFromConfig(cfg2)
 	if p2 == nil {

@@ -281,9 +281,9 @@
 
     <!-- 子 tab -->
     <div class="cfg-subtabs" style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
-      <button class="cfg-tab-btn active" data-tab="dir_shortcuts" onclick="switchCfgTab('dir_shortcuts')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">📁 目录快捷方式</button>
+      <button class="cfg-tab-btn active" data-tab="default_cli" onclick="switchCfgTab('default_cli')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">🤖 默认 CLI</button>
+      <button class="cfg-tab-btn" data-tab="dir_shortcuts" onclick="switchCfgTab('dir_shortcuts')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">📁 目录快捷方式</button>
       <button class="cfg-tab-btn" data-tab="web_links" onclick="switchCfgTab('web_links')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">🔗 快捷链接</button>
-      <button class="cfg-tab-btn" data-tab="default_cli" onclick="switchCfgTab('default_cli')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">🤖 默认 CLI</button>
       <button class="cfg-tab-btn" data-tab="skills" onclick="switchCfgTab('skills')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">🛠️ 工具技能</button>
       <style>
         .cfg-tab-btn.active { background: var(--primary) !important; color: #fff !important; border-color: var(--primary) !important; font-weight: 500; }
@@ -314,7 +314,7 @@
             <button class="btn" onclick="confirmImport('dir_shortcuts')">✅ 确认导入</button>
             <details style="margin-left:auto;flex:1;min-width:240px">
               <summary style="cursor:pointer;font-size:11px;color:var(--text-secondary)">JSON 示例</summary>
-              <pre style="margin:8px 0 0;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto">{
+              <pre onclick="this.select()" style="margin:8px 0 0;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;cursor:text">{
   "dir_shortcuts": [
     {
       "name": "我的项目",
@@ -364,7 +364,7 @@
             <button class="btn" onclick="confirmImport('web_links')">✅ 确认导入</button>
             <details style="margin-left:auto;flex:1;min-width:240px">
               <summary style="cursor:pointer;font-size:11px;color:var(--text-secondary)">JSON 示例</summary>
-              <pre style="margin:8px 0 0;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto">{
+              <pre onclick="this.select()" style="margin:8px 0 0;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;cursor:text">{
   "web_links": [
     {
       "name": "GitHub",
@@ -677,10 +677,10 @@
         <div id="proxy-result" class="result-box"></div>
       </div>
     </div>
-    <!-- 转发统计 -->
+    <!-- HTTP代理转发统计 -->
     <div class="widget">
       <div class="widget-title" style="display:flex;justify-content:space-between;align-items:center">
-        <span>📊 转发统计</span>
+        <span>📊 HTTP代理转发统计</span>
         <button class="btn btn-small" onclick="loadRelayStats()">刷新</button>
       </div>
       <div id="relay-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
@@ -722,7 +722,7 @@
         <div style="background:var(--hover);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
           <div style="font-size:12px;font-weight:600;margin-bottom:6px">📥 分发 xwcli 到新机器</div>
           <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">在目标 Linux 机器运行以下命令安装并注册 xwcli agent：</div>
-          <div id="xwcli-install-cmd" style="background:#0f172a;color:#22d3ee;font-family:monospace;font-size:11px;padding:8px;border-radius:4px;word-break:break-all;cursor:pointer" title="点击复制" onclick="copyXwcliInstallCmd(this)"></div>
+          <div id="xwcli-install-cmd" style="background:#0f172a;color:#22d3ee;font-family:monospace;font-size:11px;padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-word;cursor:pointer;min-height:40px" title="点击复制" onclick="copyXwcliInstallCmd(this)"></div>
         </div>
         <div id="agents-table" style="font-size:12px">
           <div style="color:var(--text-secondary);padding:20px;text-align:center">加载中...</div>

@@ -260,6 +260,8 @@ tr:last-child td { border-bottom: none; }
 .exp-table .col-kw { width: 220px; }
 .exp-table .col-scene { width: auto; }
 .exp-table .col-ops { width: 80px; white-space: nowrap; text-align: left; padding-left: 8px; }
+/* 说明列允许换行 */
+.exp-table td:nth-child(4) { white-space: normal; overflow: visible; text-overflow: unset; }
 
 /* ops 列按钮填满行高 */
 .task-table .col-ops td:first-child,
@@ -738,13 +740,14 @@ tr:last-child td { border-bottom: none; }
 
 /* ===== Config modal ===== */
 .modal-backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
   display: flex; align-items: center; justify-content: center; z-index: 1000;
 }
+[data-theme="dark"] .modal-backdrop { background: rgba(0,0,0,0.8); }
 .modal-card {
   width: min(640px, 92vw); max-height: 86vh;
   display: flex; flex-direction: column;
-  background: var(--card); border: 1px solid var(--border);
+  background: var(--card-bg); border: 1px solid var(--border);
   border-radius: 10px; overflow: hidden;
   box-shadow: 0 20px 60px rgba(0,0,0,0.35);
 }
@@ -839,6 +842,8 @@ tr:last-child td { border-bottom: none; }
 .aichat-config input:focus, .aichat-config select:focus { outline: none; border-color: var(--primary, #22d3ee); }
 .form-actions { display: flex; gap: 8px; margin-top: 16px; }
 .cfg-status { margin-top: 10px; font-size: 13px; }
+.provider-config-block { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.provider-config-header { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
 .aichat-config-hint {
   font-size: 12px; color: var(--text-secondary);
   margin: 0 0 16px; line-height: 1.5;

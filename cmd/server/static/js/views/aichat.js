@@ -97,24 +97,45 @@
   function configPanelHTML() {
     return `<div class="aichat-config">
       <h3>AI 助手配置</h3>
-      <p class="aichat-config-hint">支持官方 API 或第三方代理（类似 Claude Code 的 <code>ANTHROPIC_BASE_URL</code> / <code>ANTHROPIC_AUTH_TOKEN</code>）。<br/>配置 MiniMax 等第三方 API 时：填入其 base_url（如 <code>https://api.minimaxi.com/anthropic</code>）和模型名（如 <code>MiniMax-M3</code>）。</p>
-      <div class="form-group"><label>协议 (Provider)</label>
+      <p class="aichat-config-hint">支持 Anthropic / OpenAI 双协议共存，填好后用顶部切换选择使用哪套。</p>
+
+      <!-- 当前激活 Provider -->
+      <div class="form-group">
+        <label>当前使用</label>
         <select id="cfg-provider" onchange="onCfgProviderChange()">
           <option value="anthropic">Anthropic</option>
           <option value="openai">OpenAI</option>
         </select>
       </div>
-      <div class="form-group"><label>API URL</label>
-        <input type="text" id="cfg-base-url" placeholder="https://api.anthropic.com" />
-        <small class="form-hint">官方默认已自动填，自定义代理直接覆盖即可（如 <code>https://api.minimaxi.com/anthropic</code>）。</small>
+
+      <!-- Anthropic 配置区块 -->
+      <div class="provider-config-block" id="cfg-block-anthropic">
+        <div class="provider-config-header">Anthropic</div>
+        <div class="form-group"><label>API URL</label>
+          <input type="text" id="cfg-anthropic-url" placeholder="https://api.anthropic.com（留空用官方默认）" />
+        </div>
+        <div class="form-group"><label>API Key</label>
+          <input type="password" id="cfg-anthropic-key" placeholder="sk-ant-..." />
+        </div>
+        <div class="form-group"><label>Model</label>
+          <input type="text" id="cfg-anthropic-model" placeholder="claude-sonnet-4-20250514" />
+        </div>
       </div>
-      <div class="form-group"><label>API Key / Token</label>
-        <input type="password" id="cfg-api-key" placeholder="sk-ant-... / sk-cp-..." />
+
+      <!-- OpenAI 配置区块 -->
+      <div class="provider-config-block" id="cfg-block-openai">
+        <div class="provider-config-header">OpenAI</div>
+        <div class="form-group"><label>API URL</label>
+          <input type="text" id="cfg-openai-url" placeholder="https://api.openai.com/v1（留空用官方默认）" />
+        </div>
+        <div class="form-group"><label>API Key</label>
+          <input type="password" id="cfg-openai-key" placeholder="sk-..." />
+        </div>
+        <div class="form-group"><label>Model</label>
+          <input type="text" id="cfg-openai-model" placeholder="gpt-4o" />
+        </div>
       </div>
-      <div class="form-group"><label>Model</label>
-        <input type="text" id="cfg-model" placeholder="claude-sonnet-4 / gpt-4o / MiniMax-M3 等" />
-        <small class="form-hint">支持任意 Anthropic 兼容模型（填入第三方 API 的模型名即可）。</small>
-      </div>
+
       <div class="form-actions">
         <button class="btn btn-secondary" id="cfg-test-btn">测试连接</button>
         <button class="btn btn-primary" id="cfg-save-btn">保存配置</button>
@@ -123,19 +144,10 @@
     </div>`;
   }
 
-  // 协议默认 URL 与示例 model（用户留空时回填）
-  // 支持第三方兼容 API：只需修改 base_url 和 model 即可（如 MiniMax API）
-  const CFG_DEFAULTS = {
-    anthropic: { url: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
-    openai:    { url: 'https://api.openai.com/v1',  model: 'gpt-4o' },
-  };
   window.onCfgProviderChange = function() {
+    // 切换 active_provider，不改变页面可见性（两套始终可见）
     const provider = document.getElementById('cfg-provider').value;
-    const def = CFG_DEFAULTS[provider];
-    const urlEl = document.getElementById('cfg-base-url');
-    const modelEl = document.getElementById('cfg-model');
-    if (urlEl && def)  urlEl.placeholder = def.url;
-    if (modelEl && def) modelEl.placeholder = def.model;
+    document.querySelector('#cfg-active-provider-display')?.setAttribute('data-provider', provider);
   };
 
   // ── Events ─────────────────────────────────────────────────
@@ -387,46 +399,71 @@
       const r = await fetch('/api/ai/config');
       const d = await r.json();
       const cfg = d.ai_chat || {};
-      const provider = cfg.provider || 'anthropic';
+      const provider = cfg.active_provider || 'anthropic';
       root.querySelector('#cfg-provider').value = provider;
-      root.querySelector('#cfg-model').value = cfg.model || '';
-      root.querySelector('#cfg-base-url').value = cfg.base_url || '';
-      // api_key 不回填值（安全），只显示已配置提示
-      const apiKeyInput = root.querySelector('#cfg-api-key');
-      if (apiKeyInput && cfg.api_key && cfg.api_key !== '') {
-        apiKeyInput.placeholder = '已配置（修改请重新输入）';
+
+      // Anthropic 配置
+      const ant = cfg.anthropic || {};
+      root.querySelector('#cfg-anthropic-url').value = ant.base_url || '';
+      root.querySelector('#cfg-anthropic-model').value = ant.model || '';
+      const antKeyEl = root.querySelector('#cfg-anthropic-key');
+      if (antKeyEl && ant.api_key && ant.api_key !== '') {
+        antKeyEl.placeholder = '已配置（修改请重新输入）';
       }
-      // 触发 placeholder 更新
-      window.onCfgProviderChange();
+
+      // OpenAI 配置
+      const oai = cfg.openai || {};
+      root.querySelector('#cfg-openai-url').value = oai.base_url || '';
+      root.querySelector('#cfg-openai-model').value = oai.model || '';
+      const oaiKeyEl = root.querySelector('#cfg-openai-key');
+      if (oaiKeyEl && oai.api_key && oai.api_key !== '') {
+        oaiKeyEl.placeholder = '已配置（修改请重新输入）';
+      }
     } catch {}
   }
 
   async function saveConfig(root) {
     const status = root.querySelector('#cfg-status');
-    const provider = root.querySelector('#cfg-provider').value;
-    const model = root.querySelector('#cfg-model').value.trim();
-    const baseURL = root.querySelector('#cfg-base-url').value.trim();
-    const apiKey = root.querySelector('#cfg-api-key').value;
-    // 必填校验：protocol + key + model 必填，URL 不填时后端用默认值
-    if (!provider || !model) {
-      status.textContent = '❌ 请填写协议、Model'; status.style.color = 'red'; return;
-    }
+    const activeProvider = root.querySelector('#cfg-provider').value;
+
+    // 收集两个 Provider 的配置
+    const antModel = root.querySelector('#cfg-anthropic-model').value.trim();
+    const antURL = root.querySelector('#cfg-anthropic-url').value.trim();
+    const antKey = root.querySelector('#cfg-anthropic-key').value;
+    const oaiModel = root.querySelector('#cfg-openai-model').value.trim();
+    const oaiURL = root.querySelector('#cfg-openai-url').value.trim();
+    const oaiKey = root.querySelector('#cfg-openai-key').value;
+
+    // 保存主配置（不含 api_key）
     try {
       await fetch('/api/ai/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, model, base_url: baseURL })
+        body: JSON.stringify({
+          active_provider: activeProvider,
+          anthropic: { model: antModel, base_url: antURL },
+          openai: { model: oaiModel, base_url: oaiURL },
+        })
       });
-      if (apiKey) {
-        await fetch('/api/ai/config/key', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: apiKey })
-        });
-      }
+    } catch (err) {
+      status.textContent = '❌ 保存失败: ' + err.message; status.style.color = 'red'; return;
+    }
+
+    // 单独保存各 Provider 的 api_key
+    const saves = [];
+    if (antKey) saves.push(fetch('/api/ai/config/key', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'anthropic', api_key: antKey })
+    }));
+    if (oaiKey) saves.push(fetch('/api/ai/config/key', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'openai', api_key: oaiKey })
+    }));
+    try {
+      await Promise.all(saves);
       status.textContent = '✅ 配置已保存'; status.style.color = 'green';
     } catch (err) {
-      status.textContent = '❌ 保存失败: ' + err.message; status.style.color = 'red';
+      status.textContent = '❌ 保存 Key 失败: ' + err.message; status.style.color = 'red';
     }
   }
 

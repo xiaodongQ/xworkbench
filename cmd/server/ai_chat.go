@@ -35,14 +35,14 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 
 	cfg := config.Snapshot()
 	if cfg == nil || !cfg.AIChat.IsEnabled() {
-		logger.Warnw("handleAIChat: AI chat not configured", "provider", cfg.AIChat.Provider, "apiKeySet", cfg != nil && cfg.AIChat.APIKey != "")
+		logger.Warnw("handleAIChat: AI chat not configured")
 		writeErr(w, http.StatusServiceUnavailable, "AI chat not configured")
 		return
 	}
 
 	provider := NewAIProviderFromConfig(cfg)
 	if provider == nil {
-		logger.Warnw("handleAIChat: AI provider not available", "provider", cfg.AIChat.Provider, "model", cfg.AIChat.Model, "baseURL", cfg.AIChat.BaseURL)
+		logger.Warnw("handleAIChat: AI provider not available", "provider", cfg.AIChat.ActiveProvider)
 		writeErr(w, http.StatusServiceUnavailable, "AI provider not available")
 		return
 	}
@@ -54,7 +54,7 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	logger.Infow("handleAIChat: calling AI provider", "provider", cfg.AIChat.Provider, "model", cfg.AIChat.Model, "baseURL", cfg.AIChat.BaseURL, "messages", len(req.Messages), "lastUserMsg", lastUserMsg)
+	logger.Infow("handleAIChat: calling AI provider", "provider", cfg.AIChat.ActiveProvider, "messages", len(req.Messages), "lastUserMsg", lastUserMsg)
 
 	tools := GetTools()
 
@@ -79,11 +79,11 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := provider.Chat(context.Background(), req.Messages, tools)
 	if err != nil {
-		logger.Errorw("handleAIChat: provider.Chat failed", "provider", cfg.AIChat.Provider, "model", cfg.AIChat.Model, "baseURL", cfg.AIChat.BaseURL, "err", err)
+		logger.Errorw("handleAIChat: provider.Chat failed", "provider", cfg.AIChat.ActiveProvider, "err", err)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	logger.Infow("handleAIChat: response received", "provider", cfg.AIChat.Provider, "model", cfg.AIChat.Model, "contentLen", len(resp.Message.Content), "toolCalls", len(resp.ToolCalls))
+	logger.Infow("handleAIChat: response received", "provider", cfg.AIChat.ActiveProvider, "contentLen", len(resp.Message.Content), "toolCalls", len(resp.ToolCalls))
 
 	// Execute tool calls if present
 	if len(resp.ToolCalls) > 0 {
@@ -128,16 +128,30 @@ func (s *APIServer) handleAIConfigGet(w http.ResponseWriter, r *http.Request) {
 		cfg = &config.Config{}
 	}
 
-	// Return a copy with masked API key
+	active := cfg.AIChat.GetActive()
 	resp := map[string]any{
 		"ai_chat": map[string]any{
-			"provider":     cfg.AIChat.Provider,
-			"api_key":     cfg.AIChat.MaskedAPIKey(),
-			"model":       cfg.AIChat.Model,
-			"base_url":    cfg.AIChat.BaseURL,
-			"temperature": cfg.AIChat.Temperature,
-			"max_tokens": cfg.AIChat.MaxTokens,
-			"enabled":     cfg.AIChat.IsEnabled(),
+			"active_provider": cfg.AIChat.ActiveProvider,
+			"api_key":        cfg.AIChat.MaskedAPIKey(),
+			"model":          active.Model,
+			"base_url":       active.BaseURL,
+			"temperature":     active.Temperature,
+			"max_tokens":     active.MaxTokens,
+			"enabled":        cfg.AIChat.IsEnabled(),
+			"anthropic": map[string]any{
+				"api_key":     cfg.AIChat.Anthropic.MaskedAPIKey(),
+				"model":       cfg.AIChat.Anthropic.Model,
+				"base_url":    cfg.AIChat.Anthropic.BaseURL,
+				"temperature": cfg.AIChat.Anthropic.Temperature,
+				"max_tokens":  cfg.AIChat.Anthropic.MaxTokens,
+			},
+			"openai": map[string]any{
+				"api_key":     cfg.AIChat.OpenAI.MaskedAPIKey(),
+				"model":       cfg.AIChat.OpenAI.Model,
+				"base_url":    cfg.AIChat.OpenAI.BaseURL,
+				"temperature": cfg.AIChat.OpenAI.Temperature,
+				"max_tokens":  cfg.AIChat.OpenAI.MaxTokens,
+			},
 		},
 	}
 	writeJSON(w, resp)
@@ -146,43 +160,61 @@ func (s *APIServer) handleAIConfigGet(w http.ResponseWriter, r *http.Request) {
 // handleAIConfigUpdate updates AI config fields (except api_key).
 func (s *APIServer) handleAIConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Provider     string  `json:"provider"`
-		Model       string  `json:"model"`
-		BaseURL     string  `json:"base_url"`
-		Temperature float64 `json:"temperature"`
-		MaxTokens   int     `json:"max_tokens"`
-		SystemPrompt string  `json:"system_prompt"`
+		ActiveProvider string `json:"active_provider"`
+		Anthropic     *struct {
+			Model       string  `json:"model"`
+			BaseURL     string  `json:"base_url"`
+			Temperature float64 `json:"temperature"`
+			MaxTokens   int     `json:"max_tokens"`
+		} `json:"anthropic"`
+		OpenAI        *struct {
+			Model       string  `json:"model"`
+			BaseURL     string  `json:"base_url"`
+			Temperature float64 `json:"temperature"`
+			MaxTokens   int     `json:"max_tokens"`
+		} `json:"openai"`
+		SystemPrompt string `json:"system_prompt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	cfg := config.Snapshot()
-	if cfg == nil {
-		cfg = &config.Config{}
-	}
-	if req.Provider != "" {
-		cfg.AIChat.Provider = req.Provider
-	}
-	if req.Model != "" {
-		cfg.AIChat.Model = req.Model
-	}
-	if req.BaseURL != "" {
-		cfg.AIChat.BaseURL = req.BaseURL
-	}
-	if req.Temperature > 0 {
-		cfg.AIChat.Temperature = req.Temperature
-	}
-	if req.MaxTokens > 0 {
-		cfg.AIChat.MaxTokens = req.MaxTokens
-	}
-	if req.SystemPrompt != "" {
-		cfg.AIChat.SystemPrompt = req.SystemPrompt
-	}
-
 	config.Update(func(c *config.Config) {
-		*c = *cfg
+		if req.ActiveProvider != "" {
+			c.AIChat.ActiveProvider = req.ActiveProvider
+		}
+		if req.Anthropic != nil {
+			if req.Anthropic.Model != "" {
+				c.AIChat.Anthropic.Model = req.Anthropic.Model
+			}
+			if req.Anthropic.BaseURL != "" {
+				c.AIChat.Anthropic.BaseURL = req.Anthropic.BaseURL
+			}
+			if req.Anthropic.Temperature > 0 {
+				c.AIChat.Anthropic.Temperature = req.Anthropic.Temperature
+			}
+			if req.Anthropic.MaxTokens > 0 {
+				c.AIChat.Anthropic.MaxTokens = req.Anthropic.MaxTokens
+			}
+		}
+		if req.OpenAI != nil {
+			if req.OpenAI.Model != "" {
+				c.AIChat.OpenAI.Model = req.OpenAI.Model
+			}
+			if req.OpenAI.BaseURL != "" {
+				c.AIChat.OpenAI.BaseURL = req.OpenAI.BaseURL
+			}
+			if req.OpenAI.Temperature > 0 {
+				c.AIChat.OpenAI.Temperature = req.OpenAI.Temperature
+			}
+			if req.OpenAI.MaxTokens > 0 {
+				c.AIChat.OpenAI.MaxTokens = req.OpenAI.MaxTokens
+			}
+		}
+		if req.SystemPrompt != "" {
+			c.AIChat.SystemPrompt = req.SystemPrompt
+		}
 	})
 	if err := config.Save(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -191,10 +223,11 @@ func (s *APIServer) handleAIConfigUpdate(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleAIConfigSetKey updates only the api_key field.
+// handleAIConfigSetKey updates only the api_key field for a specific provider.
 func (s *APIServer) handleAIConfigSetKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		APIKey string `json:"api_key"`
+		Provider string `json:"provider"` // "anthropic" | "openai"
+		APIKey  string `json:"api_key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -204,8 +237,17 @@ func (s *APIServer) handleAIConfigSetKey(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusBadRequest, "api_key required")
 		return
 	}
+	provider := req.Provider
+	if provider == "" {
+		provider = "anthropic"
+	}
 	config.Update(func(c *config.Config) {
-		c.AIChat.APIKey = req.APIKey
+		switch provider {
+		case "openai":
+			c.AIChat.OpenAI.APIKey = req.APIKey
+		default:
+			c.AIChat.Anthropic.APIKey = req.APIKey
+		}
 	})
 	if err := config.Save(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -223,7 +265,7 @@ func (s *APIServer) handleAIConfigTest(w http.ResponseWriter, r *http.Request) {
 	}
 	provider := NewAIProviderFromConfig(cfg)
 	if provider == nil {
-		writeErr(w, http.StatusBadRequest, "unknown provider: " + cfg.AIChat.Provider)
+		writeErr(w, http.StatusBadRequest, "unknown provider: "+cfg.AIChat.ActiveProvider)
 		return
 	}
 	// Send a trivial request

@@ -200,34 +200,55 @@ type ModelOption struct {
 
 // Load 加载配置（自动找路径或用默认）
 
-// AIChatConfig AI Chat 对话配置（OpenAI / Anthropic）。
-type AIChatConfig struct {
-	Provider     string  `json:"provider,omitempty"`     // "openai" | "anthropic"，空=未启用
-	APIKey       string  `json:"api_key,omitempty"`      // API Key（不写入日志）
-	Model        string  `json:"model,omitempty"`        // 模型名
-	BaseURL      string  `json:"base_url,omitempty"`     // 可选代理地址
-	Temperature  float64 `json:"temperature,omitempty"`  // 0.0-2.0，默认 0.7
-	MaxTokens    int     `json:"max_tokens,omitempty"`   // 默认 4096
-	SystemPrompt string  `json:"system_prompt,omitempty"`
-}
-
-// IsEnabled returns true only when provider and api_key are both non-empty.
-func (c AIChatConfig) IsEnabled() bool {
-	return c.Provider != "" && c.APIKey != ""
+// ProviderConfig 单个 AI Provider 的配置（API Key 不写入日志）。
+type ProviderConfig struct {
+	APIKey      string  `json:"api_key,omitempty"`
+	BaseURL     string  `json:"base_url,omitempty"`
+	Model       string  `json:"model,omitempty"`
+	Temperature float64 `json:"temperature,omitempty"` // 0.0-2.0，默认 0.7
+	MaxTokens   int     `json:"max_tokens,omitempty"` // 默认 4096
 }
 
 // MaskedAPIKey returns a masked version of the API key (first 4 + last 4 chars visible, middle masked).
-func (c AIChatConfig) MaskedAPIKey() string {
-	if len(c.APIKey) <= 8 {
-		return "sk-" + strings.Repeat("•", max(0, len(c.APIKey)-3))
+func (p ProviderConfig) MaskedAPIKey() string {
+	if len(p.APIKey) <= 8 {
+		return "sk-" + strings.Repeat("•", max(0, len(p.APIKey)-3))
 	}
-	// Show first 4 + last 4, mask the middle
-	return c.APIKey[:4] + strings.Repeat("•", len(c.APIKey)-8) + c.APIKey[len(c.APIKey)-4:]
+	return p.APIKey[:4] + strings.Repeat("•", len(p.APIKey)-8) + p.APIKey[len(p.APIKey)-4:]
 }
-// Save 将当前 AppConfig 写回 config.json
+
+// AIChatConfig AI Chat 对话配置（Anthropic / OpenAI 双 Provider 共存）。
+type AIChatConfig struct {
+	ActiveProvider string         `json:"active_provider,omitempty"` // "openai" | "anthropic"，空=默认 anthropic
+	Anthropic     ProviderConfig `json:"anthropic"`
+	OpenAI        ProviderConfig `json:"openai"`
+	SystemPrompt  string         `json:"system_prompt,omitempty"`
+}
+
+// IsEnabled returns true when at least one provider has both api_key and model.
+func (c AIChatConfig) IsEnabled() bool {
+	return (c.Anthropic.APIKey != "" && c.Anthropic.Model != "") ||
+		(c.OpenAI.APIKey != "" && c.OpenAI.Model != "")
+}
+
+// GetActive returns the currently active ProviderConfig.
+func (c AIChatConfig) GetActive() ProviderConfig {
+	switch c.ActiveProvider {
+	case "openai":
+		return c.OpenAI
+	default:
+		return c.Anthropic
+	}
+}
+
+// MaskedAPIKey returns a masked version of the active provider's API key.
+func (c AIChatConfig) MaskedAPIKey() string {
+	return c.GetActive().MaskedAPIKey()
+}
+// Save 将当前 AppConfig 写回 config.json。
+// 兼容策略：读取原文件，只覆盖 Config 结构体认识的字段，保留文件中其他未知字段
+//（如下次升级新增的字段、用户手动添加的字段等）。
 func Save() error {
-	// 读 AppConfig 用 RLock。Marshal 期间我们仍持有 RLock，其它 goroutine
-	// 可以继续读但不能写——保证序列化过程中 Config 字段不变。
 	AppConfigMu.RLock()
 	current := AppConfig
 	AppConfigMu.RUnlock()
@@ -243,11 +264,68 @@ func Save() error {
 	if path == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(current, "", "  ")
+
+	// 1. 把当前 Config marshal 成 map，只保留结构体认识的字段
+	currentMap, err := toStringMap(current)
+	if err != nil {
+		return err
+	}
+
+	// 2. 尝试读取原文件，保留其中 Config 不认识的字段
+	var merged map[string]interface{}
+	if raw, err := os.ReadFile(path); err == nil && len(raw) > 0 {
+		var existing map[string]interface{}
+		if err := json.Unmarshal(raw, &existing); err == nil {
+			merged = mergeMapPreserve(existing, currentMap)
+		} else {
+			merged = currentMap
+		}
+	} else {
+		merged = currentMap
+	}
+
+	data, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+// toStringMap 将 Config 结构体转为 map（omitempty 语义：零值字段不出现）。
+func toStringMap(c *Config) (map[string]interface{}, error) {
+	data, err := json.Marshal(c)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// mergeMapPreserve 将 current 合并到 base 中：current 有值的字段覆盖 base，base 中
+// 有但 current 没有（且不为零）的字段保留，以此实现"保留未知字段"。
+func mergeMapPreserve(base, current map[string]interface{}) map[string]interface{} {
+	if base == nil {
+		return current
+	}
+	out := shallowClone(base)
+	for k, v := range current {
+		out[k] = v
+	}
+	return out
+}
+
+func shallowClone(m map[string]interface{}) map[string]interface{} {
+	if m == nil {
+		return nil
+	}
+	r := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		r[k] = v
+	}
+	return r
 }
 
 func Load() (*Config, error) {
@@ -344,9 +422,41 @@ func mergeConfig(dst, src *Config) {
 		dst.Models[cliType] = dstGroup
 	}
 
-	// ai_chat（Provider 非空时才更新，避免用零值覆盖已有配置）
-	if src.AIChat.Provider != "" {
-		dst.AIChat = src.AIChat
+	// ai_chat（只合并非零字段，保留 dst 原有的每一项）
+	if src.AIChat.ActiveProvider != "" {
+		dst.AIChat.ActiveProvider = src.AIChat.ActiveProvider
+	}
+	// Anthropic
+	if src.AIChat.Anthropic.APIKey != "" {
+		dst.AIChat.Anthropic.APIKey = src.AIChat.Anthropic.APIKey
+	}
+	if src.AIChat.Anthropic.BaseURL != "" {
+		dst.AIChat.Anthropic.BaseURL = src.AIChat.Anthropic.BaseURL
+	}
+	if src.AIChat.Anthropic.Model != "" {
+		dst.AIChat.Anthropic.Model = src.AIChat.Anthropic.Model
+	}
+	if src.AIChat.Anthropic.Temperature > 0 {
+		dst.AIChat.Anthropic.Temperature = src.AIChat.Anthropic.Temperature
+	}
+	if src.AIChat.Anthropic.MaxTokens > 0 {
+		dst.AIChat.Anthropic.MaxTokens = src.AIChat.Anthropic.MaxTokens
+	}
+	// OpenAI
+	if src.AIChat.OpenAI.APIKey != "" {
+		dst.AIChat.OpenAI.APIKey = src.AIChat.OpenAI.APIKey
+	}
+	if src.AIChat.OpenAI.BaseURL != "" {
+		dst.AIChat.OpenAI.BaseURL = src.AIChat.OpenAI.BaseURL
+	}
+	if src.AIChat.OpenAI.Model != "" {
+		dst.AIChat.OpenAI.Model = src.AIChat.OpenAI.Model
+	}
+	if src.AIChat.OpenAI.Temperature > 0 {
+		dst.AIChat.OpenAI.Temperature = src.AIChat.OpenAI.Temperature
+	}
+	if src.AIChat.OpenAI.MaxTokens > 0 {
+		dst.AIChat.OpenAI.MaxTokens = src.AIChat.OpenAI.MaxTokens
 	}
 }
 
