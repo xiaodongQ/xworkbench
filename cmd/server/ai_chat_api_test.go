@@ -15,6 +15,23 @@ import (
 
 // TestAIChatEndpoint requiresAuth returns 401 without token.
 func TestAIChatEndpointRequiresAuth(t *testing.T) {
+	// Save the current global config so we can restore it after the test.
+	// This is important because other tests (like terminal tests) depend on
+	// the global config having terminal types configured.
+	t.Cleanup(config.TestSnapshotAndRestore())
+
+	// Configure AI chat minimally so the auth check is reached (not the "not configured" early return).
+	cfg := &config.Config{
+		AIChat: config.AIChatConfig{
+			ActiveProvider: "openai",
+			OpenAI: config.ProviderConfig{
+				APIKey: "sk-test-key",
+				Model:  "gpt-4o-mini",
+			},
+		},
+	}
+	config.Update(func(c *config.Config) { *c = *cfg })
+
 	server := newAPIServerForTest(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/ai/chat", server.handleAIChat)
@@ -23,6 +40,8 @@ func TestAIChatEndpointRequiresAuth(t *testing.T) {
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest("POST", "/api/ai/chat", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
+	// Cross-origin request so isAuthenticated returns false (no Bearer token).
+	req.Header.Set("Origin", "https://evil.com")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 

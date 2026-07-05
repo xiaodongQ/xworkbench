@@ -14,12 +14,6 @@ import (
 
 // handleAIChat is the main AI chat endpoint.
 func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
-	// Auth: require valid session token or API key
-	if !s.isAuthenticated(r) {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
 	var req struct {
 		Messages []Message `json:"messages"`
 		Stream  bool       `json:"stream"`
@@ -44,6 +38,12 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	if provider == nil {
 		logger.Warnw("handleAIChat: AI provider not available", "provider", cfg.AIChat.ActiveProvider)
 		writeErr(w, http.StatusServiceUnavailable, "AI provider not available")
+		return
+	}
+
+	// Auth: require valid session token or API key
+	if !s.isAuthenticated(r) {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	// Find last user message for logging
@@ -86,6 +86,7 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	logger.Infow("handleAIChat: response received", "provider", cfg.AIChat.ActiveProvider, "contentLen", len(resp.Message.Content), "toolCalls", len(resp.ToolCalls))
 
 	// Execute tool calls if present
+	refreshWidgets := make(map[string]bool)
 	if len(resp.ToolCalls) > 0 {
 		for i := range resp.ToolCalls {
 			tc := &resp.ToolCalls[i]
@@ -96,6 +97,15 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 				nil, // localShellState - pass nil for now
 				tc.Name, tc.Args,
 			)
+			// Track widget refresh needs (same list as config.js import)
+			switch tc.Name {
+			case "create_web_link", "delete_web_link", "update_web_link":
+				refreshWidgets["links"] = true
+			case "create_dir_shortcut", "delete_dir_shortcut", "update_dir_shortcut":
+				refreshWidgets["dirs"] = true
+			case "add_todo", "toggle_todo", "delete_todo":
+				refreshWidgets["todos"] = true
+			}
 			// Append tool result as a special message and continue
 			// Anthropic requires: role=user, content=[{type:"tool_result",tool_use_id:"...",content:"..."}]
 			toolResultContent, _ := json.Marshal(map[string]any{
@@ -116,9 +126,16 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Build refresh list
+	refreshList := make([]string, 0, len(refreshWidgets))
+	for k := range refreshWidgets {
+		refreshList = append(refreshList, k)
+	}
+
 	writeJSON(w, map[string]any{
-		"id":      "chat_" + time.Now().Format("20060102150405"),
-		"message": resp.Message,
+		"id":             "chat_" + time.Now().Format("20060102150405"),
+		"message":        resp.Message,
+		"refresh_widgets": refreshList,
 	})
 }
 

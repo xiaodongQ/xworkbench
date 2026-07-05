@@ -263,17 +263,6 @@ const schedStatusText = (raw) => SCHED_STATUS_TEXT[raw] || SCHED_STATUS_TEXT.pen
 // 定时任务表格排序：三档循环 asc → desc → ''（默认/恢复原序）
 const SCHED_SORT_KEY = 'automation.schedSortDir'; // 'asc' | 'desc' | ''
 
-// 最近任务执行列表排序：四档循环 asc → desc → status → ''（默认/恢复原序）
-const EXEC_SORT_KEY = 'automation.execSortDir'; // 'asc' | 'desc' | 'status' | ''
-
-// 返回 sortKey 对应的"下一档"提示文字（用于 tooltip）
-const nextSortLabel = (key) => {
-  const prev = localStorage.getItem(key) || 'asc';
-  const next = prev === 'asc' ? 'desc' : prev === 'desc' ? 'status' : 'asc';
-  if (next === 'asc') return '↑ 升序';
-  if (next === 'desc') return '↓ 降序';
-  return '下次执行时间排序';
-};
 
 // 更新定时任务表格排序图标状态
 function updateSchedSortIcon() {
@@ -281,7 +270,8 @@ function updateSchedSortIcon() {
   const icon = document.getElementById('sched-sort-icon');
   if (icon) {
     icon.textContent = dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : '⇅';
-    icon.title = '点击排序（下一档：' + nextSortLabel(SCHED_SORT_KEY) + '）';
+    const dirs = { asc: '升序', desc: '降序', '': '默认' };
+    icon.title = dirs[dir] ? '最近执行' + (dirs[dir] === '默认' ? '，点击按时间排序' : '排列，点击切换') : '';
   }
 }
 
@@ -293,26 +283,6 @@ function toggleSchedSort() {
   else localStorage.removeItem(SCHED_SORT_KEY);
   updateSchedSortIcon();
   loadScheduled();
-}
-
-// 更新最近任务执行列表排序图标状态
-function updateExecSortIcon() {
-  const dir = localStorage.getItem(EXEC_SORT_KEY); // null=默认（显示⇅）
-  const icon = document.getElementById('exec-sort-icon');
-  if (icon) {
-    icon.textContent = dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : dir === 'status' ? '●' : '⇅';
-    icon.title = '点击排序（下一档：' + nextSortLabel(EXEC_SORT_KEY) + '）';
-  }
-}
-
-// 切换最近任务执行列表排序方向（asc → desc → status → '' → asc）
-function toggleExecSort() {
-  const prev = localStorage.getItem(EXEC_SORT_KEY) || 'asc';
-  const next = prev === 'asc' ? 'desc' : prev === 'desc' ? 'status' : 'asc';
-  if (next) localStorage.setItem(EXEC_SORT_KEY, next);
-  else localStorage.removeItem(EXEC_SORT_KEY);
-  updateExecSortIcon();
-  loadRecentExecutions();
 }
 
 async function loadScheduledSummary() {
@@ -514,23 +484,8 @@ async function loadRecentExecutions() {
     const isRoot = (e) => !!e.resume_uuid && rootBySession[e.resume_uuid]?.id === e.id;
     const groupMap = {}; // root_exec_id -> { root: exec, children: [] }
 
-    // 四档排序：asc=最旧先 / desc=最新先 / status=按状态 / ''=默认（后端顺序，即 DESC）
-    const sortDir = localStorage.getItem(EXEC_SORT_KEY); // null 表示默认
-    const statusOrder = { running: 0, failed: 1, timeout: 2, success: 3, cancelled: 4, build_error: 5 };
-    const sortedList = sortDir
-      ? [...list].sort((a, b) => {
-          if (sortDir === 'status') {
-            const sa = statusOrder[a.status] ?? 99;
-            const sb = statusOrder[b.status] ?? 99;
-            return sa - sb;
-          }
-          const diff = new Date(a.started_at) - new Date(b.started_at);
-          return sortDir === 'asc' ? diff : -diff;
-        })
-      : list;
-
     const topLevel = []; // 没有 resume_uuid 的独立行 + 各 session 根节点
-    for (const e of sortedList) {
+    for (const e of list) {
       if (!e.resume_uuid) {
         // 独立 execution，无分组
         topLevel.push(e);
@@ -645,8 +600,6 @@ async function loadRecentExecutions() {
   }
   if (el) render(el, list, errMsg);
   if (el2) render(el2, list, errMsg);
-  // 页面加载时恢复排序图标状态
-  updateExecSortIcon();
 }
 
 // loadMoreExecutions: 增加 recentExecLimit + 重渲染最近执行列表。
@@ -1161,7 +1114,7 @@ function renderExecOutput(raw) {
     for (const item of obj) {
       if (item.type === 'message' && Array.isArray(item.content)) {
         for (const c of item.content) {
-          if (c.type === 'text' || c.type === 'output_text') {
+          if (c.type === 'input_text' || c.type === 'text' || c.type === 'output_text') {
             resultText += c.text + '\n';
           }
         }

@@ -789,7 +789,7 @@ func execListDirShortcuts(ctx context.Context, dirDB *backend.DirShortcutRepo, a
 		if d.Type == backend.DirShortcutTypeRemote {
 			loc = fmt.Sprintf("%s@%s:%s", d.RemoteUser, d.RemoteHost, d.RemotePath)
 		}
-		buf.WriteString(fmt.Sprintf("- [%s] %s | %s\n", d.Type, d.Name, loc))
+		buf.WriteString(fmt.Sprintf("- [%s] [%s] %s | %s\n", d.ID, d.Type, d.Name, loc))
 	}
 	if buf.Len() == 0 {
 		return "📁 无目录快捷方式（筛选结果为空）"
@@ -1030,7 +1030,7 @@ func execListWebLinks(ctx context.Context, linkDB *backend.WebLinkRepo, argsJSON
 	}
 	var buf bytes.Buffer
 	for _, l := range list {
-		buf.WriteString(fmt.Sprintf("- %s | %s\n", l.Name, l.URL))
+		buf.WriteString(fmt.Sprintf("- [%s] %s | %s\n", l.ID, l.Name, l.URL))
 	}
 	return "🔗 收藏链接:\n" + buf.String()
 }

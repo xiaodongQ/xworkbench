@@ -26,10 +26,11 @@ func newTestServer(t *testing.T) *APIServer {
 		t.Fatalf("TestDB: %v", err)
 	}
 	// config.json（单一来源）设置 default_terminal，避免 handler 走 shortcuts.DefaultTerminal() fallback
-	if config.Get() == nil {
-		config.Set(config.DefaultConfig())
-	}
-	config.Update(func(c *config.Config) { c.DefaultTerminal = "wezterm" })
+	// Always load DefaultConfig so terminal types are guaranteed to be present.
+	// This is safe even if a previous test modified the global config.
+	cfg := config.DefaultConfig()
+	cfg.DefaultTerminal = "wezterm"
+	config.Set(cfg)
 	schedDB := backend.NewScheduledTaskRepo(db)
 	execDB := backend.NewExecutionRepo(db)
 	h := hub.New()

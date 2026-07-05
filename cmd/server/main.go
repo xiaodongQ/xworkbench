@@ -4070,8 +4070,12 @@ func (s *APIServer) handleSkillsExecute(w http.ResponseWriter, r *http.Request) 
 	}
 	result, err := skill.Execute(req.Name, req.Params)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
+		// skill 执行失败，但 result 里可能有有用的输出信息（如超时、脚本错误等）
+		// 只有"找不到 skill"才返回 404，其他情况返回结果让前端展示
+		if result == nil {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
 	}
 	writeJSON(w, map[string]any{
 		"status":  result.Status,

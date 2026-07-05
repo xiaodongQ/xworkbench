@@ -435,6 +435,13 @@
       }
       const data = await resp.json();
       session.messages.push({ role: 'assistant', content: data.message?.content || JSON.stringify(data) });
+
+      // Refresh sidebar widgets if AI tool modified them (same as config.js import)
+      if (data.refresh_widgets && data.refresh_widgets.length > 0) {
+        if (typeof loadLinks === 'function' && data.refresh_widgets.includes('links')) loadLinks();
+        if (typeof loadDirs === 'function' && data.refresh_widgets.includes('dirs')) loadDirs();
+        if (typeof loadTodos === 'function' && data.refresh_widgets.includes('todos')) loadTodos();
+      }
     } catch (err) {
       session.messages.push({ role: 'assistant', content: '❌ 错误: ' + err.message });
     }

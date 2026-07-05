@@ -150,6 +150,7 @@ func InitSchema(db *sql.DB) error {
 		last_run_at DATETIME,
 		last_status TEXT,
 		last_execution_id TEXT,
+		last_session_id TEXT,
 		created_at DATETIME
 	);
 	-- 注:app_settings 表于 2026-06 重构移除,所有 KV 偏好已迁至 config.json 顶层字段
@@ -414,6 +415,7 @@ func migrateScheduledTasksColumns(db *sql.DB) error {
 	}
 	add := []struct{ n, d string }{
 		{"timeout_sec", "timeout_sec INTEGER DEFAULT 0"},
+		{"last_session_id", "last_session_id TEXT"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {

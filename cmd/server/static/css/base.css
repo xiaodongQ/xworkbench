@@ -601,13 +601,13 @@ tr:last-child td { border-bottom: none; }
 /* ===== AI Chat View ===== */
 .aichat-root {
   display: flex;
-  height: calc(100vh - 120px);
+  height: calc(100vh - 60px);
   gap: 12px;
 }
 
 /* Sidebar */
 .aichat-sidebar {
-  width: 160px;
+  width: 140px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -617,7 +617,7 @@ tr:last-child td { border-bottom: none; }
   overflow: hidden;
 }
 .aichat-sidebar-header {
-  padding: 8px;
+  padding: 8px 6px;
   border-bottom: 1px solid var(--border);
 }
 .aichat-session-list {

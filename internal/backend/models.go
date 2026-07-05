@@ -200,9 +200,10 @@ type ScheduledTask struct {
 	TimeoutSec     int        `json:"timeout_sec"` // 超时秒数，0=默认（AI 任务 10 分钟，shell 任务 5 分钟）
 	LastRunAt      *time.Time `json:"last_run_at,omitempty"`
 	NextRunAt      *time.Time `json:"next_run_at,omitempty"` // 下次执行时间；仅 enabled 任务注入，nil=禁用或解析失败
-	LastStatus     string     `json:"last_status,omitempty"`
+	LastStatus      string     `json:"last_status,omitempty"`
 	LastExecutionID string    `json:"last_execution_id,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
+	LastSessionID   string    `json:"last_session_id,omitempty"` // 跨执行续用 session_id
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // AppSetting KV 设置
