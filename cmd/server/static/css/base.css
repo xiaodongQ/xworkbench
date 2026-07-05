@@ -504,6 +504,11 @@ tr:last-child td { border-bottom: none; }
 
 /* ===== 终端 ===== */
 .terminal-wrap { background: #0f172a; border-radius: 8px; overflow: hidden; margin-bottom: 16px; }
+.terminal-wrap:focus-within { outline: 2px solid rgba(34, 211, 238, 0.25); outline-offset: -2px; }
+.terminal-wrap:not(:focus-within) { outline: 1px solid rgba(148, 163, 184, 0.15); }
+/* terminal div 可聚焦 */
+#shell-terminal, #rpty-container { outline: none; cursor: text; }
+#shell-terminal:focus-visible, #rpty-container:focus-visible { outline: none; }
 .terminal-header { background: #1e293b; padding: 8px 12px; display: flex; align-items: center; gap: 8px; }
 .terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
 .terminal-dot.red { background: #ef4444; }

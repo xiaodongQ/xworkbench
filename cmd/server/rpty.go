@@ -288,12 +288,14 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 	RegisterRPTY(tabID, sess)
 
 	// 构建 cd 到 remote_path 的启动命令
-	shellCmd := "exec $SHELL -l"
+	// 使用 $SHELL 或 fallback 到 bash，避免 exec 失败导致连接断开
+	shellCmd := `SHELL=${SHELL:-/bin/bash} && exec ${SHELL} -l`
 	if dir.RemotePath != "" {
-		shellCmd = fmt.Sprintf("cd '%s' && exec $SHELL -l", dir.RemotePath)
+		// 先 cd 到目录，失败时仍保持 shell 存活（用 || true 防止 cd 失败导致 shell 退出）
+		shellCmd = fmt.Sprintf(`SHELL=${SHELL:-/bin/bash} && cd "%s" 2>/dev/null || true && exec ${SHELL} -l`, dir.RemotePath)
 	}
 	if dir.TerminalCmd != "" {
-		shellCmd = fmt.Sprintf("cd '%s' && %s && exec $SHELL -l", dir.RemotePath, dir.TerminalCmd)
+		shellCmd = fmt.Sprintf(`SHELL=${SHELL:-/bin/bash} && cd "%s" 2>/dev/null || true && %s && exec ${SHELL} -l`, dir.RemotePath, dir.TerminalCmd)
 	}
 
 	if err := session.Start(shellCmd); err != nil {

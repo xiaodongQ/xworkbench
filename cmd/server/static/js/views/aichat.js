@@ -69,7 +69,7 @@
                 </div>
                 <button class="btn-icon" id="aichat-close-term" title="关闭终端" aria-label="close terminal" style="margin-left:6px">✕</button>
               </div>
-              <div id="shell-terminal"></div>
+              <div id="shell-terminal" tabindex="0"></div>
             </div>
           </div>
         </main>

@@ -291,6 +291,7 @@ function initRptyTab() {
       scrollback: 10000,
     });
     rptyTerm.open(container);
+
     rptyTerm.writeln('\x1b[36m[xworkbench] 远程终端\x1b[0m 请选择目录后点击"连接"\r\n');
     rptyTerm.writeln('\x1b[2m提示：在侧边栏选择一个远程目录（🌐），点击终端图标选择"Web 内嵌终端"\x1b[0m\r\n');
   });
