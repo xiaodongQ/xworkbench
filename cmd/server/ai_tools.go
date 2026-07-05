@@ -593,7 +593,9 @@ func execListTasks(ctx context.Context, db *backend.TaskRepo, argsJSON string) s
 }
 
 func execGetTask(ctx context.Context, db *backend.TaskRepo, execDB *backend.ExecutionRepo, argsJSON string) string {
-	var args struct{ TaskID string `json:"task_id"` }
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	task, err := db.Get(args.TaskID)
 	if err != nil {
@@ -756,18 +758,18 @@ func execCreateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 		return "⚠️ local 类型快捷方式需要 path"
 	}
 	shortcut := &backend.DirShortcut{
-		ID:             newUUID(),
-		Name:           args.Name,
-		Type:           args.Type,
-		Path:           args.Path,
-		RemoteHost:     args.RemoteHost,
-		RemotePort:     args.RemotePort,
-		RemoteUser:     args.RemoteUser,
-		RemotePath:     args.RemotePath,
-		AuthMethod:     args.AuthMethod,
-		KeyPath:        args.KeyPath,
-		TerminalCmd:    args.TerminalCmd,
-		SortOrder:      dirDB.NextSortOrder(),
+		ID:          newUUID(),
+		Name:        args.Name,
+		Type:        args.Type,
+		Path:        args.Path,
+		RemoteHost:  args.RemoteHost,
+		RemotePort:  args.RemotePort,
+		RemoteUser:  args.RemoteUser,
+		RemotePath:  args.RemotePath,
+		AuthMethod:  args.AuthMethod,
+		KeyPath:     args.KeyPath,
+		TerminalCmd: args.TerminalCmd,
+		SortOrder:   dirDB.NextSortOrder(),
 	}
 	if err := dirDB.Create(shortcut); err != nil {
 		return fmt.Sprintf("创建失败: %v", err)
@@ -776,7 +778,9 @@ func execCreateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 }
 
 func execListDirShortcuts(ctx context.Context, dirDB *backend.DirShortcutRepo, argsJSON string) string {
-	var args struct{ Type string `json:"type"` }
+	var args struct {
+		Type string `json:"type"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	list, err := dirDB.List()
 	if err != nil {
@@ -804,16 +808,16 @@ func execListDirShortcuts(ctx context.Context, dirDB *backend.DirShortcutRepo, a
 
 func execUpdateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, argsJSON string) string {
 	var args struct {
-		ID           string `json:"id"`
-		Name         string `json:"name"`
-		Path         string `json:"path"`
-		Type         string `json:"type"`
-		RemoteHost   string `json:"remote_host"`
-		RemoteUser   string `json:"remote_user"`
-		RemotePath   string `json:"remote_path"`
-		AuthMethod   string `json:"auth_method"`
-		KeyPath      string `json:"key_path"`
-		TerminalCmd  string `json:"terminal_cmd"`
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Path        string `json:"path"`
+		Type        string `json:"type"`
+		RemoteHost  string `json:"remote_host"`
+		RemoteUser  string `json:"remote_user"`
+		RemotePath  string `json:"remote_path"`
+		AuthMethod  string `json:"auth_method"`
+		KeyPath     string `json:"key_path"`
+		TerminalCmd string `json:"terminal_cmd"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.ID == "" {
@@ -857,7 +861,9 @@ func execUpdateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 }
 
 func execDeleteDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, argsJSON string) string {
-	var args struct{ ID string `json:"id"` }
+	var args struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.ID == "" {
 		return "⚠️ id 是必填字段"
@@ -869,7 +875,9 @@ func execDeleteDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 }
 
 func execOpenDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, argsJSON string) string {
-	var args struct{ ID string `json:"id"` }
+	var args struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	entry, err := dirDB.GetByID(args.ID)
 	if err != nil || entry == nil {
@@ -1012,7 +1020,9 @@ func execUpdateExperience(ctx context.Context, expDB *backend.ExperienceRepo, ar
 }
 
 func execDeleteExperience(ctx context.Context, expDB *backend.ExperienceRepo, argsJSON string) string {
-	var args struct{ ID string `json:"id"` }
+	var args struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.ID == "" {
 		return "⚠️ id 是必填字段"
@@ -1093,7 +1103,9 @@ func execUpdateWebLink(ctx context.Context, linkDB *backend.WebLinkRepo, argsJSO
 }
 
 func execDeleteWebLink(ctx context.Context, linkDB *backend.WebLinkRepo, argsJSON string) string {
-	var args struct{ ID string `json:"id"` }
+	var args struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.ID == "" {
 		return "⚠️ id 是必填字段（必须是列表中 [xxx] 格式的 UUID，不是链接名称）"
@@ -1110,7 +1122,9 @@ func execDeleteWebLink(ctx context.Context, linkDB *backend.WebLinkRepo, argsJSO
 }
 
 func execOpenWebLink(ctx context.Context, argsJSON string) string {
-	var args struct{ URL string `json:"url"` }
+	var args struct {
+		URL string `json:"url"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.URL == "" {
 		return "⚠️ url 是必填字段"
@@ -1243,7 +1257,9 @@ func execToggleTodo(ctx context.Context, argsJSON string) string {
 }
 
 func execDeleteTodo(ctx context.Context, argsJSON string) string {
-	var args struct{ LineNo int `json:"line_no"` }
+	var args struct {
+		LineNo int `json:"line_no"`
+	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.LineNo <= 0 {
 		return "⚠️ line_no 是必填字段且必须 > 0"
@@ -1282,8 +1298,8 @@ func execStartLocalShell(ctx context.Context, state *LocalShellState, argsJSON s
 
 func execRunLocalCommand(ctx context.Context, state *LocalShellState, argsJSON string) string {
 	var args struct {
-		Command  string `json:"command"`
-		CLIType  string `json:"cli_type"`
+		Command string `json:"command"`
+		CLIType string `json:"cli_type"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if !state.Active {
