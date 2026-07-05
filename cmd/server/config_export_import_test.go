@@ -163,7 +163,7 @@ func TestExportImport_RoundTrip_WebLinks(t *testing.T) {
 	// 清空再导入
 	all, _ := s.linkDB.List()
 	for _, x := range all {
-		_ = s.linkDB.Delete(x.ID)
+		_, _ = s.linkDB.Delete(x.ID)
 	}
 
 	w = doRequest(t, mux, "POST", "/api/config/import", configImportRequest{

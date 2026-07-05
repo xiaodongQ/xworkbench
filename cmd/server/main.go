@@ -1504,7 +1504,7 @@ func (s *APIServer) handleWebLinkUpdate(w http.ResponseWriter, r *http.Request) 
 func (s *APIServer) handleWebLinkDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	logger.Infow("weblink delete", "id", id)
-	if err := s.linkDB.Delete(id); err != nil {
+	if _, err := s.linkDB.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

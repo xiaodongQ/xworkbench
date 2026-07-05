@@ -198,8 +198,6 @@ func determineAICmd(cliType, ctxDir string) string {
 		return cmd
 	}
 	switch cliType {
-	case "codex":
-		return "codex"
 	case "cbc":
 		return "cbc"
 	case "shell":

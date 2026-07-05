@@ -1578,14 +1578,14 @@ func (r *WebLinkRepo) Update(w *WebLink) error {
 	return nil
 }
 
-func (r *WebLinkRepo) Delete(id string) error {
-	_, err := r.db.Exec(`DELETE FROM web_links WHERE id=?`, id)
+func (r *WebLinkRepo) Delete(id string) (sql.Result, error) {
+	res, err := r.db.Exec(`DELETE FROM web_links WHERE id=?`, id)
 	if err != nil {
 		logger.Logger.Errorw("web_links delete failed", "id", id, "error", err.Error())
-		return err
+		return nil, err
 	}
 	logger.Logger.Infow("web_links deleted", "id", id)
-	return nil
+	return res, nil
 }
 
 // NextSortOrder 返回当前最大 sort_order + 1（无记录时返回 1），用于新增项追加到末尾。

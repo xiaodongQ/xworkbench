@@ -1091,12 +1091,17 @@ func execDeleteWebLink(ctx context.Context, linkDB *backend.WebLinkRepo, argsJSO
 	var args struct{ ID string `json:"id"` }
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.ID == "" {
-		return "⚠️ id 是必填字段"
+		return "⚠️ id 是必填字段（必须是列表中 [xxx] 格式的 UUID，不是链接名称）"
 	}
-	if err := linkDB.Delete(args.ID); err != nil {
+	res, err := linkDB.Delete(args.ID)
+	if err != nil {
 		return fmt.Sprintf("删除失败: %v", err)
 	}
-	return fmt.Sprintf("✅ 收藏链接已删除: %s", args.ID)
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return fmt.Sprintf("⚠️ 未找到 ID=%s 的链接，请先调用 list_web_links 获取最新列表（含 UUID ID）再删除", args.ID)
+	}
+	return fmt.Sprintf("✅ 收藏链接已删除（ID: %s）", args.ID)
 }
 
 func execOpenWebLink(ctx context.Context, argsJSON string) string {

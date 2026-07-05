@@ -369,8 +369,6 @@ func determineAICmd(cliType, ctxDir, sessionID, resumeUUID string) string {
 		return enrichCmd(cmd, sessionID, resumeUUID)
 	}
 	switch cliType {
-	case "codex":
-		return "codex"
 	case "cbc":
 		return enrichCmd("cbc", sessionID, resumeUUID)
 	case "shell":

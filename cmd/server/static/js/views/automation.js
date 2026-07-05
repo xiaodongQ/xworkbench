@@ -650,7 +650,7 @@ async function viewExecutionDetail(id) {
     if (toggle) {
       const hasExtra = renderedOutput !== aiReplyOnly;
       toggle.style.display = hasExtra ? 'inline' : 'none';
-      toggle.textContent = hasExtra ? '▼ 显示全部输出（含 CLI 元数据 + AI 动作清单）' : '';
+      toggle.textContent = hasExtra ? '▼ 显示全部输出（含 CLI 元数据 + 动作清单的完整输出）' : '';
     }
     document.getElementById('exec-detail-error').value = exec.error || '';
     const isRunning = !exec.completed_at;
@@ -857,6 +857,9 @@ async function submitContinue() {
 // 告诉用户“你刚发的 prompt 是什么 / 产生的新执行 ID / 点此跳详情”。
 // 这解决了之前 closeExecDetailModal 后用户丢失上下文的 UX 问题。
 function _showContinueFeedback(newExecId, promptText) {
+  // 只在当前查看的 exec 与新提交的一致时才显示反馈条带
+  // 切换到其他 exec 时旧条带自动失效，不应带过去
+  if (currentExecId !== newExecId) return;
   // 移除旧条带（如果有）
   const old = document.getElementById('continue-feedback-strip');
   if (old) old.remove();
@@ -1108,13 +1111,35 @@ function renderExecOutput(raw) {
 
     return sections.join('\n\n');
   }
-  // cbc 分段 JSON 输出（数组），找第一个有 sessionId 的块
+  // cbc 最终输出也是 {type:"result", result:"..."}，与 claude 结构一致
   if (Array.isArray(obj)) {
+    for (const item of obj) {
+      if (item.type === 'result' && typeof item.result === 'string') {
+        const resultText = item.result || '';
+        const actionReportIdx = resultText.indexOf('## 动作清单');
+        let aiReply = resultText;
+        let actionReport = '';
+        if (actionReportIdx !== -1) {
+          aiReply = resultText.slice(0, actionReportIdx).trim();
+          actionReport = resultText.slice(actionReportIdx);
+        }
+        const sections = [];
+        if (aiReply) sections.push('=== AI 答复 ===\n' + aiReply);
+        const meta = [];
+        if (item.num_turns != null) meta.push(`num_turns=${item.num_turns}`);
+        if (item.is_error) meta.push('is_error=true');
+        if (item.session_id) meta.push(`sessionId=${item.session_id}`);
+        if (meta.length) sections.push('--- AI CLI 执行信息 ---\n' + meta.join(' | '));
+        if (actionReport) sections.push('--- AI 自评动作清单（辅助评估） ---\n' + actionReport);
+        return sections.join('\n\n');
+      }
+    }
+    // 兜底：流式中间数组，找 assistant 消息
     let resultText = '';
     for (const item of obj) {
-      if (item.type === 'message' && Array.isArray(item.content)) {
+      if (item.type === 'message' && item.role === 'assistant' && Array.isArray(item.content)) {
         for (const c of item.content) {
-          if (c.type === 'input_text' || c.type === 'text' || c.type === 'output_text') {
+          if (c.type === 'text' || c.type === 'output_text') {
             resultText += c.text + '\n';
           }
         }
@@ -1127,19 +1152,12 @@ function renderExecOutput(raw) {
       aiReply = resultText.slice(0, actionReportIdx).trim();
       actionReport = resultText.slice(actionReportIdx);
     }
-
     const sections = [];
-    if (aiReply) {
-      sections.push('=== AI 答复 ===\n' + aiReply);
-    }
+    if (aiReply) sections.push('=== AI 答复 ===\n' + aiReply);
     const meta = [];
     if (sessionId) meta.push(`sessionId=${sessionId}`);
-    if (meta.length) {
-      sections.push('--- AI CLI 执行信息 ---\n' + meta.join(' | '));
-    }
-    if (actionReport) {
-      sections.push('--- AI 自评动作清单（辅助评估） ---\n' + actionReport);
-    }
+    if (meta.length) sections.push('--- AI CLI 执行信息 ---\n' + meta.join(' | '));
+    if (actionReport) sections.push('--- AI 自评动作清单（辅助评估） ---\n' + actionReport);
     return sections.join('\n\n');
   }
   return raw;
@@ -1161,7 +1179,7 @@ function toggleExecOutput(link) {
   if (el._showingFull) {
     el.value = extractAIReplyOnly(el._fullOutput);
     el._showingFull = false;
-    link.textContent = '▶ 显示全部输出（含 CLI 元数据 + AI 动作清单）';
+    link.textContent = '▶ 显示全部输出（含 CLI 元数据 + 动作清单的完整输出）';
   } else {
     el.value = el._fullOutput;
     el._showingFull = true;
@@ -1303,10 +1321,19 @@ function renderExecConversationTimeline(execs) {
     if (hasOut) {
       try {
         const obj = JSON.parse(e.output);
-        if (obj && obj.result) {
-          out = obj.result; // 自然语言内容
+        // claude: {result: "..."}
+        if (obj && obj.result && typeof obj.result === 'string') {
+          out = obj.result;
         } else if (obj && obj.error) {
           out = '错误: ' + obj.error;
+        } else if (Array.isArray(obj)) {
+          // cbc: 在数组中找 {type:"result", result:"..."}
+          for (const item of obj) {
+            if (item.type === 'result' && typeof item.result === 'string') {
+              out = item.result;
+              break;
+            }
+          }
         }
       } catch (_) {
         // 解析失败，使用原始内容
@@ -1327,8 +1354,8 @@ function renderExecConversationTimeline(execs) {
         '<div style="flex:1;min-width:0">' +
           '<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">' + tag + '<span style="color:var(--text-secondary);font-size:10px">' + ts + '</span></div>' +
           '<div style="color:var(--text);font-size:11px;margin-bottom:4px"><b style="color:#0ea5e9">问:</b> ' + prompt + '</div>' +
-          (hasCmd ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(){var p=document.getElementById(\'' + cmdId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');}else{p.classList.add(\'hidden\');}})()">▶ 命令</span><pre id="' + cmdId + '" class="hidden" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow-y:auto">' + cmd + '</pre></div>' : '') +
-          (hasOut ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(){var p=document.getElementById(\'' + outId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');}else{p.classList.add(\'hidden\');}})()">▶ 输出</span><pre id="' + outId + '" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:var(--archived)">' + esc(aiReplyForList) + '</pre>' + (hasActionReport ? '<a href="#" class="action-report-toggle" style="font-size:10px;color:var(--primary);text-decoration:none" onclick="var f=document.getElementById(\'' + fullOutId + '\');var t=this;if(f.classList.contains(\'hidden\')){f.classList.remove(\'hidden\');t.textContent=\'▼ 收起动作清单\';}else{f.classList.add(\'hidden\');t.textContent=\'▶ 含动作清单（辅助评估）\';}return false">▶ 含动作清单（辅助评估）</a><pre id="' + fullOutId + '" class="hidden" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:var(--archived)">' + esc(out) + '</pre>' : '') + '</div>' : '') +
+          (hasCmd ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(self){var p=document.getElementById(\'' + cmdId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');self.textContent=\'▼ 命令\';}else{p.classList.add(\'hidden\');self.textContent=\'▶ 命令\';}})(this)">▶ 命令</span><pre id="' + cmdId + '" class="hidden" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow-y:auto">' + cmd + '</pre></div>' : '') +
+          (hasOut ? '<div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-secondary);cursor:pointer" onclick="(function(self){var p=document.getElementById(\'' + outId + '\');if(p.classList.contains(\'hidden\')){p.classList.remove(\'hidden\');self.textContent=\'▼ 输出\';}else{p.classList.add(\'hidden\');self.textContent=\'▶ 输出\';}})(this)">▶ 输出</span><pre id="' + outId + '" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:var(--archived)">' + esc(aiReplyForList) + '</pre>' + (hasActionReport ? '<a href="#" class="action-report-toggle" style="font-size:10px;color:var(--primary);text-decoration:none" onclick="var f=document.getElementById(\'' + fullOutId + '\');var t=this;if(f.classList.contains(\'hidden\')){f.classList.remove(\'hidden\');t.textContent=\'▼ 含动作清单的完整输出（辅助评估）\';}else{f.classList.add(\'hidden\');t.textContent=\'▶ 含动作清单的完整输出（辅助评估）\';}return false">▶ 含动作清单（辅助评估）</a><pre id="' + fullOutId + '" class="hidden" style="margin:4px 0 0;padding:6px;background:var(--hover);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:var(--archived)">' + esc(out) + '</pre>' : '') + '</div>' : '') +
           (hasErr ? '<div style="margin-bottom:4px;color:var(--exception);font-size:10px">✗ 错误: ' + err + '</div>' : '') +
         '</div>' +
       '</div>' +

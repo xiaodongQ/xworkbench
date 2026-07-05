@@ -99,6 +99,9 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 		if model != "" {
 			cmd = append(cmd, "--model", model)
 		}
+		if o.resumeUUID != "" {
+			cmd = append(cmd, "--resume", o.resumeUUID)
+		}
 			if o.useStdin {
 				var stdinVal string
 				if o.actionReport {
