@@ -34,9 +34,9 @@
         </aside>
         <main class="aichat-main">
           <div class="aichat-toolbar">
-            <span class="aichat-toolbar-title">AI 助手</span>
+            <span class="aichat-toolbar-title">AI对话助手</span>
             <button class="btn-icon" id="aichat-toggle-term" title="网页终端（体验功能）" aria-label="toggle terminal">⌨</button>
-            <button class="btn-icon" id="aichat-open-config" title="AI 助手配置" aria-label="open config">⚙</button>
+            <button class="btn-icon" id="aichat-open-config" title="AI对话助手配置" aria-label="open config">⚙</button>
           </div>
 
           <div class="aichat-chat-region" id="aichat-chat-region">
@@ -78,7 +78,7 @@
       <div class="modal-backdrop hidden" id="aichat-config-modal">
         <div class="modal-card">
           <div class="modal-header">
-            <h3>AI 助手配置</h3>
+            <h3>AI对话助手配置</h3>
             <button class="btn-icon" id="aichat-config-close" aria-label="close">✕</button>
           </div>
           <div class="modal-body" id="aichat-config-body">
@@ -96,58 +96,109 @@
 
   function configPanelHTML() {
     return `<div class="aichat-config">
-      <h3>AI 助手配置</h3>
+      <h3>AI对话助手配置</h3>
       <p class="aichat-config-hint">支持 Anthropic / OpenAI 双协议共存，填好后用顶部切换选择使用哪套。</p>
+      <div class="cfg-model-warning" id="cfg-model-warning" style="display:none;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#92400e">
+        ⚠️ 当前未配置模型，请先在下方填写 API Key 和 Model 后保存。
+      </div>
 
       <!-- 当前激活 Provider -->
-      <div class="form-group">
-        <label>当前使用</label>
-        <select id="cfg-provider" onchange="onCfgProviderChange()">
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI</option>
-        </select>
-      </div>
-
-      <!-- Anthropic 配置区块 -->
-      <div class="provider-config-block" id="cfg-block-anthropic">
-        <div class="provider-config-header">Anthropic</div>
-        <div class="form-group"><label>API URL</label>
-          <input type="text" id="cfg-anthropic-url" placeholder="https://api.anthropic.com（留空用官方默认）" />
-        </div>
-        <div class="form-group"><label>API Key</label>
-          <input type="password" id="cfg-anthropic-key" placeholder="sk-ant-..." />
-        </div>
-        <div class="form-group"><label>Model</label>
-          <input type="text" id="cfg-anthropic-model" placeholder="claude-sonnet-4-20250514" />
+      <div class="form-group" id="cfg-provider-row" style="background:var(--hover);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+        <label style="font-size:12px;font-weight:600;margin-bottom:6px;display:block;color:var(--text)">当前使用</label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <select id="cfg-provider" onchange="onCfgProviderChange()" style="font-size:13px;padding:4px 8px;background:var(--card);border:1px solid var(--border);border-radius:4px">
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+          </select>
+          <span id="cfg-provider-hint" style="font-size:12px"></span>
         </div>
       </div>
 
-      <!-- OpenAI 配置区块 -->
-      <div class="provider-config-block" id="cfg-block-openai">
-        <div class="provider-config-header">OpenAI</div>
-        <div class="form-group"><label>API URL</label>
-          <input type="text" id="cfg-openai-url" placeholder="https://api.openai.com/v1（留空用官方默认）" />
+      <!-- Anthropic + OpenAI 并排 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="provider-config-block anthropic" id="cfg-block-anthropic">
+          <div class="provider-config-header">Anthropic</div>
+          <div class="form-group"><label style="font-size:11px">API URL</label>
+            <input type="text" id="cfg-anthropic-url" placeholder="留空用官方默认" style="font-size:12px;padding:4px 6px" />
+          </div>
+          <div class="form-group"><label style="font-size:11px">API Key</label>
+            <input type="password" id="cfg-anthropic-key" placeholder="sk-ant-..." style="font-size:12px;padding:4px 6px" />
+          </div>
+          <div class="form-group"><label style="font-size:11px">Model</label>
+            <input type="text" id="cfg-anthropic-model" placeholder="claude-sonnet-4-20250514" style="font-size:12px;padding:4px 6px" />
+          </div>
         </div>
-        <div class="form-group"><label>API Key</label>
-          <input type="password" id="cfg-openai-key" placeholder="sk-..." />
-        </div>
-        <div class="form-group"><label>Model</label>
-          <input type="text" id="cfg-openai-model" placeholder="gpt-4o" />
+
+        <div class="provider-config-block openai" id="cfg-block-openai">
+          <div class="provider-config-header">OpenAI</div>
+          <div class="form-group"><label style="font-size:11px">API URL</label>
+            <input type="text" id="cfg-openai-url" placeholder="留空用官方默认" style="font-size:12px;padding:4px 6px" />
+          </div>
+          <div class="form-group"><label style="font-size:11px">API Key</label>
+            <input type="password" id="cfg-openai-key" placeholder="sk-..." style="font-size:12px;padding:4px 6px" />
+          </div>
+          <div class="form-group"><label style="font-size:11px">Model</label>
+            <input type="text" id="cfg-openai-model" placeholder="gpt-4o" style="font-size:12px;padding:4px 6px" />
+          </div>
         </div>
       </div>
 
-      <div class="form-actions">
-        <button class="btn btn-secondary" id="cfg-test-btn">测试连接</button>
+      <div class="form-actions" style="position:relative">
+        <button class="btn btn-secondary" id="cfg-test-btn" onmouseenter="showTestTip()" onmouseleave="hideTestTip()">测试连接</button>
         <button class="btn btn-primary" id="cfg-save-btn">保存配置</button>
+        <div id="cfg-test-tip" style="display:none;position:absolute;bottom:100%;left:0;margin-bottom:6px;background:#1e293b;color:#e2e8f0;font-size:11px;padding:6px 10px;border-radius:6px;white-space:nowrap;z-index:10;box-shadow:0 2px 8px rgba(0,0,0,0.25)"></div>
       </div>
       <div class="cfg-status" id="cfg-status"></div>
     </div>`;
   }
 
+  // 显示测试按钮 tooltip：当前选中 provider + model + key 状态
+  window.showTestTip = function() {
+    const root = document.getElementById('aichat-config-body');
+    if (!root) return;
+    const provider = root.querySelector('#cfg-provider').value;
+    const model = (provider === 'openai'
+      ? root.querySelector('#cfg-openai-model')
+      : root.querySelector('#cfg-anthropic-model'))?.value.trim();
+    const keyEl = (provider === 'openai'
+      ? root.querySelector('#cfg-openai-key')
+      : root.querySelector('#cfg-anthropic-key'));
+    const hasKey = !!(keyEl?.value || (keyEl?.placeholder?.startsWith('已配置')));
+    const tip = root.querySelector('#cfg-test-tip');
+    if (!tip) return;
+    const label = provider === 'openai' ? 'OpenAI' : 'Anthropic';
+    tip.innerHTML = `<b>${label}</b> · ${model || '<span style="color:#f59e0b">缺模型</span>'} · ${hasKey ? '✅ Key已填' : '<span style="color:#f59e0b">缺Key</span>'}`;
+    tip.style.display = 'block';
+  };
+  window.hideTestTip = function() {
+    const root = document.getElementById('aichat-config-body');
+    if (!root) return;
+    const tip = root.querySelector('#cfg-test-tip');
+    if (tip) tip.style.display = 'none';
+  };
+
   window.onCfgProviderChange = function() {
     // 切换 active_provider，不改变页面可见性（两套始终可见）
     const provider = document.getElementById('cfg-provider').value;
     document.querySelector('#cfg-active-provider-display')?.setAttribute('data-provider', provider);
+    // 根据当前表单值更新右侧状态文字颜色
+    const model = (provider === 'openai'
+      ? document.getElementById('cfg-openai-model')
+      : document.getElementById('cfg-anthropic-model'))?.value.trim();
+    const keyEl = (provider === 'openai'
+      ? document.getElementById('cfg-openai-key')
+      : document.getElementById('cfg-anthropic-key'));
+    const hasKey = !!(keyEl?.value.trim() || (keyEl?.placeholder?.startsWith('已配置')));
+    const hint = document.querySelector('#cfg-provider-hint');
+    if (hint) {
+      if (hasKey && model) {
+        hint.textContent = '✅ 已配置'; hint.style.color = '#16a34a';
+      } else if (hasKey) {
+        hint.textContent = '⚠️ 缺少模型'; hint.style.color = '#ca8a04';
+      } else {
+        hint.textContent = '❌ 未配置'; hint.style.color = '#dc2626';
+      }
+    }
   };
 
   // ── Events ─────────────────────────────────────────────────
@@ -305,34 +356,31 @@
   // 能力分类来自 cmd/server/ai_tools.go 的真实工具。
   function welcomeHTML() {
     return `<div class="aichat-welcome">
-      <div class="aichat-welcome-title">👋 你好，我是 AI 助手</div>
-      <div class="aichat-welcome-sub">
-        我能帮你管理任务、操作目录、查询经验库，<br/>
-        也可以启动 Claude / CBC CLI 进行交互式操作。
-      </div>
+      <div class="aichat-welcome-title">👋 你好，我是 AI 对话助手</div>
+      <div class="aichat-welcome-sub">任务管理 · 目录快捷 · 经验库 · CLI 会话</div>
       <div class="aichat-welcome-grid">
         <div class="aichat-welcome-card">
           <div class="aichat-welcome-card-icon">📋</div>
           <div class="aichat-welcome-card-title">任务管理</div>
-          <div class="aichat-welcome-card-desc">创建、查询、执行任务，查看执行历史</div>
+          <div class="aichat-welcome-card-desc">创建、查询、执行任务</div>
         </div>
         <div class="aichat-welcome-card">
           <div class="aichat-welcome-card-icon">📁</div>
           <div class="aichat-welcome-card-title">目录快捷</div>
-          <div class="aichat-welcome-card-desc">本地与远程目录快捷方式，一键访问</div>
+          <div class="aichat-welcome-card-desc">本地与远程目录访问</div>
         </div>
         <div class="aichat-welcome-card">
           <div class="aichat-welcome-card-icon">💡</div>
           <div class="aichat-welcome-card-title">经验库</div>
-          <div class="aichat-welcome-card-desc">搜索已有的经验与知识</div>
+          <div class="aichat-welcome-card-desc">搜索已有经验与知识</div>
         </div>
         <div class="aichat-welcome-card">
           <div class="aichat-welcome-card-icon">🛠️</div>
           <div class="aichat-welcome-card-title">CLI 会话</div>
-          <div class="aichat-welcome-card-desc">启动 Claude / CBC 交互式会话</div>
+          <div class="aichat-welcome-card-desc">Claude / CBC 交互式会话</div>
         </div>
       </div>
-      <div class="aichat-welcome-hint">在下方输入框开始你的第一次对话 ↓</div>
+      <div class="aichat-welcome-hint">在下方输入框开始对话 ↓</div>
     </div>`;
   }
 
@@ -364,7 +412,6 @@
     renderMessages(session.messages);
     renderSessionList(root);
 
-    // Typing indicator
     const msgContainer = document.getElementById('aichat-messages');
     const typing = document.createElement('div');
     typing.className = 'aichat-msg aichat-msg-assistant';
@@ -379,8 +426,12 @@
         body: JSON.stringify({ messages: session.messages })
       });
       if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: resp.statusText }));
-        throw new Error(err.error || resp.statusText);
+        let errMsg = resp.statusText;
+        try {
+          const err = await resp.json().catch(() => null);
+          if (err && err.error) errMsg = err.error;
+        } catch {}
+        throw new Error(errMsg);
       }
       const data = await resp.json();
       session.messages.push({ role: 'assistant', content: data.message?.content || JSON.stringify(data) });
@@ -418,6 +469,24 @@
       const oaiKeyEl = root.querySelector('#cfg-openai-key');
       if (oaiKeyEl && oai.api_key && oai.api_key !== '') {
         oaiKeyEl.placeholder = '已配置（修改请重新输入）';
+      }
+
+      // 当前 provider 未配置模型时显示警告
+      const active = provider === 'openai' ? oai : ant;
+      const warn = root.querySelector('#cfg-model-warning');
+      if (warn) warn.style.display = (!active.model || !active.api_key) ? 'block' : 'none';
+      // 当前使用右侧状态文字颜色
+      const hint = root.querySelector('#cfg-provider-hint');
+      if (hint) {
+        const hasKey = !!active.api_key;
+        const hasModel = !!active.model;
+        if (hasKey && hasModel) {
+          hint.textContent = '✅ 已配置'; hint.style.color = '#16a34a';
+        } else if (hasKey) {
+          hint.textContent = '⚠️ 缺少模型'; hint.style.color = '#ca8a04';
+        } else {
+          hint.textContent = '❌ 未配置'; hint.style.color = '#dc2626';
+        }
       }
     } catch {}
   }
@@ -462,6 +531,10 @@
     try {
       await Promise.all(saves);
       status.textContent = '✅ 配置已保存'; status.style.color = 'green';
+      clearTimeout(status._timer);
+      status._timer = setTimeout(() => { status.textContent = ''; }, 3000);
+      const warn = root.querySelector('#cfg-model-warning');
+      if (warn) warn.style.display = 'none';
     } catch (err) {
       status.textContent = '❌ 保存 Key 失败: ' + err.message; status.style.color = 'red';
     }
@@ -469,17 +542,25 @@
 
   async function testConfig(root) {
     const status = root.querySelector('#cfg-status');
-    status.textContent = '测试中...'; status.style.color = 'blue';
+    clearTimeout(status._timer);
+    const provider = root.querySelector('#cfg-provider').value;
+    status.textContent = '🔬 测试连接中...'; status.style.color = 'blue';
     try {
-      const r = await fetch('/api/ai/config/test', { method: 'POST' });
-      if (r.ok) { status.textContent = '✅ 连接成功'; status.style.color = 'green'; }
-      else {
+      const r = await fetch('/api/ai/config/test?provider=' + encodeURIComponent(provider), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}) // 空 body，后端用已保存的 config
+      });
+      if (r.ok) {
+        status.textContent = '✅ 连接成功'; status.style.color = '#16a34a';
+      } else {
         const e = await r.json().catch(() => ({}));
-        status.textContent = '❌ ' + (e.error || r.statusText); status.style.color = 'red';
+        status.textContent = '❌ ' + (e.error || r.statusText); status.style.color = '#dc2626';
       }
     } catch (err) {
-      status.textContent = '❌ ' + err.message; status.style.color = 'red';
+      status.textContent = '❌ ' + err.message; status.style.color = '#dc2626';
     }
+    status._timer = setTimeout(() => { status.textContent = ''; }, 4000);
   }
 
 

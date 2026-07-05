@@ -825,7 +825,7 @@ tr:last-child td { border-bottom: none; }
 }
 
 /* Config panel */
-.aichat-config { max-width: 500px; background: var(--card-bg); padding: 16px; border-radius: 8px; border: 1px solid var(--border); }
+.aichat-config { max-width: 520px; background: var(--card-bg); padding: 16px; border-radius: 8px; border: 1px solid var(--border); }
 .aichat-config h3 { margin-bottom: 16px; }
 .aichat-config .form-group { margin-bottom: 12px; }
 .aichat-config label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
@@ -840,10 +840,15 @@ tr:last-child td { border-bottom: none; }
   font-size: 13px;
 }
 .aichat-config input:focus, .aichat-config select:focus { outline: none; border-color: var(--primary, #22d3ee); }
+#cfg-provider { width: auto !important; }
 .form-actions { display: flex; gap: 8px; margin-top: 16px; }
 .cfg-status { margin-top: 10px; font-size: 13px; }
 .provider-config-block { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.provider-config-block.anthropic { border-left: 3px solid #3b82f6; }
+.provider-config-block.openai    { border-left: 3px solid #16a34a; }
 .provider-config-header { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.provider-config-block.anthropic .provider-config-header { color: #3b82f6; }
+.provider-config-block.openai    .provider-config-header { color: #16a34a; }
 .aichat-config-hint {
   font-size: 12px; color: var(--text-secondary);
   margin: 0 0 16px; line-height: 1.5;
@@ -883,33 +888,33 @@ tr:last-child td { border-bottom: none; }
 
 /* AI 助手欢迎面板（无对话时） */
 .aichat-welcome {
-  padding: 32px 24px;
+  padding: 20px 16px;
   text-align: center;
 }
 .aichat-welcome-title {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 .aichat-welcome-sub {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
-  margin-bottom: 24px;
-  line-height: 1.7;
+  margin-bottom: 12px;
+  line-height: 1.5;
 }
 .aichat-welcome-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  gap: 8px;
   max-width: 520px;
-  margin: 0 auto 24px;
+  margin: 0 auto 12px;
 }
 .aichat-welcome-card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 14px 16px;
+  padding: 10px 12px;
   text-align: left;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -918,22 +923,22 @@ tr:last-child td { border-bottom: none; }
   background: var(--hover-bg);
 }
 .aichat-welcome-card-icon {
-  font-size: 20px;
-  margin-bottom: 4px;
-}
-.aichat-welcome-card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
+  font-size: 16px;
   margin-bottom: 2px;
 }
-.aichat-welcome-card-desc {
+.aichat-welcome-card-title {
   font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 1px;
+}
+.aichat-welcome-card-desc {
+  font-size: 11px;
   color: var(--text-secondary);
-  line-height: 1.5;
+  line-height: 1.4;
 }
 .aichat-welcome-hint {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   opacity: 0.7;
 }

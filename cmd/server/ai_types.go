@@ -102,6 +102,10 @@ func NewOpenAIProvider(baseURL, apiKey, model string, temperature float64, maxTo
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}
+	// 去掉末尾的 /v1，避免用户填入 "https://api.openai.com/v1" 时
+	// 导致请求变成 /v1/v1/chat/completions 返回 404
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
+	baseURL = strings.TrimSuffix(baseURL, "/v1") // 防双 /v1/v1
 	return &OpenAIProvider{
 		baseURL:    baseURL,
 		apiKey:    apiKey,

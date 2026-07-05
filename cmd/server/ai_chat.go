@@ -256,19 +256,43 @@ func (s *APIServer) handleAIConfigSetKey(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleAIConfigTest tests the current API key by sending a minimal request.
+// handleAIConfigTest tests the saved config for the given provider.
+// If ?provider= is given, test that provider; otherwise use active provider from saved config.
 func (s *APIServer) handleAIConfigTest(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Snapshot()
 	if cfg == nil || !cfg.AIChat.IsEnabled() {
 		writeErr(w, http.StatusBadRequest, "AI chat not configured")
 		return
 	}
-	provider := NewAIProviderFromConfig(cfg)
-	if provider == nil {
-		writeErr(w, http.StatusBadRequest, "unknown provider: "+cfg.AIChat.ActiveProvider)
-		return
+
+	// ?provider=openai or ?provider=anthropic overrides active provider
+	providerStr := r.URL.Query().Get("provider")
+	if providerStr == "" {
+		providerStr = cfg.AIChat.ActiveProvider
 	}
-	// Send a trivial request
+
+	var provider AIProvider
+	switch providerStr {
+	case "openai":
+		if cfg.AIChat.OpenAI.APIKey == "" || cfg.AIChat.OpenAI.Model == "" {
+			writeErr(w, http.StatusBadRequest, "OpenAI 未配置 Key 或 Model")
+			return
+		}
+		provider = NewOpenAIProvider(
+			cfg.AIChat.OpenAI.BaseURL, cfg.AIChat.OpenAI.APIKey,
+			cfg.AIChat.OpenAI.Model, cfg.AIChat.OpenAI.Temperature, cfg.AIChat.OpenAI.MaxTokens,
+		)
+	default:
+		if cfg.AIChat.Anthropic.APIKey == "" || cfg.AIChat.Anthropic.Model == "" {
+			writeErr(w, http.StatusBadRequest, "Anthropic 未配置 Key 或 Model")
+			return
+		}
+		provider = NewAnthropicProvider(
+			cfg.AIChat.Anthropic.BaseURL, cfg.AIChat.Anthropic.APIKey,
+			cfg.AIChat.Anthropic.Model, cfg.AIChat.Anthropic.Temperature, cfg.AIChat.Anthropic.MaxTokens,
+		)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, err := provider.Chat(ctx, []Message{{Role: "user", Content: "hi"}}, nil)
