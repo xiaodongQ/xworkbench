@@ -465,12 +465,18 @@ async function submitTodoAdd() {
   if (!text) { alert('请输入任务标题'); return; }
 
   const dueDate = document.getElementById('todo-add-due').value;
-  const tags = document.getElementById('todo-add-tags').value.trim();
+  const tagsRaw = document.getElementById('todo-add-tags').value.trim();
   const note = document.getElementById('todo-add-note').value.trim();
+
+  // 解析 tags 为数组（按逗号分割，trim，去空）
+  let tags = [];
+  if (tagsRaw) {
+    tags = tagsRaw.split(',').map(t => t.trim()).filter(t => t !== '');
+  }
 
   const body = { text };
   if (dueDate) body.due_date = dueDate;
-  if (tags) body.tags = tags;
+  if (tags.length > 0) body.tags = tags;
   if (note) body.note = note;
 
   const r = await fetch('/api/todo', {
