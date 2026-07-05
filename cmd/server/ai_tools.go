@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
 	"github.com/xiaodongQ/xworkbench/internal/skill"
@@ -103,7 +104,7 @@ func GetTools() []Tool {
 			}`),
 		},
 		{
-			Name:        "run_task",
+			Name:        "trigger_task",
 			Description: "触发任务立即执行（Claude/CBC CLI）。返回执行记录ID。",
 			Parameters: json.RawMessage(`{
 				"type": "object",
@@ -115,7 +116,7 @@ func GetTools() []Tool {
 			}`),
 		},
 		{
-			Name:        "get_task_executions",
+			Name:        "list_task_executions",
 			Description: "查看任务的所有执行历史记录。",
 			Parameters: json.RawMessage(`{
 				"type": "object",
@@ -211,7 +212,7 @@ func GetTools() []Tool {
 		// ── Experiences ──────────────────────────────────────────
 		{
 			Name:        "search_experiences",
-			Description: "搜索经验库。",
+			Description: "搜索经验库。当用户说「查一下有没有关于 X 的经验」或「有没有处理过 Y 问题」时使用。",
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -460,9 +461,9 @@ func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.Exper
 		return execGetTask(ctx, db, execDB, argsJSON)
 	case "update_task":
 		return execUpdateTask(ctx, db, argsJSON)
-	case "run_task":
+	case "trigger_task":
 		return execRunTask(ctx, db, execDB, agentDB, argsJSON)
-	case "get_task_executions":
+	case "list_task_executions":
 		return execGetTaskExecutions(ctx, db, execDB, argsJSON)
 	// Dir Shortcuts
 	case "create_dir_shortcut":
@@ -619,6 +620,7 @@ func execUpdateTask(ctx context.Context, db *backend.TaskRepo, argsJSON string) 
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Acceptance  string `json:"acceptance"`
+		Priority    int    `json:"priority"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	task, err := db.Get(args.TaskID)
@@ -626,6 +628,9 @@ func execUpdateTask(ctx context.Context, db *backend.TaskRepo, argsJSON string) 
 		return fmt.Sprintf("任务不存在: %v", err)
 	}
 	if args.Status != "" {
+		if err := db.UpdateStatus(args.TaskID, args.Status, ""); err != nil {
+			return fmt.Sprintf("更新状态失败: %v", err)
+		}
 		task.Status = args.Status
 	}
 	if args.Title != "" {
@@ -636,6 +641,9 @@ func execUpdateTask(ctx context.Context, db *backend.TaskRepo, argsJSON string) 
 	}
 	if args.Acceptance != "" {
 		task.Acceptance = args.Acceptance
+	}
+	if args.Priority > 0 {
+		task.Priority = args.Priority
 	}
 	if err := db.Update(task); err != nil {
 		return fmt.Sprintf("更新失败: %v", err)
@@ -1275,15 +1283,9 @@ func getEnv(k string) string {
 	return os.Getenv(k)
 }
 
-// uuid shim
+// newUUID uses google/uuid for proper UUID generation.
 func newUUID() string {
-	b := make([]byte, 16)
-	hex := "0123456789abcdef"
-	for i := range b {
-		b[i] = hex[time.Now().UnixNano()%16+1]
-		time.Sleep(time.Nanosecond)
-	}
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+	return uuid.New().String()
 }
 
 func randomID(n int) string {
