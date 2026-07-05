@@ -29,23 +29,57 @@ var (
 
 // Parse 从 markdown 文本中解析 todo 项。
 func Parse(content string) []Item {
+	lines := strings.Split(content, "\n")
+	noteMap := parseNotes(lines)
+
 	var items []Item
-	for i, line := range strings.Split(content, "\n") {
+	for i, line := range lines {
 		m := itemRe.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
 		text, dueDate, tags := parseMetadata(m[3])
-		items = append(items, Item{
+		item := Item{
 			LineNo:  i + 1,
 			Indent:  m[1],
 			Done:    m[2] != " ",
 			Text:    text,
 			DueDate: dueDate,
 			Tags:    tags,
-		})
+		}
+		if note, ok := noteMap[i+1]; ok {
+			item.Note = note
+		}
+		items = append(items, item)
 	}
 	return items
+}
+
+// parseNotes 扫描所有行，收集 `>` 开头的缩进行作为备注，关联到上一个任务项。
+// key 为 1-based 行号(即对应 Item 的 LineNo),value 为合并后的备注文本(多行用 \n 拼接)。
+func parseNotes(lines []string) map[int]string {
+	notes := map[int]string{}
+	lastItemLine := 0
+
+	for lineNo, line := range lines {
+		trimmed := strings.TrimLeft(line, " ")
+		if itemRe.MatchString(line) {
+			lastItemLine = lineNo + 1 // 转为 1-based
+			continue
+		}
+		if lastItemLine > 0 && strings.HasPrefix(trimmed, ">") {
+			noteText := strings.TrimSpace(strings.TrimPrefix(trimmed, ">"))
+			if noteText == "" {
+				continue
+			}
+			if existing, ok := notes[lastItemLine]; ok {
+				notes[lastItemLine] = existing + "\n" + noteText
+			} else {
+				notes[lastItemLine] = noteText
+			}
+		}
+	}
+	return notes
 }
 
 // parseMetadata 从文本末尾提取 due: 和 tags: 元数据，返回 (cleanText, dueDate, tags)。

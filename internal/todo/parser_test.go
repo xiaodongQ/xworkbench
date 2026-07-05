@@ -50,6 +50,53 @@ func TestParseMetadata(t *testing.T) {
 	}
 }
 
+func TestParseNotes(t *testing.T) {
+	in := `- [ ] 任务一
+  > 这是备注第一行
+  > 这是备注第二行
+- [x] 任务二`
+
+	items := Parse(in)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	wantNote := "这是备注第一行\n这是备注第二行"
+	if items[0].Note != wantNote {
+		t.Errorf("items[0].Note = %q, want %q", items[0].Note, wantNote)
+	}
+	if items[1].Note != "" {
+		t.Errorf("items[1].Note = %q, want %q", items[1].Note, "")
+	}
+}
+
+func TestParseNotes_NoNote(t *testing.T) {
+	in := `- [ ] 任务一
+- [x] 任务二`
+	items := Parse(in)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].Note != "" {
+		t.Errorf("items[0].Note = %q, want empty", items[0].Note)
+	}
+	if items[1].Note != "" {
+		t.Errorf("items[1].Note = %q, want empty", items[1].Note)
+	}
+}
+
+func TestParseNotes_SingleLine(t *testing.T) {
+	in := `- [ ] 任务一
+  > 单行备注
+- [x] 任务二`
+	items := Parse(in)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].Note != "单行备注" {
+		t.Errorf("items[0].Note = %q, want %q", items[0].Note, "单行备注")
+	}
+}
+
 func TestReadAndParse_NonExist(t *testing.T) {
 	items, err := ReadAndParse("/nonexistent/file.md")
 	if err != nil {
