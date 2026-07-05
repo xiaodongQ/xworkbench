@@ -387,19 +387,52 @@ function initTodoShowAll() {
   el.textContent = showAll ? '☑' : '☐';
   el.style.opacity = showAll ? '1' : '0.5';
 }
+// 渲染单个 todo item（递归处理 children 子项）
+function renderTodoItem(i, indent) {
+  if (indent === undefined) indent = 0;
+  const today = new Date().toISOString().split('T')[0];
+  const isOverdue = i.due_date && !i.done && i.due_date < today;
+  const dueLabel = i.due_date ? i.due_date.slice(5) : ''; // MM-DD 格式
+
+  let extraHtml = '';
+  if (i.due_date) {
+    extraHtml += `<span class="todo-due ${isOverdue ? 'overdue' : ''}" title="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
+  }
+  if (i.tags && i.tags.length) {
+    extraHtml += i.tags.map(t => `<span class="todo-tag">#${esc(t)}</span>`).join('');
+  }
+
+  const paddingLeft = indent * 16 + 'px';
+  let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''}" style="padding-left:${paddingLeft}" onclick="toggleTodoExpand(this, ${i.line_no})">
+  <input type="checkbox" ${i.done?'checked':''} onchange="event.stopPropagation(); toggleTodo(${i.line_no}, this.checked)">
+  <span class="todo-text">${esc(i.text)}</span>
+  ${extraHtml}
+  <span class="todo-del" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no})" title="删除">×</span>
+</div>`;
+
+  // 递归渲染子项
+  if (i.children && i.children.length) {
+    for (const child of i.children) {
+      html += renderTodoItem(child, indent + 1);
+    }
+  }
+  return html;
+}
+
 async function loadTodo() {
   const showAll = document.getElementById('todo-show-all-icon')?.textContent === '☑';
   const data = await fetchJSON('/api/todo');
   const el = document.getElementById('todo-list');
   if (!data.path) { el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">未配置 todo.md 路径，点击"设置"</div>'; return; }
   const items = showAll ? (data.items || []) : (data.items || []).filter(i => !i.done);
+  // 保存数据供展开详情用
+  window._todoItems = items;
   if (items.length === 0) { el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">' + esc(data.path) + ' 无 todo 项</div>'; return; }
-  el.innerHTML = items.map(i =>
-    `<div class="todo-item ${i.done?'done':''}">
-      <input type="checkbox" ${i.done?'checked':''} onchange="toggleTodo(${i.line_no}, this.checked)">
-      <span class="todo-text">${esc(i.text)}</span>
-      <span class="todo-del" onclick="deleteTodoItem(${i.line_no})" title="删除">×</span>
-    </div>`).join('');
+  let html = '';
+  for (const item of items) {
+    html += renderTodoItem(item);
+  }
+  el.innerHTML = html;
 }
 function toggleTodo(lineNo, done) {
   fetch('/api/todo/' + lineNo, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({done})})

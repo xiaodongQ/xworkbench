@@ -942,3 +942,28 @@ tr:last-child td { border-bottom: none; }
   color: var(--text-secondary);
   opacity: 0.7;
 }
+
+/* Todo 增强样式 */
+.todo-due {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+.todo-due.overdue {
+  color: #e53e3e;
+  background: #fed7d7;
+}
+.overdue-row {
+  background: #fff5f5;
+}
+.todo-tag {
+  font-size: 11px;
+  color: var(--accent-color, #3182ce);
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
