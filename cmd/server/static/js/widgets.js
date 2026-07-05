@@ -445,15 +445,39 @@ async function deleteTodoItem(lineNo) {
   loadTodo();
 }
 function showTodoAddModal() {
-  document.getElementById('todo-add-input').value = '';
+  document.getElementById('todo-add-title').value = '';
+  document.getElementById('todo-add-due').value = '';
+  document.getElementById('todo-add-tags').value = '';
+  document.getElementById('todo-add-note').value = '';
   document.getElementById('todo-add-modal').classList.remove('hidden');
-  setTimeout(() => document.getElementById('todo-add-input').focus(), 50);
+  setTimeout(() => document.getElementById('todo-add-title').focus(), 50);
 }
-function closeTodoAddModal() { document.getElementById('todo-add-modal').classList.add('hidden'); }
+function closeTodoAddModal() {
+  document.getElementById('todo-add-modal').classList.add('hidden');
+  // 清空表单
+  document.getElementById('todo-add-title').value = '';
+  document.getElementById('todo-add-due').value = '';
+  document.getElementById('todo-add-tags').value = '';
+  document.getElementById('todo-add-note').value = '';
+}
 async function submitTodoAdd() {
-  const text = document.getElementById('todo-add-input').value.trim();
-  if (!text) { alert('内容必填'); return; }
-  const r = await fetch('/api/todo', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})});
+  const text = document.getElementById('todo-add-title').value.trim();
+  if (!text) { alert('请输入任务标题'); return; }
+
+  const dueDate = document.getElementById('todo-add-due').value;
+  const tags = document.getElementById('todo-add-tags').value.trim();
+  const note = document.getElementById('todo-add-note').value.trim();
+
+  const body = { text };
+  if (dueDate) body.due_date = dueDate;
+  if (tags) body.tags = tags;
+  if (note) body.note = note;
+
+  const r = await fetch('/api/todo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
   if (!r.ok) { const b = await r.json().catch(() => ({})); alert('添加失败：' + (b.error || r.statusText)); return; }
   closeTodoAddModal();
   loadTodo();
