@@ -972,8 +972,8 @@ tr:last-child td { border-bottom: none; }
 
 /* Todo 展开详情面板 */
 .todo-detail-expanded {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
     border-radius: 4px;
     padding: 10px;
     margin: 4px 0 4px 24px;
@@ -992,7 +992,7 @@ tr:last-child td { border-bottom: none; }
 .todo-detail-note {
     margin: 8px 0;
     padding-top: 8px;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--border);
 }
 .todo-detail-label {
     color: var(--text-secondary);
@@ -1006,7 +1006,7 @@ tr:last-child td { border-bottom: none; }
 .todo-detail-children {
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--border);
 }
 .todo-child-item {
     display: flex;
