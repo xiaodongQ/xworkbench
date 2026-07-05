@@ -16,6 +16,7 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
+	"github.com/google/uuid"
 	"github.com/xiaodongQ/xworkbench/internal/config"
 )
 
@@ -380,12 +381,16 @@ func determineAICmd(cliType, ctxDir, sessionID, resumeUUID string) string {
 }
 
 // enrichCmd 给命令加 --session-id 和 --resume 参数（sessionID/resumeUUID 之一非空才加）。
+// 注意：sessionID 必须是有效 UUID 格式（claude CLI 要求），否则不传递。
 func enrichCmd(cmd string, sessionID, resumeUUID string) string {
 	if sessionID == "" && resumeUUID == "" {
 		return cmd
 	}
+	// 验证 UUID 格式（claude --session-id 要求）
 	if sessionID != "" {
-		cmd += " --session-id " + sessionID
+		if _, err := uuid.Parse(sessionID); err == nil {
+			cmd += " --session-id " + sessionID
+		}
 	}
 	if resumeUUID != "" {
 		cmd += " --resume " + resumeUUID

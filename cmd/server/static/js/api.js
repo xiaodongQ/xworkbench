@@ -295,9 +295,10 @@ function bindGeneralTooltips() {
 new MutationObserver(bindGeneralTooltips).observe(document.body, {childList: true, subtree: true});
 bindGeneralTooltips();
 
-// ===== Sidebar 收起/展开（localStorage 持久化，默认收起） =====
+// ===== Sidebar 收起/展开（localStorage 持久化，默认展开） =====
 function loadSidebar() {
-  const collapsed = localStorage.getItem('sf-sidebar-collapsed') !== 'false'; // 默认收起
+  const stored = localStorage.getItem('sf-sidebar-collapsed');
+  const collapsed = stored === null ? false : stored === 'true'; // 默认展开（null=首次访问）
   document.getElementById('sidebar').classList.toggle('collapsed', collapsed);
   updateToggleLabel();
 }

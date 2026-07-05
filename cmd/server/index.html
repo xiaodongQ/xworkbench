@@ -69,7 +69,7 @@
     <!-- 目录区（紧邻 AI 助手，带抬头 + 轻框区分） -->
     <div class="dir-section" id="dir-section">
       <div class="dir-section-head">
-        <span>📂 快捷目录</span>
+        <span>📂 目录快捷方式</span>
         <span style="display:flex;gap:4px">
           <button class="btn btn-small" onclick="showDirSettingsModal()" title="设置">⚙️</button>
           <button class="btn btn-small" onclick="showDirModal()" title="添加目录">+</button>
@@ -281,7 +281,7 @@
 
     <!-- 子 tab -->
     <div class="cfg-subtabs" style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
-      <button class="cfg-tab-btn active" data-tab="dir_shortcuts" onclick="switchCfgTab('dir_shortcuts')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">📁 快捷目录</button>
+      <button class="cfg-tab-btn active" data-tab="dir_shortcuts" onclick="switchCfgTab('dir_shortcuts')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">📁 目录快捷方式</button>
       <button class="cfg-tab-btn" data-tab="web_links" onclick="switchCfgTab('web_links')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">🔗 快捷链接</button>
       <button class="cfg-tab-btn" data-tab="default_cli" onclick="switchCfgTab('default_cli')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">🤖 默认 CLI</button>
       <button class="cfg-tab-btn" data-tab="skills" onclick="switchCfgTab('skills')" style="padding:8px 16px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;background:var(--card);cursor:pointer;color:var(--text)">🛠️ 工具技能</button>
@@ -290,14 +290,14 @@
       </style>
     </div>
 
-    <!-- 📁 快捷目录 子 tab：导入 / 导出 -->
+    <!-- 📁 目录快捷方式 子 tab：导入 / 导出 -->
     <div class="cfg-tab-panel" data-tab="dir_shortcuts">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
         <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px">
           <h3 style="margin:0 0 8px">导出 <span class="cfg-export-summary" style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px"></span></h3>
           <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">下载为 JSON 文件。远程目录的密码字段会包含在导出中，请妥善保管。</p>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-primary" onclick="exportJson('dir_shortcuts')">📥 下载快捷目录</button>
+            <button class="btn btn-primary" onclick="exportJson('dir_shortcuts')">📥 下载目录快捷方式</button>
           </div>
         </div>
         <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px">
@@ -1189,10 +1189,10 @@
   </div>
 </div>
 
-<!-- 快捷目录设置弹窗 -->
+<!-- 目录快捷方式设置弹窗 -->
 <div id="dir-settings-modal" class="modal-overlay hidden" >
   <div class="modal" style="max-width:400px">
-    <h2 style="margin:0 0 12px 0;font-size:16px">快捷目录设置</h2>
+    <h2 style="margin:0 0 12px 0;font-size:16px">目录快捷方式设置</h2>
     <div class="form-group">
       <label style="font-size:12px">终端类型</label>
       <select id="dir-settings-terminal-select" onchange="onDirTermTypeChange()" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
@@ -1470,7 +1470,7 @@ document.getElementById('run-task-model').innerHTML = buildModelOptions('claude'
   });
 })();
 
-// 高度拖拽：拖拽快捷目录底部的把手
+// 高度拖拽：拖拽目录快捷方式底部的把手
 (function initDirHeightResize() {
   const handle = document.getElementById('resize-handle-dir');
   const dirSection = document.getElementById('dir-section');

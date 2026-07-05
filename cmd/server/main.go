@@ -111,7 +111,13 @@ func checkRelayAuth() func(http.HandlerFunc) http.HandlerFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// 同源请求（浏览器 UI）直接放行
 			origin := r.Header.Get("Origin")
-			if origin == "" || origin == r.URL.Scheme+"://"+r.Host {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			sameOrigin := origin == "" || origin == scheme+"://"+r.Host
+			logger.Infow("checkRelayAuth", "origin", origin, "host", r.Host, "scheme", scheme, "sameOrigin", sameOrigin)
+			if sameOrigin {
 				next.ServeHTTP(w, r)
 				return
 			}
