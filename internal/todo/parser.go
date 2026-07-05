@@ -21,7 +21,11 @@ type Item struct {
 	Children []*Item  `json:"children,omitempty"` // 前端用，不写入文件
 }
 
-var itemRe = regexp.MustCompile(`^(\s*)-\s+\[( |x|X)\]\s+(.+)$`)
+var (
+	itemRe = regexp.MustCompile(`^(\s*)-\s+\[( |x|X)\]\s+(.+)$`)
+	dueRe  = regexp.MustCompile(`\s+due:(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})\b`)
+	tagsRe = regexp.MustCompile(`\s+tags:([\w,]+)`)
+)
 
 // Parse 从 markdown 文本中解析 todo 项。
 func Parse(content string) []Item {
@@ -50,19 +54,25 @@ func parseMetadata(text string) (string, string, []string) {
 	var tags []string
 
 	// 提取 due:YYYY-MM-DD 或 due:MM-DD
-	if dueRe := regexp.MustCompile(`\s+due:(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})\b`); dueRe.MatchString(text) {
+	if dueRe.MatchString(text) {
 		match := dueRe.FindStringSubmatch(text)
 		dueDate = match[1]
 		// 如果是 MM-DD 格式，补上当前年份
 		if len(dueDate) == 5 {
-			dueDate = fmt.Sprintf("%d-%s", time.Now().Year(), dueDate)
+			composed := fmt.Sprintf("%d-%s", time.Now().Year(), dueDate)
+			if _, err := time.Parse("2006-01-02", composed); err == nil {
+				dueDate = composed
+			} else {
+				// 非法日期(如非闰年的 02-29)留空，不存储无效日期
+				dueDate = ""
+			}
 		}
 		// 从原文中移除 due:... 部分
 		text = dueRe.ReplaceAllString(text, "")
 	}
 
 	// 提取 tags:tag1,tag2
-	if tagsRe := regexp.MustCompile(`\s+tags:([\w,]+)`); tagsRe.MatchString(text) {
+	if tagsRe.MatchString(text) {
 		match := tagsRe.FindStringSubmatch(text)
 		for _, t := range strings.Split(match[1], ",") {
 			t = strings.TrimSpace(t)
