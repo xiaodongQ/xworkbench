@@ -265,8 +265,13 @@ func Save() error {
 		return nil
 	}
 
-	// 1. 把当前 Config marshal 成 map，只保留结构体认识的字段
-	currentMap, err := toStringMap(current)
+	// 1. 用 DefaultConfig 补全当前配置缺失的字段（零值字段用默认值填充），
+	//    这样 Save 时新字段不会被 omitempty 吞掉，能写到文件里。
+	defaults := DefaultConfig()
+	filled := fillDefaults(current, defaults)
+
+	// 2. 把补全后的 Config marshal 成 map
+	currentMap, err := toStringMap(filled)
 	if err != nil {
 		return err
 	}
@@ -458,6 +463,48 @@ func mergeConfig(dst, src *Config) {
 	if src.AIChat.OpenAI.MaxTokens > 0 {
 		dst.AIChat.OpenAI.MaxTokens = src.AIChat.OpenAI.MaxTokens
 	}
+}
+
+// fillDefaults 把 defaults 的默认值填充到 current 中缺失或零值的字段，
+// 返回填充后的深拷贝（不修改 current）。用于 Save() 时补全新版本新增的字段，
+// 避免 omitempty 把零值字段吞掉导致历史配置文件丢字段。
+func fillDefaults(current, defaults *Config) *Config {
+	if defaults == nil {
+		return current
+	}
+	if current == nil {
+		return defaults
+	}
+	currentMap, _ := toStringMap(current)
+	defaultsMap, _ := toStringMap(defaults)
+	merged := fillDefaultsRecursive(defaultsMap, currentMap)
+
+	var out Config
+	data, _ := json.Marshal(merged)
+	json.Unmarshal(data, &out)
+	return &out
+}
+
+// fillDefaultsRecursive 递归合并两个 map：base 有值则用 base，否则用 defaults。
+func fillDefaultsRecursive(defaults, current map[string]interface{}) map[string]interface{} {
+	if defaults == nil {
+		return current
+	}
+	out := shallowClone(defaults)
+	for k, v := range current {
+		if v == nil {
+			continue
+		}
+		// 两者都是 map 时递归合并
+		defMap, defIsMap := defaults[k].(map[string]interface{})
+		curMap, curIsMap := v.(map[string]interface{})
+		if defIsMap && curIsMap {
+			out[k] = fillDefaultsRecursive(defMap, curMap)
+		} else {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func configPath() string {
