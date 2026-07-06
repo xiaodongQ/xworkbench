@@ -58,6 +58,11 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 
 	tools := GetTools()
 
+	// 注入 data/memory.md 内容作为 system prompt 的一部分
+	if mem := s.memoryStore.ContentForSystemPrompt(); mem != "" {
+		req.Messages = append([]Message{{Role: "system", Content: mem}}, req.Messages...)
+	}
+
 	if req.Stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -101,6 +106,7 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 				s.db, s.expDB, s.execDB, s.agentDB,
 				s.linkDB, s.dirDB,
 				s.schedDB, s.sch,
+				s.memoryStore,
 				nil, // localShellState
 				tc.Name, tc.Args,
 			)

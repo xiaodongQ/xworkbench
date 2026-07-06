@@ -29,6 +29,7 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/httplog"
 	"github.com/xiaodongQ/xworkbench/internal/hub"
 	loglib "github.com/xiaodongQ/xworkbench/internal/logger"
+	"github.com/xiaodongQ/xworkbench/internal/memory"
 	"github.com/xiaodongQ/xworkbench/internal/paths"
 	"github.com/xiaodongQ/xworkbench/internal/ratelimit"
 	"github.com/xiaodongQ/xworkbench/internal/relay"
@@ -68,6 +69,7 @@ type APIServer struct {
 	relayHandler *relay.RelayHandler
 	mux          *http.ServeMux
 	wrapped      http.Handler // mux + httplog.Middleware
+	memoryStore  *memory.Store // data/memory.md 管理器
 
 	// 进程内运行中的执行（task_id → cancel func）
 	mu      sync.Mutex
@@ -98,6 +100,7 @@ func NewAPIServer(
 		mux:          http.NewServeMux(),
 		running:      map[string]context.CancelFunc{},
 		runLoops:     map[string]bool{},
+		memoryStore:  memory.New(paths.DataDir() + "/memory.md"),
 	}
 	s.routes()
 	s.wrapped = httplog.Middleware(s.mux, loglib.Logger)

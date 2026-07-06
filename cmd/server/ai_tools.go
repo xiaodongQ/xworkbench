@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
+	"github.com/xiaodongQ/xworkbench/internal/memory"
 	"github.com/xiaodongQ/xworkbench/internal/skill"
 	"github.com/xiaodongQ/xworkbench/internal/todo"
 )
@@ -445,6 +446,35 @@ func GetTools() []Tool {
 				"required": ["id"]
 			}`),
 		},
+		// ── Memory ─────────────────────────────────────────────
+		{
+			Name:        "memory_add",
+			Description: "向 memory.md 追加一条需要记住的内容。添加时自动去重、分类。文件接近 20KB 上限时会警告或拒绝。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"text":     {"type": "string", "description": "要记住的内容（不含日期前缀）"},
+					"category": {"type": "string", "description": "分类名，如 用户 & 环境 / 项目 / 约定 / 持续任务"}
+				},
+				"required": ["text", "category"]
+			}`),
+		},
+		{
+			Name:        "memory_list",
+			Description: "查看当前 memory.md 中所有记忆条目。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {}
+			}`),
+		},
+		{
+			Name:        "memory_prune",
+			Description: "手动触发 memory.md 整合去重（移除精确重复条目）。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {}
+			}`),
+		},
 		// ── Local Shell ─────────────────────────────────────────
 		{
 			Name:        "start_local_shell",
@@ -518,6 +548,7 @@ func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.Exper
 	execDB *backend.ExecutionRepo, agentDB *backend.AgentRepo,
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
 	schedDB *backend.ScheduledTaskRepo, sch SchedulerOps,
+	memStore *memory.Store,
 	localShellState *LocalShellState, toolName string, argsJSON string) string {
 
 	// skill 工具走 skill.Execute
@@ -607,6 +638,13 @@ func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.Exper
 		return execDeleteScheduledTask(ctx, schedDB, sch, argsJSON)
 	case "run_scheduled_task_now":
 		return execRunScheduledTaskNow(ctx, schedDB, sch, argsJSON)
+	// Memory
+	case "memory_add":
+		return execMemoryAdd(ctx, memStore, argsJSON)
+	case "memory_list":
+		return execMemoryList(ctx, memStore, argsJSON)
+	case "memory_prune":
+		return execMemoryPrune(ctx, memStore, argsJSON)
 	// Local Shell
 	case "start_local_shell":
 		return execStartLocalShell(ctx, localShellState, argsJSON)
@@ -1543,6 +1581,49 @@ func execRunScheduledTaskNow(ctx context.Context, db *backend.ScheduledTaskRepo,
 		return fmt.Sprintf("立即执行失败: %v", err)
 	}
 	return fmt.Sprintf("✅ 已触发立即执行 (ExecutionID: %s)", execID)
+}
+
+// ── Memory ─────────────────────────────────────────────────────────────────
+
+func execMemoryAdd(ctx context.Context, store *memory.Store, argsJSON string) string {
+	var args struct {
+		Text     string `json:"text"`
+		Category string `json:"category"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.Text == "" || args.Category == "" {
+		return "text 和 category 均为必填项"
+	}
+	result, err := store.Add(args.Text, args.Category)
+	if err != nil {
+		if err == memory.ErrFileTooLarge {
+			return "⚠️ memory.md 已达 20KB 上限，请先运行 memory_prune 整合"
+		}
+		return fmt.Sprintf("写入失败: %v", err)
+	}
+	return result
+}
+
+func execMemoryList(ctx context.Context, store *memory.Store, argsJSON string) string {
+	entries := store.List()
+	if len(entries) == 0 {
+		return "memory.md 为空，尚无记忆条目"
+	}
+	var buf bytes.Buffer
+	for _, e := range entries {
+		buf.WriteString(fmt.Sprintf("[%s] %s (%s)\n", e.Date, e.Text, e.Category))
+	}
+	return buf.String()
+}
+
+func execMemoryPrune(ctx context.Context, store *memory.Store, argsJSON string) string {
+	result, err := store.Prune()
+	if err != nil {
+		return fmt.Sprintf("整合失败: %v", err)
+	}
+	return result
 }
 
 // ── Local Shell ─────────────────────────────────────────────────────────────

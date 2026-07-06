@@ -117,5 +117,11 @@ func AITaskDir(taskID string) string {
 	return abs
 }
 
+// DataDir 返回数据根目录（data/），所有运行时数据（db、logs、memory.md）放此目录下。
+// 路径与 ResolveDBPath 保持一致（都是 data/ 下）。
+func DataDir() string {
+	return filepath.Dir(ResolveDBPath())
+}
+
 // ErrEmpty 等价于 "no path configured"，保留为占位 errors sentinel 以便测试。
 var ErrEmpty = errors.New("paths: empty resolved path")
