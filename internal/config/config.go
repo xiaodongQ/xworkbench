@@ -626,6 +626,21 @@ func DefaultConfig() *Config {
 		Relay: RelayConfig{
 			APIKey: "xworkbench",
 		},
+		AIChat: AIChatConfig{
+			ActiveProvider: "anthropic",
+			Anthropic: ProviderConfig{
+				BaseURL:     "https://api.anthropic.com",
+				Model:       "claude-3-5-sonnet-20241022",
+				Temperature: 0.7,
+				MaxTokens:   4096,
+			},
+			OpenAI: ProviderConfig{
+				BaseURL:     "https://api.openai.com/v1",
+				Model:       "gpt-4o",
+				Temperature: 0.7,
+				MaxTokens:   4096,
+			},
+		},
 		Models: ModelsConfig{
 			"claude": {Default: "sonnet", EvalDefault: "haiku", Options: []ModelOption{
 				{Value: "haiku", Label: "haiku（快+便宜）"},
