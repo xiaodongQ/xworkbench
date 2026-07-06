@@ -368,6 +368,83 @@ func GetTools() []Tool {
 				"required": ["line_no"]
 			}`),
 		},
+		// ── Scheduled Tasks ────────────────────────────────────
+		{
+			Name:        "list_scheduled_tasks",
+			Description: "列出所有定时任务，返回名称、cron 表达式、状态、下次执行时间。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {}
+			}`),
+		},
+		{
+			Name:        "create_scheduled_task",
+			Description: "创建一个新的定时任务。command_type 支持 claude / cbc / shell。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"name":         {"type": "string", "description": "任务名称必填"},
+					"cron_expr":    {"type": "string", "description": "Cron 表达式必填，如 0 9 * * *"},
+					"command_type": {"type": "string", "enum": ["claude", "cbc", "shell"], "description": "命令类型必填"},
+					"model":        {"type": "string", "description": "使用的模型（可选，如 claude-3-5-sonnet 等）"},
+					"prompt":       {"type": "string", "description": "Prompt / 命令内容必填"},
+					"working_dir":  {"type": "string", "description": "工作目录（可选）"},
+					"enabled":      {"type": "boolean", "description": "是否启用（默认 true）"}
+				},
+				"required": ["name", "cron_expr", "command_type", "prompt"]
+			}`),
+		},
+		{
+			Name:        "get_scheduled_task",
+			Description: "查看单个定时任务的详情。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {"type": "string", "description": "定时任务ID必填"}
+				},
+				"required": ["id"]
+			}`),
+		},
+		{
+			Name:        "update_scheduled_task",
+			Description: "更新一个定时任务的属性。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id":           {"type": "string", "description": "任务ID必填"},
+					"name":         {"type": "string", "description": "新名称"},
+					"cron_expr":    {"type": "string", "description": "新 Cron 表达式"},
+					"command_type": {"type": "string", "enum": ["claude", "cbc", "shell"]},
+					"model":        {"type": "string", "description": "新模型"},
+					"prompt":       {"type": "string", "description": "新 Prompt"},
+					"working_dir":  {"type": "string", "description": "新工作目录"},
+					"enabled":      {"type": "boolean", "description": "是否启用"}
+				},
+				"required": ["id"]
+			}`),
+		},
+		{
+			Name:        "delete_scheduled_task",
+			Description: "删除一个定时任务。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {"type": "string", "description": "任务ID必填"}
+				},
+				"required": ["id"]
+			}`),
+		},
+		{
+			Name:        "run_scheduled_task_now",
+			Description: "立即触发一个定时任务（不等待 cron 触发）。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {"type": "string", "description": "任务ID必填"}
+				},
+				"required": ["id"]
+			}`),
+		},
 		// ── Local Shell ─────────────────────────────────────────
 		{
 			Name:        "start_local_shell",
@@ -429,11 +506,18 @@ func skillToTool(s *skill.Skill) Tool {
 	}
 }
 
+// SchedulerOps 定时任务调度器操作接口（避免 import cycle）
+type SchedulerOps interface {
+	Reload() error
+	RunNow(id string) (string, error)
+}
+
 // ExecuteTool executes a tool by name with given JSON arguments.
 // Returns a human-readable result string.
 func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.ExperienceRepo,
 	execDB *backend.ExecutionRepo, agentDB *backend.AgentRepo,
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
+	schedDB *backend.ScheduledTaskRepo, sch SchedulerOps,
 	localShellState *LocalShellState, toolName string, argsJSON string) string {
 
 	// skill 工具走 skill.Execute
@@ -510,6 +594,19 @@ func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.Exper
 		return execToggleTodo(ctx, argsJSON)
 	case "delete_todo":
 		return execDeleteTodo(ctx, argsJSON)
+	// Scheduled Tasks
+	case "list_scheduled_tasks":
+		return execListScheduledTasks(ctx, schedDB, sch, argsJSON)
+	case "create_scheduled_task":
+		return execCreateScheduledTask(ctx, schedDB, sch, argsJSON)
+	case "get_scheduled_task":
+		return execGetScheduledTask(ctx, schedDB, sch, argsJSON)
+	case "update_scheduled_task":
+		return execUpdateScheduledTask(ctx, schedDB, sch, argsJSON)
+	case "delete_scheduled_task":
+		return execDeleteScheduledTask(ctx, schedDB, sch, argsJSON)
+	case "run_scheduled_task_now":
+		return execRunScheduledTaskNow(ctx, schedDB, sch, argsJSON)
 	// Local Shell
 	case "start_local_shell":
 		return execStartLocalShell(ctx, localShellState, argsJSON)
@@ -1272,6 +1369,180 @@ func execDeleteTodo(ctx context.Context, argsJSON string) string {
 		return fmt.Sprintf("删除失败: %v", err)
 	}
 	return fmt.Sprintf("✅ 已删除 line %d", args.LineNo)
+}
+
+// ── Scheduled Tasks ─────────────────────────────────────────────────────────
+
+func execListScheduledTasks(ctx context.Context, db *backend.ScheduledTaskRepo, sch SchedulerOps, argsJSON string) string {
+	tasks, err := db.List()
+	if err != nil {
+		return fmt.Sprintf("查询失败: %v", err)
+	}
+	if len(tasks) == 0 {
+		return "无定时任务"
+	}
+	var buf bytes.Buffer
+	for _, t := range tasks {
+		enabled := "停用"
+		if t.Enabled {
+			enabled = "启用"
+		}
+		nextStr := "-"
+		if t.NextRunAt != nil {
+			nextStr = t.NextRunAt.Format("01-02 15:04")
+		}
+		buf.WriteString(fmt.Sprintf("- [%s] %s | cron=%s | 下次 %s | cmd=%s\n",
+			enabled, t.Name, t.CronExpr, nextStr, t.CommandType))
+	}
+	return buf.String()
+}
+
+func execCreateScheduledTask(ctx context.Context, db *backend.ScheduledTaskRepo, sch SchedulerOps, argsJSON string) string {
+	var args struct {
+		Name        string `json:"name"`
+		CronExpr    string `json:"cron_expr"`
+		CommandType string `json:"command_type"`
+		Model       string `json:"model"`
+		Prompt      string `json:"prompt"`
+		WorkingDir  string `json:"working_dir"`
+		Enabled     bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.Name == "" || args.CronExpr == "" || args.CommandType == "" || args.Prompt == "" {
+		return "name、cron_expr、command_type、prompt 均为必填项"
+	}
+	t := &backend.ScheduledTask{
+		ID:          "sched-" + time.Now().Format("20060102150405") + "-" + randomID(6),
+		Name:        args.Name,
+		CronExpr:    args.CronExpr,
+		CommandType: args.CommandType,
+		Model:       args.Model,
+		Prompt:      args.Prompt,
+		WorkingDir:  args.WorkingDir,
+		Enabled:     args.Enabled,
+		CreatedAt:   time.Now(),
+	}
+	if err := db.Create(t); err != nil {
+		return fmt.Sprintf("创建失败: %v", err)
+	}
+	if sch != nil {
+		_ = sch.Reload()
+	}
+	return fmt.Sprintf("✅ 定时任务已创建: %s (ID: %s)\ncron: %s | 类型: %s", t.Name, t.ID, t.CronExpr, t.CommandType)
+}
+
+func execGetScheduledTask(ctx context.Context, db *backend.ScheduledTaskRepo, sch SchedulerOps, argsJSON string) string {
+	var args struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	t, err := db.Get(args.ID)
+	if err != nil {
+		return fmt.Sprintf("任务不存在: %v", err)
+	}
+	enabled := "停用"
+	if t.Enabled {
+		enabled = "启用"
+	}
+	nextStr := "-"
+	if t.NextRunAt != nil {
+		nextStr = t.NextRunAt.Format("2006-01-02 15:04")
+	}
+	lastStr := "-"
+	if t.LastRunAt != nil {
+		lastStr = t.LastRunAt.Format("2006-01-02 15:04")
+	}
+	return fmt.Sprintf("📋 %s\nID: %s\nCron: %s\n类型: %s\n模型: %s\nPrompt: %s\n工作目录: %s\n状态: %s\n下次执行: %s\n上次执行: %s\n最后状态: %s",
+		t.Name, t.ID, t.CronExpr, t.CommandType, t.Model, t.Prompt, t.WorkingDir,
+		enabled, nextStr, lastStr, t.LastStatus)
+}
+
+func execUpdateScheduledTask(ctx context.Context, db *backend.ScheduledTaskRepo, sch SchedulerOps, argsJSON string) string {
+	var args struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		CronExpr    string `json:"cron_expr"`
+		CommandType string `json:"command_type"`
+		Model       string `json:"model"`
+		Prompt      string `json:"prompt"`
+		WorkingDir  string `json:"working_dir"`
+		Enabled     *bool  `json:"enabled"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.ID == "" {
+		return "id 为必填项"
+	}
+	t, err := db.Get(args.ID)
+	if err != nil {
+		return fmt.Sprintf("任务不存在: %v", err)
+	}
+	if args.Name != "" {
+		t.Name = args.Name
+	}
+	if args.CronExpr != "" {
+		t.CronExpr = args.CronExpr
+	}
+	if args.CommandType != "" {
+		t.CommandType = args.CommandType
+	}
+	if args.Model != "" {
+		t.Model = args.Model
+	}
+	if args.Prompt != "" {
+		t.Prompt = args.Prompt
+	}
+	if args.WorkingDir != "" {
+		t.WorkingDir = args.WorkingDir
+	}
+	if args.Enabled != nil {
+		t.Enabled = *args.Enabled
+	}
+	if err := db.Update(t); err != nil {
+		return fmt.Sprintf("更新失败: %v", err)
+	}
+	if sch != nil {
+		_ = sch.Reload()
+	}
+	return fmt.Sprintf("✅ 已更新: %s", t.Name)
+}
+
+func execDeleteScheduledTask(ctx context.Context, db *backend.ScheduledTaskRepo, sch SchedulerOps, argsJSON string) string {
+	var args struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	if args.ID == "" {
+		return "id 为必填项"
+	}
+	if err := db.Delete(args.ID); err != nil {
+		return fmt.Sprintf("删除失败: %v", err)
+	}
+	if sch != nil {
+		_ = sch.Reload()
+	}
+	return fmt.Sprintf("✅ 已删除任务 ID: %s", args.ID)
+}
+
+func execRunScheduledTaskNow(ctx context.Context, db *backend.ScheduledTaskRepo, sch SchedulerOps, argsJSON string) string {
+	var args struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	if args.ID == "" {
+		return "id 为必填项"
+	}
+	if sch == nil {
+		return "调度器不可用，无法立即执行"
+	}
+	execID, err := sch.RunNow(args.ID)
+	if err != nil {
+		return fmt.Sprintf("立即执行失败: %v", err)
+	}
+	return fmt.Sprintf("✅ 已触发立即执行 (ExecutionID: %s)", execID)
 }
 
 // ── Local Shell ─────────────────────────────────────────────────────────────

@@ -55,6 +55,13 @@ func TestAIToolsRegistered(t *testing.T) {
 		"add_todo",
 		"toggle_todo",
 		"delete_todo",
+		// Scheduled Tasks
+		"list_scheduled_tasks",
+		"create_scheduled_task",
+		"get_scheduled_task",
+		"update_scheduled_task",
+		"delete_scheduled_task",
+		"run_scheduled_task_now",
 		// Local Shell
 		"start_local_shell",
 		"run_local_command",
@@ -140,7 +147,7 @@ func strIn(s string, list []string) bool {
 
 func TestExecuteTool_Unknown(t *testing.T) {
 	srv := newTestServerForTools(t)
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "unknown_tool_xyz", `{}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "unknown_tool_xyz", `{}`)
 	if result == "" {
 		t.Error("unknown tool returned empty string")
 	}
@@ -157,7 +164,7 @@ func TestExecuteTool_Unknown(t *testing.T) {
 func TestExecuteTool_CreateTask(t *testing.T) {
 	srv := newTestServerForTools(t)
 	args := `{"title":"test task","description":"created by tool test","task_type":"manual","priority":3}`
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "create_task", args)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "create_task", args)
 
 	if result == "" {
 		t.Fatal("create_task returned empty result")
@@ -170,7 +177,7 @@ func TestExecuteTool_CreateTask(t *testing.T) {
 
 func TestExecuteTool_ListTasks_Empty(t *testing.T) {
 	srv := newTestServerForTools(t)
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "list_tasks", `{}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "list_tasks", `{}`)
 
 	if result == "" {
 		t.Fatal("list_tasks returned empty")
@@ -197,7 +204,7 @@ func TestExecuteTool_ListTasks_WithData(t *testing.T) {
 		t.Fatalf("create test task: %v", err)
 	}
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "list_tasks", `{}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "list_tasks", `{}`)
 
 	if !contains(result, "List Test Task") && !contains(result, task.ID) {
 		t.Errorf("list_tasks should contain created task, got: %s", result)
@@ -220,7 +227,7 @@ func TestExecuteTool_GetTask(t *testing.T) {
 		t.Fatalf("create test task: %v", err)
 	}
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "get_task", `{"task_id":"`+task.ID+`"}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "get_task", `{"task_id":"`+task.ID+`"}`)
 
 	if result == "" {
 		t.Fatal("get_task returned empty")
@@ -232,7 +239,7 @@ func TestExecuteTool_GetTask(t *testing.T) {
 
 func TestExecuteTool_GetTask_NotFound(t *testing.T) {
 	srv := newTestServerForTools(t)
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "get_task", `{"task_id":"non-existent-id"}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "get_task", `{"task_id":"non-existent-id"}`)
 
 	if !contains(result, "不存在") && !contains(result, "not found") && !contains(result, "失败") {
 		t.Errorf("get_task for non-existent should return error, got: %s", result)
@@ -256,7 +263,7 @@ func TestExecuteTool_UpdateTask(t *testing.T) {
 
 	// 更新标题和优先级
 	args := `{"task_id":"` + task.ID + `","title":"Updated Title","status":"in_progress","priority":1}`
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "update_task", args)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "update_task", args)
 
 	if !contains(result, "✅") && !contains(result, "Updated Title") {
 		t.Errorf("update_task should confirm update and show new title, got: %s", result)
@@ -280,7 +287,7 @@ func TestExecuteTool_UpdateTask(t *testing.T) {
 
 func TestExecuteTool_UpdateTask_NotFound(t *testing.T) {
 	srv := newTestServerForTools(t)
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "update_task", `{"task_id":"non-existent","title":"new"}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "update_task", `{"task_id":"non-existent","title":"new"}`)
 
 	if !contains(result, "不存在") && !contains(result, "not found") {
 		t.Errorf("update_task for non-existent should return error, got: %s", result)
@@ -315,7 +322,7 @@ func TestExecuteTool_TriggerTask(t *testing.T) {
 	defer func() { serverAddr = oldAddr }()
 
 	args := `{"task_id":"` + task.ID + `"}`
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "trigger_task", args)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "trigger_task", args)
 
 	// HTTP 调用在测试环境可能失败（取决于测试服务器是否启动），但函数应该正常返回
 	// 不应 panic，不应返回空
@@ -344,7 +351,7 @@ func TestExecuteTool_ListTaskExecutions(t *testing.T) {
 		t.Fatalf("create test task: %v", err)
 	}
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "list_task_executions", `{"task_id":"`+task.ID+`"}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "list_task_executions", `{"task_id":"`+task.ID+`"}`)
 
 	if result == "" {
 		t.Fatal("list_task_executions returned empty")
@@ -363,7 +370,7 @@ func TestExecuteTool_ListTaskExecutions(t *testing.T) {
 func TestExecuteTool_CreateWebLink(t *testing.T) {
 	srv := newTestServerForTools(t)
 	args := `{"name":"Test Link","url":"https://example.com"}`
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "create_web_link", args)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "create_web_link", args)
 
 	if result == "" {
 		t.Fatal("create_web_link returned empty")
@@ -376,7 +383,7 @@ func TestExecuteTool_CreateWebLink(t *testing.T) {
 func TestExecuteTool_CreateWebLink_MissingFields(t *testing.T) {
 	srv := newTestServerForTools(t)
 	// 缺少必填字段
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "create_web_link", `{"name":""}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "create_web_link", `{"name":""}`)
 
 	if !contains(result, "⚠️") && !contains(result, "必填") {
 		t.Errorf("create_web_link with missing fields should warn, got: %s", result)
@@ -385,7 +392,7 @@ func TestExecuteTool_CreateWebLink_MissingFields(t *testing.T) {
 
 func TestExecuteTool_ListWebLinks_Empty(t *testing.T) {
 	srv := newTestServerForTools(t)
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "list_web_links", `{}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "list_web_links", `{}`)
 
 	if result == "" {
 		t.Fatal("list_web_links returned empty")
@@ -399,10 +406,10 @@ func TestExecuteTool_ListWebLinks_Empty(t *testing.T) {
 func TestExecuteTool_ListWebLinks_WithData(t *testing.T) {
 	srv := newTestServerForTools(t)
 	// 通过 create_web_link 创建一条
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"create_web_link", `{"name":"Test","url":"https://test.com"}`)
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "list_web_links", `{}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "list_web_links", `{}`)
 
 	if !contains(result, "Test") && !contains(result, "https://test.com") {
 		t.Errorf("list_web_links should contain created link, got: %s", result)
@@ -412,7 +419,7 @@ func TestExecuteTool_ListWebLinks_WithData(t *testing.T) {
 func TestExecuteTool_UpdateWebLink(t *testing.T) {
 	srv := newTestServerForTools(t)
 	// 创建
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"create_web_link", `{"name":"Old Name","url":"https://old.com"}`)
 
 	// 先列出找 ID
@@ -421,7 +428,7 @@ func TestExecuteTool_UpdateWebLink(t *testing.T) {
 		t.Skip("no web link to update")
 	}
 	id := list[0].ID
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"update_web_link", `{"id":"`+id+`","name":"New Name","url":"https://new.com"}`)
 
 	if !contains(result, "✅") {
@@ -432,7 +439,7 @@ func TestExecuteTool_UpdateWebLink(t *testing.T) {
 func TestExecuteTool_DeleteWebLink(t *testing.T) {
 	srv := newTestServerForTools(t)
 	// 创建一条
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"create_web_link", `{"name":"ToDelete","url":"https://del.com"}`)
 
 	list, _ := srv.linkDB.List()
@@ -440,7 +447,7 @@ func TestExecuteTool_DeleteWebLink(t *testing.T) {
 		t.Skip("no web link to delete")
 	}
 	id := list[0].ID
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "delete_web_link", `{"id":"`+id+`"}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "delete_web_link", `{"id":"`+id+`"}`)
 
 	// 删除已存在的链接应返回成功
 	if !contains(result, "✅") && !contains(result, "已删除") {
@@ -456,7 +463,7 @@ func TestExecuteTool_DeleteWebLink(t *testing.T) {
 func TestExecuteTool_CreateExperience(t *testing.T) {
 	srv := newTestServerForTools(t)
 	args := `{"module":"test","keywords":"test,unit","scene":"测试场景","details":"# 测试经验\n这是测试内容"}`
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "create_experience", args)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "create_experience", args)
 
 	if result == "" {
 		t.Fatal("create_experience returned empty")
@@ -468,7 +475,7 @@ func TestExecuteTool_CreateExperience(t *testing.T) {
 
 func TestExecuteTool_CreateExperience_MissingModule(t *testing.T) {
 	srv := newTestServerForTools(t)
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "create_experience", `{"keywords":"test"}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "create_experience", `{"keywords":"test"}`)
 
 	if !contains(result, "⚠️") && !contains(result, "module") {
 		t.Errorf("create_experience without module should warn, got: %s", result)
@@ -478,10 +485,10 @@ func TestExecuteTool_CreateExperience_MissingModule(t *testing.T) {
 func TestExecuteTool_SearchExperiences(t *testing.T) {
 	srv := newTestServerForTools(t)
 	// 先创建一条
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"create_experience", `{"module":"git","keywords":"rebase,merge","scene":"git 变基"}`)
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "search_experiences", `{"query":"git"}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "search_experiences", `{"query":"git"}`)
 
 	if result == "" {
 		t.Fatal("search_experiences returned empty")
@@ -493,7 +500,7 @@ func TestExecuteTool_SearchExperiences(t *testing.T) {
 
 func TestExecuteTool_SearchExperiences_NoResults(t *testing.T) {
 	srv := newTestServerForTools(t)
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "search_experiences", `{"query":"xyznonexistent999"}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "search_experiences", `{"query":"xyznonexistent999"}`)
 
 	if !contains(result, "无结果") && !contains(result, "🔍") {
 		t.Errorf("search_experiences with no results should say so, got: %s", result)
@@ -503,7 +510,7 @@ func TestExecuteTool_SearchExperiences_NoResults(t *testing.T) {
 func TestExecuteTool_UpdateExperience(t *testing.T) {
 	srv := newTestServerForTools(t)
 	// 创建
-	createResult := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	createResult := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"create_experience", `{"module":"docker","keywords":"docker","scene":"Docker 场景"}`)
 
 	// 提取 ID
@@ -515,7 +522,7 @@ func TestExecuteTool_UpdateExperience(t *testing.T) {
 		t.Skip("no docker experience found to update")
 	}
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"update_experience", `{"id":"`+exps[0].ID+`","scene":"Docker 场景（更新）"}`)
 
 	if !contains(result, "✅") {
@@ -526,14 +533,14 @@ func TestExecuteTool_UpdateExperience(t *testing.T) {
 func TestExecuteTool_DeleteExperience_NotFound(t *testing.T) {
 	srv := newTestServerForTools(t)
 	// 创建一条经验
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"create_experience", `{"module":"testdel","keywords":"del","scene":"Delete Test"}`)
 	// 找出来并删除
 	exps, _ := srv.expDB.Search("testdel")
 	if len(exps) == 0 {
 		t.Skip("no experience to delete")
 	}
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"delete_experience", `{"id":"`+exps[0].ID+`"}`)
 	if !contains(result, "✅") {
 		t.Errorf("delete_experience should confirm deletion, got: %s", result)
@@ -548,7 +555,7 @@ func TestExecuteTool_DeleteExperience_NotFound(t *testing.T) {
 func TestExecuteTool_CreateDirShortcut_Local(t *testing.T) {
 	srv := newTestServerForTools(t)
 	args := `{"name":"TestProject","type":"local","path":"/tmp/test-` + ts() + `"}`
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "create_dir_shortcut", args)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "create_dir_shortcut", args)
 
 	if result == "" {
 		t.Fatal("create_dir_shortcut returned empty")
@@ -561,7 +568,7 @@ func TestExecuteTool_CreateDirShortcut_Local(t *testing.T) {
 func TestExecuteTool_CreateDirShortcut_Remote(t *testing.T) {
 	srv := newTestServerForTools(t)
 	args := `{"name":"RemoteDev","type":"remote","remote_host":"192.168.1.1","remote_user":"root","remote_path":"/home/user"}`
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "create_dir_shortcut", args)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "create_dir_shortcut", args)
 
 	if result == "" {
 		t.Fatal("create_dir_shortcut remote returned empty")
@@ -573,7 +580,7 @@ func TestExecuteTool_CreateDirShortcut_Remote(t *testing.T) {
 
 func TestExecuteTool_CreateDirShortcut_MissingName(t *testing.T) {
 	srv := newTestServerForTools(t)
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "create_dir_shortcut", `{"type":"local","path":"/tmp"}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "create_dir_shortcut", `{"type":"local","path":"/tmp"}`)
 
 	if !contains(result, "⚠️") && !contains(result, "必填") {
 		t.Errorf("create_dir_shortcut without name should warn, got: %s", result)
@@ -582,7 +589,7 @@ func TestExecuteTool_CreateDirShortcut_MissingName(t *testing.T) {
 
 func TestExecuteTool_ListDirShortcuts_Empty(t *testing.T) {
 	srv := newTestServerForTools(t)
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "list_dir_shortcuts", `{}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "list_dir_shortcuts", `{}`)
 
 	if result == "" {
 		t.Fatal("list_dir_shortcuts returned empty")
@@ -594,10 +601,10 @@ func TestExecuteTool_ListDirShortcuts_Empty(t *testing.T) {
 
 func TestExecuteTool_ListDirShortcuts_WithFilter(t *testing.T) {
 	srv := newTestServerForTools(t)
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"create_dir_shortcut", `{"name":"LocalOnly","type":"local","path":"/tmp/test"}`)
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "list_dir_shortcuts", `{"type":"local"}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "list_dir_shortcuts", `{"type":"local"}`)
 
 	if !contains(result, "LocalOnly") {
 		t.Errorf("list_dir_shortcuts with type filter should work, got: %s", result)
@@ -606,7 +613,7 @@ func TestExecuteTool_ListDirShortcuts_WithFilter(t *testing.T) {
 
 func TestExecuteTool_UpdateDirShortcut(t *testing.T) {
 	srv := newTestServerForTools(t)
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"create_dir_shortcut", `{"name":"OldName","type":"local","path":"/tmp/old"}`)
 
 	// 找出来
@@ -616,7 +623,7 @@ func TestExecuteTool_UpdateDirShortcut(t *testing.T) {
 	}
 	id := list[0].ID
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"update_dir_shortcut", `{"id":"`+id+`","name":"NewName"}`)
 
 	if !contains(result, "✅") && !contains(result, "NewName") {
@@ -626,13 +633,13 @@ func TestExecuteTool_UpdateDirShortcut(t *testing.T) {
 
 func TestExecuteTool_DeleteDirShortcut(t *testing.T) {
 	srv := newTestServerForTools(t)
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"create_dir_shortcut", `{"name":"ToDelete","type":"local","path":"/tmp/del"}`)
 
 	list, _ := srv.dirDB.List()
 	before := len(list)
 
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"delete_dir_shortcut", `{"id":"`+list[0].ID+`"}`)
 
 	list, _ = srv.dirDB.List()
@@ -643,7 +650,7 @@ func TestExecuteTool_DeleteDirShortcut(t *testing.T) {
 
 func TestExecuteTool_OpenDirShortcut_NotFound(t *testing.T) {
 	srv := newTestServerForTools(t)
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"open_dir_shortcut", `{"id":"non-existent-shortcut"}`)
 
 	if !contains(result, "不存在") {
@@ -662,7 +669,7 @@ func TestExecuteTool_AddTodo(t *testing.T) {
 	setTodoPath(srv, t.TempDir()+"/todo.md")
 
 	args := `{"text":"测试 Todo 项目"}`
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "add_todo", args)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "add_todo", args)
 
 	if result == "" {
 		t.Fatal("add_todo returned empty")
@@ -678,10 +685,10 @@ func TestExecuteTool_ListTodos(t *testing.T) {
 	setTodoPath(srv, path)
 
 	// 先添加一条
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"add_todo", `{"text":"List Test Todo"}`)
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil, "list_todos", `{}`)
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil, "list_todos", `{}`)
 
 	if !contains(result, "List Test Todo") && !contains(result, "📝") {
 		t.Errorf("list_todos should contain added item, got: %s", result)
@@ -699,7 +706,7 @@ func TestExecuteTool_ToggleTodo(t *testing.T) {
 	setTodoPath(srv, path)
 
 	// 切换 line_no=1
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"toggle_todo", `{"line_no":1,"done":true}`)
 
 	if !contains(result, "✅") && !contains(result, "已完成") {
@@ -712,7 +719,7 @@ func TestExecuteTool_ToggleTodo_InvalidLineNo(t *testing.T) {
 	path := t.TempDir() + "/todo.md"
 	setTodoPath(srv, path)
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"toggle_todo", `{"line_no":0,"done":true}`)
 
 	if !contains(result, "⚠️") {
@@ -725,10 +732,10 @@ func TestExecuteTool_DeleteTodo(t *testing.T) {
 	path := t.TempDir() + "/todo.md"
 	setTodoPath(srv, path)
 
-	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"add_todo", `{"text":"Delete Test Todo"}`)
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, nil,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, nil,
 		"delete_todo", `{"line_no":1}`)
 
 	if !contains(result, "✅") {
@@ -745,7 +752,7 @@ func TestExecuteTool_StartLocalShell(t *testing.T) {
 	srv := newTestServerForTools(t)
 	state := &LocalShellState{}
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, state,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, state,
 		"start_local_shell", `{"cli_type":"claude","cwd":"/tmp"}`)
 
 	if result == "" {
@@ -763,7 +770,7 @@ func TestExecuteTool_StartLocalShell_InvalidCLIType(t *testing.T) {
 	srv := newTestServerForTools(t)
 	state := &LocalShellState{}
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, state,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, state,
 		"start_local_shell", `{"cli_type":"bash"}`)
 
 	if !contains(result, "⚠️") && !contains(result, "claude") && !contains(result, "cbc") {
@@ -775,7 +782,7 @@ func TestExecuteTool_RunLocalCommand_WithoutSession(t *testing.T) {
 	srv := newTestServerForTools(t)
 	state := &LocalShellState{} // 未激活
 
-	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, state,
+	result := ExecuteTool(context.Background(), srv.db, srv.expDB, srv.execDB, srv.agentDB, srv.linkDB, srv.dirDB, srv.schedDB, nil, state,
 		"run_local_command", `{"command":"ls","cli_type":"claude"}`)
 
 	if !contains(result, "⚠️") && !contains(result, "无活跃") {
@@ -807,6 +814,7 @@ func newTestServerForTools(t *testing.T) *APIServer {
 		eventDB: backend.NewTaskEventRepo(db),
 		linkDB:  backend.NewWebLinkRepo(db),
 		dirDB:   backend.NewDirShortcutRepo(db),
+		schedDB: backend.NewScheduledTaskRepo(db),
 	}
 	return srv
 }

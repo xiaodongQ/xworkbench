@@ -100,7 +100,8 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 				context.Background(),
 				s.db, s.expDB, s.execDB, s.agentDB,
 				s.linkDB, s.dirDB,
-				nil, // localShellState - pass nil for now
+				s.schedDB, s.sch,
+				nil, // localShellState
 				tc.Name, tc.Args,
 			)
 			// Truncate result for logging if too long
