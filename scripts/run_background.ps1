@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$PROJECT_ROOT = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$PROJECT_ROOT = Split-Path $PSScriptRoot -Parent
 $BIN = Join-Path $PROJECT_ROOT "bin\xworkbench-windows-amd64.exe"
 $LOG_DIR = Join-Path $PROJECT_ROOT "data\logs"
 $LOG_FILE = Join-Path $LOG_DIR "xworkbench.log"
