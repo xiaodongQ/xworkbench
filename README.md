@@ -1,6 +1,6 @@
 # xworkbench v2 — All-in-One 个人工作台
 
-All-in-One 个人工作台：集成本地快捷（网页书签/目录/置顶 todo）、AI 任务执行（claude/cbc/shell）+ 评估、经验库沉淀、定时调度、远程 Agent 代理。本地二进制开箱即用，配置文件 `config.json` 搞定所有偏好。
+All-in-One 个人工作台：集成本地快捷（网页书签/目录/置顶 todo）、AI 任务执行（claude/cbc/shell）+ 评估、经验库沉淀、定时调度、远程 Agent 代理。本地二进制开箱即用，配置文件 `data/config.json` 搞定所有偏好。
 
 > 单 Go 二进制 · 16 表 · 7 Tab（总览 / 任务 / 经验库 / 自动化 / 系统配置 / AI 对话 / 代理）+ 4 widget · 97 HTTP 路由 · ~16600 行 Go · 跨 macOS / Linux / Windows（2026-06-28）
 
@@ -17,7 +17,7 @@ cd xworkbench
 
 浏览器打开 [http://localhost:8902](http://localhost:8902)，看到 7 Tab 即可。
 
-> 配置文件 `./config.json`（可选，默认配置已包含终端类型和模型列表）；首次使用建议 `cp config.json.template config.json`
+> 配置文件 `data/config.json`（可选，默认配置已包含终端类型和模型列表）；首次使用建议 `cp data/config.json.template data/config.json`
 
 ## 6 大功能
 

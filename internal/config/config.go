@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -516,9 +517,17 @@ func configPath() string {
 	if dir == "/" || dir == "" {
 		dir, _ = os.Getwd()
 	}
-	path := filepath.Join(dir, "config.json")
-	if _, err := os.Stat(path); err == nil {
-		return path
+	// 优先找 data/config.json（可迁移、可复用）
+	dataPath := filepath.Join(dir, "data", "config.json")
+	if _, err := os.Stat(dataPath); err == nil {
+		return dataPath
+	}
+	// 降级：找可执行文件同目录的 config.json（旧部署兼容）
+	legacyPath := filepath.Join(dir, "config.json")
+	if _, err := os.Stat(legacyPath); err == nil {
+		fmt.Fprintf(os.Stderr, "[xworkbench config] WARNING: using legacy config path (./config.json); "+
+			"please move it to data/config.json for easier project migration.\n")
+		return legacyPath
 	}
 	if runtime.GOOS == "darwin" {
 		res := filepath.Join(dir, "..", "Resources", "config.json")

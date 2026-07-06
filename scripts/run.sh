@@ -33,7 +33,7 @@ ext=""
 BIN="${PROJECT_ROOT}/bin/xworkbench-${os}-${arch}${ext}"
 DB_PATH="${DB_PATH:-${PROJECT_ROOT}/data/xworkbench.db}"
 ADDR="${ADDR:-:8902}"
-CONFIG_PATH="${CONFIG_PATH:-${PROJECT_ROOT}/config.json}"
+CONFIG_PATH="${CONFIG_PATH:-${PROJECT_ROOT}/data/config.json}"
 
 # 检测终端是否支持 ANSI 颜色（兼容 Windows cmd / PowerShell 旧版）
 supports_ansi() {
