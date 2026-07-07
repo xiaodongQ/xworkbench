@@ -500,6 +500,151 @@ func GetTools() []Tool {
 				"required": ["command"]
 			}`),
 		},
+		// ── Task Advanced (高优先级缺口) ─────────────────────────
+		{
+			Name:        "cancel_task",
+			Description: "取消一个正在运行的任务。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"task_id": {"type": "string", "description": "任务ID"}
+				},
+				"required": ["task_id"]
+			}`),
+		},
+		{
+			Name:        "unclaim_task",
+			Description: "放弃认领一个任务，将任务状态重置为 pending。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"task_id": {"type": "string", "description": "任务ID"}
+				},
+				"required": ["task_id"]
+			}`),
+		},
+		{
+			Name:        "set_task_experiences",
+			Description: "设置任务关联的经验库条目（多对多）。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"task_id":       {"type": "string", "description": "任务ID"},
+					"experience_ids": {"type": "array", "items": {"type": "string"}, "description": "经验ID数组，空数组=清除关联"}
+				},
+				"required": ["task_id", "experience_ids"]
+			}`),
+		},
+		{
+			Name:        "run_task_loop",
+			Description: "触发任务的 AI Run Loop（自动驾驶模式），持续执行直到达成目标或达到迭代上限。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"task_id": {"type": "string", "description": "任务ID"},
+					"model":  {"type": "string", "description": "使用的模型（可选，如 claude-3-5-sonnet）"}
+				},
+				"required": ["task_id"]
+			}`),
+		},
+		{
+			Name:        "learn_from_task",
+			Description: "让 AI 从任务执行结果中学习反思，生成经验存入经验库。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"task_id": {"type": "string", "description": "任务ID"}
+				},
+				"required": ["task_id"]
+			}`),
+		},
+		// ── Execution (高优先级缺口) ─────────────────────────────
+		{
+			Name:        "get_execution",
+			Description: "获取一次执行任务的详细信息，包括输出、错误、退出码、状态和评估分数。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {"type": "string", "description": "执行ID"}
+				},
+				"required": ["id"]
+			}`),
+		},
+		{
+			Name:        "continue_execution",
+			Description: "继续一个执行会话，基于之前的上下文发送新 prompt。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id":     {"type": "string", "description": "执行ID"},
+					"prompt": {"type": "string", "description": "继续对话的 prompt"},
+					"model":  {"type": "string", "description": "使用的模型（可选）"}
+				},
+				"required": ["id", "prompt"]
+			}`),
+		},
+		{
+			Name:        "cancel_execution",
+			Description: "取消一个正在运行中的执行任务。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {"type": "string", "description": "执行ID"}
+				},
+				"required": ["id"]
+			}`),
+		},
+		{
+			Name:        "evaluate_execution",
+			Description: "对一次执行结果进行 AI 评分（LLM-as-a-Judge）。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id":    {"type": "string", "description": "执行ID"},
+					"model": {"type": "string", "description": "评估使用的模型（可选）"}
+				},
+				"required": ["id"]
+			}`),
+		},
+		// ── Scheduler Control (中优先级) ─────────────────────────
+		{
+			Name:        "toggle_scheduled_task",
+			Description: "切换定时任务的启用/停用状态。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {"type": "string", "description": "定时任务ID"}
+				},
+				"required": ["id"]
+			}`),
+		},
+		{
+			Name:        "get_ai_loop_status",
+			Description: "查询 AI 自治能力（Run Loop / Reevaluate / Learn）的开关状态。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {}
+			}`),
+		},
+		// ── System Info (中优先级) ────────────────────────────────
+		{
+			Name:        "get_dashboard_stats",
+			Description: "获取 Dashboard 全局统计信息，包括任务数、执行数、agent 数等。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {}
+			}`),
+		},
+		{
+			Name:        "export_config",
+			Description: "导出台式工作数据（快捷方式、链接、经验等）。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"types": {"type": "array", "items": {"type": "string"}, "description": "导出类型，默认 ['shortcuts','links','experiences']"}
+				}
+			}`),
+		},
 	}
 	// 追加 skill 插件工具（仅公开 skill）
 	for _, s := range skill.GetPublic() {
@@ -650,6 +795,36 @@ func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.Exper
 		return execStartLocalShell(ctx, localShellState, argsJSON)
 	case "run_local_command":
 		return execRunLocalCommand(ctx, localShellState, argsJSON)
+	// Task Advanced
+	case "cancel_task":
+		return execCancelTask(ctx, argsJSON)
+	case "unclaim_task":
+		return execUnclaimTask(ctx, argsJSON)
+	case "set_task_experiences":
+		return execSetTaskExperiences(ctx, argsJSON)
+	case "run_task_loop":
+		return execRunTaskLoop(ctx, argsJSON)
+	case "learn_from_task":
+		return execLearnFromTask(ctx, argsJSON)
+	// Execution
+	case "get_execution":
+		return execGetExecution(ctx, argsJSON)
+	case "continue_execution":
+		return execContinueExecution(ctx, argsJSON)
+	case "cancel_execution":
+		return execCancelExecution(ctx, argsJSON)
+	case "evaluate_execution":
+		return execEvaluateExecution(ctx, argsJSON)
+	// Scheduler
+	case "toggle_scheduled_task":
+		return execToggleScheduledTask(ctx, schedDB, sch, argsJSON)
+	// System
+	case "get_ai_loop_status":
+		return execGetAILoopStatus(ctx, argsJSON)
+	case "get_dashboard_stats":
+		return execGetDashboardStats(ctx, argsJSON)
+	case "export_config":
+		return execExportConfig(ctx, argsJSON)
 	default:
 		return fmt.Sprintf("未知工具: %s", toolName)
 	}
@@ -1668,7 +1843,470 @@ func execRunLocalCommand(ctx context.Context, state *LocalShellState, argsJSON s
 	return fmt.Sprintf("✅ 输出:\n%s", stdout.String())
 }
 
+// ── Task Advanced ────────────────────────────────────────────────────────────
+
+func execCancelTask(ctx context.Context, argsJSON string) string {
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.TaskID == "" {
+		return "⚠️ task_id 是必填字段"
+	}
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/tasks/%s/cancel", addr, args.TaskID)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, nil)
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("取消任务失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Sprintf("取消任务失败 (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	return fmt.Sprintf("✅ 任务 %s 已取消", args.TaskID)
+}
+
+func execUnclaimTask(ctx context.Context, argsJSON string) string {
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.TaskID == "" {
+		return "⚠️ task_id 是必填字段"
+	}
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/tasks/%s/unclaim", addr, args.TaskID)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, nil)
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("放弃认领失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Sprintf("放弃认领失败 (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	return fmt.Sprintf("✅ 已放弃任务 %s 的认领，状态重置为 pending", args.TaskID)
+}
+
+func execSetTaskExperiences(ctx context.Context, argsJSON string) string {
+	var args struct {
+		TaskID       string   `json:"task_id"`
+		ExperienceIDs []string `json:"experience_ids"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.TaskID == "" {
+		return "⚠️ task_id 是必填字段"
+	}
+	addr := getServerAddr()
+	body, _ := json.Marshal(map[string][]string{"experience_ids": args.ExperienceIDs})
+	u := fmt.Sprintf("http://127.0.0.1%s/api/tasks/%s/experiences", addr, args.TaskID)
+	req, err := http.NewRequestWithContext(ctx, "PUT", u, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("设置经验关联失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Sprintf("设置经验关联失败 (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	if len(args.ExperienceIDs) == 0 {
+		return fmt.Sprintf("✅ 已清除任务 %s 的经验关联", args.TaskID)
+	}
+	return fmt.Sprintf("✅ 已设置任务 %s 关联 %d 条经验", args.TaskID, len(args.ExperienceIDs))
+}
+
+func execRunTaskLoop(ctx context.Context, argsJSON string) string {
+	var args struct {
+		TaskID string `json:"task_id"`
+		Model  string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.TaskID == "" {
+		return "⚠️ task_id 是必填字段"
+	}
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/tasks/%s/run-loop", addr, args.TaskID)
+	body := map[string]any{}
+	if args.Model != "" {
+		body["model"] = args.Model
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("触发 Run Loop 失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != 202 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Sprintf("触发 Run Loop 失败 (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	return fmt.Sprintf("✅ AI Run Loop 已启动，任务 ID: %s", args.TaskID)
+}
+
+func execLearnFromTask(ctx context.Context, argsJSON string) string {
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.TaskID == "" {
+		return "⚠️ task_id 是必填字段"
+	}
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/tasks/%s/learn", addr, args.TaskID)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, nil)
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("触发学习失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != 202 {
+		return fmt.Sprintf("触发学习失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var result map[string]any
+	json.Unmarshal(respBody, &result)
+	if msg, ok := result["message"].(string); ok {
+		return fmt.Sprintf("✅ 学习完成: %s", msg)
+	}
+	return fmt.Sprintf("✅ 任务 %s 学习反思已完成", args.TaskID)
+}
+
+// ── Execution ────────────────────────────────────────────────────────────────
+
+func execGetExecution(ctx context.Context, argsJSON string) string {
+	var args struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.ID == "" {
+		return "⚠️ id 是必填字段"
+	}
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/executions/%s", addr, args.ID)
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("查询执行失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("查询执行失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var exec struct {
+		ID            string  `json:"id"`
+		TaskID        string  `json:"task_id"`
+		Status        string  `json:"status"`
+		CliType       string  `json:"cli_type"`
+		Model         string  `json:"model"`
+		StartedAt     string  `json:"started_at"`
+		CompletedAt   string  `json:"completed_at"`
+		ExitCode      int     `json:"exit_code"`
+		Output        string  `json:"output"`
+		Error         string  `json:"error"`
+		EvaluationScore *float64 `json:"evaluation_score"`
+	}
+	json.Unmarshal(respBody, &exec)
+	scoreStr := "无"
+	if exec.EvaluationScore != nil {
+		scoreStr = fmt.Sprintf("%.0f%%", *exec.EvaluationScore*100)
+	}
+	return fmt.Sprintf(`📋 执行详情
+ID: %s
+任务: %s
+状态: %s
+CLI: %s | 模型: %s
+开始: %s | 完成: %s
+退出码: %d
+评估分数: %s
+输出: %s
+错误: %s`,
+		exec.ID, exec.TaskID, exec.Status, exec.CliType, exec.Model,
+		exec.StartedAt, exec.CompletedAt, exec.ExitCode, scoreStr,
+		truncate(exec.Output, 500), exec.Error)
+}
+
+func execContinueExecution(ctx context.Context, argsJSON string) string {
+	var args struct {
+		ID     string `json:"id"`
+		Prompt string `json:"prompt"`
+		Model  string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.ID == "" || args.Prompt == "" {
+		return "⚠️ id 和 prompt 是必填字段"
+	}
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/executions/%s/continue", addr, args.ID)
+	body := map[string]string{"prompt": args.Prompt}
+	if args.Model != "" {
+		body["model"] = args.Model
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("继续执行失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != 202 {
+		return fmt.Sprintf("继续执行失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var result map[string]any
+	json.Unmarshal(respBody, &result)
+	execID, _ := result["execution_id"].(string)
+	if execID == "" {
+		return "✅ 继续对话已触发"
+	}
+	return fmt.Sprintf("✅ 继续对话已触发 (execution_id=%s)", execID)
+}
+
+func execCancelExecution(ctx context.Context, argsJSON string) string {
+	var args struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.ID == "" {
+		return "⚠️ id 是必填字段"
+	}
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/executions/%s/cancel", addr, args.ID)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, nil)
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("取消执行失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Sprintf("取消执行失败 (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	return fmt.Sprintf("✅ 执行 %s 已取消", args.ID)
+}
+
+func execEvaluateExecution(ctx context.Context, argsJSON string) string {
+	var args struct {
+		ID    string `json:"id"`
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.ID == "" {
+		return "⚠️ id 是必填字段"
+	}
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/executions/%s/evaluate", addr, args.ID)
+	body := map[string]string{}
+	if args.Model != "" {
+		body["model"] = args.Model
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("触发评估失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted && resp.StatusCode != 202 {
+		return fmt.Sprintf("触发评估失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	return fmt.Sprintf("✅ 评估已启动，执行 ID: %s（评估需要 1-2 分钟）", args.ID)
+}
+
+// ── Scheduler ────────────────────────────────────────────────────────────────
+
+func execToggleScheduledTask(ctx context.Context, db *backend.ScheduledTaskRepo, sch SchedulerOps, argsJSON string) string {
+	var args struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.ID == "" {
+		return "⚠️ id 是必填字段"
+	}
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/scheduled/%s/toggle", addr, args.ID)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, nil)
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("切换状态失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("切换状态失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var result map[string]any
+	json.Unmarshal(respBody, &result)
+	enabled, _ := result["enabled"].(bool)
+	status := "停用"
+	if enabled {
+		status = "启用"
+	}
+	return fmt.Sprintf("✅ 定时任务 %s 已切换为 [%s]", args.ID, status)
+}
+
+// ── System ───────────────────────────────────────────────────────────────────
+
+func execGetAILoopStatus(ctx context.Context, argsJSON string) string {
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/ai-loop/status", addr)
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("查询失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("查询失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var result map[string]any
+	json.Unmarshal(respBody, &result)
+	enabled, _ := result["ai_loop_enabled"].(bool)
+	schedEnabled, _ := result["scheduler_enabled"].(bool)
+	aiLoopStatus := "禁用"
+	if enabled {
+		aiLoopStatus = "启用"
+	}
+	schedStatus := "禁用"
+	if schedEnabled {
+		schedStatus = "启用"
+	}
+	return fmt.Sprintf(`🤖 AI 自治能力状态
+Run Loop / Reevaluate / Learn: %s
+调度器: %s`, aiLoopStatus, schedStatus)
+}
+
+func execGetDashboardStats(ctx context.Context, argsJSON string) string {
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/stats", addr)
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("查询失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("查询失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var stats map[string]any
+	json.Unmarshal(respBody, &stats)
+	return fmt.Sprintf(`📊 Dashboard 统计
+任务总数: %.0f
+执行总数: %.0f
+Agent 总数: %.0f`,
+		stats["total_tasks"], stats["total_executions"], stats["total_agents"])
+}
+
+func execExportConfig(ctx context.Context, argsJSON string) string {
+	var args struct {
+		Types []string `json:"types"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	if len(args.Types) == 0 {
+		args.Types = []string{"shortcuts", "links", "experiences"}
+	}
+	addr := getServerAddr()
+	u := fmt.Sprintf("http://127.0.0.1%s/api/config/export?types=%s", addr, strings.Join(args.Types, ","))
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return fmt.Sprintf("构建请求失败: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf("导出失败（网络错误）: %v", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("导出失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var exportData map[string]any
+	json.Unmarshal(respBody, &exportData)
+	count := 0
+	for _, v := range exportData {
+		if arr, ok := v.([]any); ok {
+			count += len(arr)
+		}
+	}
+	return fmt.Sprintf("✅ 导出成功，共 %d 条记录", count)
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
 
 func getServerAddr() string {
 	// Prefer ADDR env var; fall back to package-level default.

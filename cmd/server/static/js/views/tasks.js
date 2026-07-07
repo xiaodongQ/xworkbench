@@ -289,6 +289,9 @@ function showRunTaskModal(task) {
   loadRunTaskExecHistory(task.id);
   restoreRunLoopProgress(task.id);
 
+  // AI 自治区块：根据 ai_loop_enabled 决定显示/隐藏
+  updateAILoopBlockVisibility();
+
   // goal_mode 回显（从 task 读取，支持本次勾选/取消）
   document.getElementById('run-task-goal-mode').checked = task.goal_mode || false;
 
@@ -923,6 +926,23 @@ function _eventEsc(s) {
 // ===== AI 自治 三个动作 =====
 // 错误处理：后端返 403 “未启用”时提示用户去 dashboard 开。
 
+// updateAILoopBlockVisibility 根据 ai_loop_enabled 决定 Run Loop 区块的显示/隐藏
+async function updateAILoopBlockVisibility() {
+  const block = document.getElementById('run-task-ailoop-block');
+  if (!block) return;
+  try {
+    const status = await fetchJSON(API + '/api/ai-loop/status');
+    if (status.ai_loop_enabled) {
+      block.classList.remove('hidden');
+    } else {
+      block.classList.add('hidden');
+    }
+  } catch (_) {
+    // 网络错误时保持隐藏状态
+    block.classList.add('hidden');
+  }
+}
+
 function _currentTaskId() {
   // 优先从运行弹窗获取（reevaluate/learn/runLoop 在 run-task-modal 内）
   const runModalId = document.getElementById('run-task-modal')?.dataset?.taskId;
@@ -1283,6 +1303,8 @@ function syncRunTaskAILoopButtons() {
   if (learnBtn) {
     learnBtn.disabled = !hasExec;
     learnBtn.title = hasExec ? '从执行记录生成经验写入知识库' : '需要先运行一次任务';
+    // 有执行记录时显示 Learn 按钮（ai_loop_enabled 已在 updateAILoopBlockVisibility 中控制区块显示）
+    learnBtn.style.display = hasExec ? '' : 'none';
   }
 }
 

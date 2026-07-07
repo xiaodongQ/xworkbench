@@ -381,9 +381,6 @@ function renderTodoItem(i, indent) {
   if (i.due_date) {
     extraHtml += `<span class="todo-due ${isOverdue ? 'overdue' : ''}" title="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
   }
-  if (i.tags && i.tags.length) {
-    extraHtml += i.tags.map(t => `<span class="todo-tag">#${esc(t)}</span>`).join('');
-  }
 
   const paddingLeft = indent * 16 + 'px';
   let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''}" style="padding-left:${paddingLeft}" onclick="toggleTodoExpand(this, ${i.line_no})">
@@ -410,10 +407,19 @@ async function loadTodo() {
   const items = sortAndFilterItems(data.items || []);
   // 保存数据供展开详情用
   window._todoItems = items;
-  // 更新过滤按钮文字（全部模式显示 🔍，其它模式显示 🔍*）
+  // 更新过滤按钮文字（显示当前模式：🔍全部 / 🔍仅未 / 🔍过期）
   const filterBtn = document.getElementById('todo-filter-btn');
-  if (filterBtn) filterBtn.textContent = getTodoFilterLabel() === '全部' ? '🔍' : '🔍*';
-  if (items.length === 0) { el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">' + esc(data.path) + ' 无 todo 项</div>'; return; }
+  if (filterBtn) {
+    const label = getTodoFilterLabel();
+    const icon = label === '全部' ? '🔍' : (label === '仅过期' ? '⏰' : '○');
+    filterBtn.textContent = icon + ' ' + label;
+    filterBtn.title = '点击切换过滤模式：仅未完成 → 仅过期 → 全部';
+  }
+  if (items.length === 0) {
+    const label = getTodoFilterLabel();
+    const hint = label === '仅过期' ? '（无过期项）' : (label === '仅未完成' ? '（全部已完成）' : '');
+    el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">' + esc(data.path) + ' 无 todo 项' + hint + '</div>'; return;
+  }
   let html = '';
   for (const item of items) {
     html += renderTodoItem(item);
@@ -433,8 +439,6 @@ async function deleteTodoItem(lineNo) {
 function showTodoAddModal() {
   document.getElementById('todo-add-title').value = '';
   document.getElementById('todo-add-due').value = '';
-  document.getElementById('todo-add-tags').value = '';
-  document.getElementById('todo-add-note').value = '';
   document.getElementById('todo-add-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('todo-add-title').focus(), 50);
 }
@@ -443,27 +447,15 @@ function closeTodoAddModal() {
   // 清空表单
   document.getElementById('todo-add-title').value = '';
   document.getElementById('todo-add-due').value = '';
-  document.getElementById('todo-add-tags').value = '';
-  document.getElementById('todo-add-note').value = '';
 }
 async function submitTodoAdd() {
   const text = document.getElementById('todo-add-title').value.trim();
   if (!text) { alert('请输入任务标题'); return; }
 
   const dueDate = document.getElementById('todo-add-due').value;
-  const tagsRaw = document.getElementById('todo-add-tags').value.trim();
-  const note = document.getElementById('todo-add-note').value.trim();
-
-  // 解析 tags 为数组（按逗号分割，trim，去空）
-  let tags = [];
-  if (tagsRaw) {
-    tags = tagsRaw.split(',').map(t => t.trim()).filter(t => t !== '');
-  }
 
   const body = { text };
   if (dueDate) body.due_date = dueDate;
-  if (tags.length > 0) body.tags = tags;
-  if (note) body.note = note;
 
   const r = await fetch('/api/todo', {
     method: 'POST',
@@ -574,18 +566,6 @@ function toggleTodoExpand(el, lineNo) {
         dueInfo = `<div class="todo-detail-due">📅 截止：${itemData.due_date}${statusText}</div>`;
     }
 
-    // 标签
-    let tagsInfo = '';
-    if (itemData.tags && itemData.tags.length) {
-        tagsInfo = `<div class="todo-detail-tags">标签：${itemData.tags.map(t => `<span class="todo-tag">#${esc(t)}</span>`).join(' ')}</div>`;
-    }
-
-    // 备注
-    let noteInfo = '';
-    if (itemData.note) {
-        noteInfo = `<div class="todo-detail-note"><div class="todo-detail-label">备注：</div><div class="todo-detail-note-text">${esc(itemData.note)}</div></div>`;
-    }
-
     // 子任务
     let childrenHtml = '';
     if (itemData.children && itemData.children.length) {
@@ -604,8 +584,6 @@ function toggleTodoExpand(el, lineNo) {
     const detailHtml = `<div class="todo-detail-expanded">
       <div class="todo-detail-content">
         ${dueInfo}
-        ${tagsInfo}
-        ${noteInfo}
         ${childrenHtml}
       </div>
     </div>`;
