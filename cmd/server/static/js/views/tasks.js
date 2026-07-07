@@ -251,7 +251,8 @@ async function runTask(id) {
 
 function showRunTaskModal(task) {
   window._currentRunTask = task; // 供 runTaskLoop 使用
-  document.getElementById('run-task-title').textContent = task.title + (task.description ? ' — ' + task.description.slice(0, 60) : '');
+  document.getElementById('run-task-title').textContent = task.title;
+  document.getElementById('run-task-acceptance').textContent = task.acceptance || '(未提供)';
   // command_type/model：优先用 task 创建时确定的默认值，可临时调整
   const typeSel = document.getElementById('run-task-type');
   const taskCmdType = task.command_type || 'claude';
@@ -292,14 +293,6 @@ function showRunTaskModal(task) {
 
   // AI 自治区块：根据 ai_loop_enabled 决定显示/隐藏
   updateAILoopBlockVisibility();
-
-  // Run Loop prompt 只读展示：复用 task description + acceptance
-  const loopDisplay = document.getElementById('run-loop-prompt-display');
-  if (loopDisplay) {
-    const desc = task.description || '';
-    const acc = task.acceptance || '';
-    loopDisplay.textContent = desc + (acc ? '\n\n验收标准：\n' + acc : '(未提供)');
-  }
 
   // goal_mode 回显（从 task 读取，支持本次勾选/取消）
   document.getElementById('run-task-goal-mode').checked = task.goal_mode || false;

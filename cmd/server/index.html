@@ -114,6 +114,7 @@
         <span>
           <button class="btn btn-small" onclick="showTodoAddModal()">+ 添加</button>
           <button class="btn btn-small" onclick="showTodoPathModal()">设置</button>
+          <button id="todo-expand-btn" class="btn btn-small" onclick="toggleTodoExpandAll()" title="展开所有">⊡</button>
           <button id="todo-filter-btn" class="btn btn-small" onclick="showTodoFilterMenu()" title="点击切换到: 仅未完成">☐</button>
         </span>
       </div>
@@ -948,14 +949,17 @@
     <h2 id="todo-modal-title">添加任务</h2>
     <input type="hidden" id="todo-edit-line-no">
     <div class="form-group">
-      <label>任务内容 <span class="field-hint">必填，可填多项（回车换行，每行一个子项）</span></label>
-      <div id="todo-modal-items" style="display:flex;flex-direction:column;gap:4px">
-        <input id="todo-modal-row-0" type="text" placeholder="任务内容" style="width:100%;box-sizing:border-box">
-      </div>
+      <label>任务内容 <span class="field-hint">必填</span></label>
+      <input id="todo-modal-title-input" type="text" placeholder="任务内容" style="width:100%;box-sizing:border-box">
     </div>
     <div class="form-group">
       <label>截止日期</label>
-      <input id="todo-add-due" type="date" style="width:100%;box-sizing:border-box">
+      <input id="todo-modal-due" type="date" style="width:100%;box-sizing:border-box">
+    </div>
+    <div class="form-group" id="todo-modal-children-group">
+      <label>子项</label>
+      <div id="todo-modal-children" style="display:flex;flex-direction:column;gap:4px"></div>
+      <button class="btn btn-small" onclick="addTodoChildRow()" style="margin-top:4px">+ 添加子项</button>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTodoAddModal()">取消</button>
@@ -1092,6 +1096,10 @@
       <label style="font-size:12px">任务 <span class="field-hint">Title</span></label>
       <div id="run-task-title" style="font-size:13px;color:var(--text-secondary);padding:6px 8px;background:var(--hover);border-radius:4px"></div>
     </div>
+    <div class="form-group" id="run-task-acceptance-group" style="margin-bottom:10px">
+      <label style="font-size:12px">验收标准</label>
+      <div id="run-task-acceptance" style="font-size:12px;color:var(--text-secondary);padding:6px 8px;background:var(--hover);border-radius:4px;white-space:pre-wrap;max-height:60px;overflow-y:auto;line-height:1.5"></div>
+    </div>
 
     <!-- 执行配置 -->
     <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
@@ -1149,9 +1157,7 @@
             <button type="button" id="run-btn-reevaluate" class="btn btn-primary" style="font-size:11px;padding:4px 10px" disabled onclick="reevaluateTask()">📊 Reevaluate</button>
           </div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div id="run-loop-prompt-display" style="font-size:12px;color:var(--text-secondary);background:var(--hover);border-radius:6px;padding:8px 10px;white-space:pre-wrap;max-height:80px;overflow-y:auto;line-height:1.5"></div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <label style="font-size:11px;display:flex;align-items:center;gap:4px">
               <span style="color:var(--text-secondary)">阈值≥</span>
               <input id="run-loop-threshold" type="number" value="7" min="0" max="10" step="0.5" style="width:46px;padding:3px 6px;border:1px solid var(--primary);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;font-weight:500">
