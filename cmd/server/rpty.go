@@ -266,7 +266,7 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 	}
-	if err := session.RequestPty("xterm-256color", cols, rows, modes); err != nil {
+	if err := session.RequestPty("xterm-256color", rows, cols, modes); err != nil {
 		session.Close()
 		client.Close()
 		logger.Errorf("rpty: request pty error: %v", err)
