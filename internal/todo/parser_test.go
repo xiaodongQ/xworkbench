@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -370,5 +371,74 @@ func TestDeleteAndWrite(t *testing.T) {
 	// 越界
 	if err := DeleteAndWrite(p, 99); err == nil {
 		t.Error("expected error for out-of-range")
+	}
+}
+
+func TestAddChildAndWrite(t *testing.T) {
+	// Case 1: root item followed by blank lines — child must appear exactly once
+	dir := t.TempDir()
+	p := filepath.Join(dir, "todo.md")
+	if err := os.WriteFile(p, []byte("- [ ] P\n\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddChildAndWrite(p, 1, "child1", ""); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(p)
+	// Must NOT have child1 twice; exactly one child entry
+	count := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "child1") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("child1 appears %d times, want exactly 1: %q", count, data)
+	}
+
+	// Case 2: add second child to same parent (lineNo=1 still works after file changed)
+	// parent line_no=1, child1 is now line_no=2
+	if err := AddChildAndWrite(p, 1, "child2", ""); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(p)
+	count1, count2 := 0, 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "child1") {
+			count1++
+		}
+		if strings.Contains(line, "child2") {
+			count2++
+		}
+	}
+	if count1 != 1 || count2 != 1 {
+		t.Errorf("child1=%d child2=%d, want each 1: %q", count1, count2, data)
+	}
+
+	// Case 3: add child to existing child (nested), file has no blank lines
+	p2 := filepath.Join(dir, "todo2.md")
+	if err := os.WriteFile(p2, []byte("- [ ] P\n  - [ ] child1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tree2, _ := ReadAndParse(p2)
+	flat2 := Flatten(tree2)
+	// flat2[1] is child1 with line_no=2
+	if err := AddChildAndWrite(p2, flat2[1].LineNo, "child1a", ""); err != nil {
+		t.Fatal(err)
+	}
+	data2, _ := os.ReadFile(p2)
+	countChild1a := 0
+	for _, line := range strings.Split(string(data2), "\n") {
+		if strings.Contains(line, "child1a") {
+			countChild1a++
+		}
+	}
+	if countChild1a != 1 {
+		t.Errorf("child1a appears %d times, want 1: %q", countChild1a, data2)
+	}
+
+	// Case 4: invalid parent line_no
+	if err := AddChildAndWrite(p, 99, "orphan", ""); err == nil {
+		t.Error("expected error for invalid parent line_no")
 	}
 }

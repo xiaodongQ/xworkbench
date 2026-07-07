@@ -260,6 +260,8 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) error {
 }
 
 // AddChildAndWrite 在指定父行后追加一个子项（缩进 +2 空格）。
+// parentLineNo 是 Parse/Flatten 返回的 line_no（按项计，跳过空行），
+// 需要扫描文件找到对应的实际行号后再插入。
 func AddChildAndWrite(path string, parentLineNo int, text, dueDate string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -270,20 +272,41 @@ func AddChildAndWrite(path string, parentLineNo int, text, dueDate string) error
 		return err
 	}
 	lines := strings.Split(string(data), "\n")
-	if parentLineNo < 1 || parentLineNo > len(lines) {
-		return fmt.Errorf("parent line_no %d out of range", parentLineNo)
+
+	// 找到 parentLineNo 对应的实际文件行（跳过空行和非项行）
+	itemCount := 0
+	var actualLineIdx int = -1
+	for i, line := range lines {
+		if itemRe.MatchString(line) {
+			itemCount++
+			if itemCount == parentLineNo {
+				actualLineIdx = i
+				break
+			}
+		}
 	}
+	if actualLineIdx < 0 {
+		return fmt.Errorf("parent line_no %d not found in file", parentLineNo)
+	}
+
 	item := &Item{
 		Text:    text,
 		DueDate: dueDate,
 		Indent:  "  ", // 子项固定 +2 空格缩进
 	}
 	newLine := itemToLine(item)
-	// 插入到父行之后
-	before := lines[:parentLineNo]
-	after := lines[parentLineNo:]
+	// 插入到父行之后（actualLineIdx 是 0-based，+1 变成 1-based 的 parentLineNo）
+	// 注意：必须用 full slice 语法 [:n:n] 强制分配新数组，避免 append(before,...)
+	// 复用了 lines 的底层数组导致 after 被覆盖。
+	before := lines[:actualLineIdx+1:actualLineIdx+1]
+	after := lines[actualLineIdx+1:]
 	newLines := append(before, newLine)
-	newLines = append(newLines, after...)
+	// 跳过 after 开头的空行（避免末尾空行导致项重复）
+	i := 0
+	for i < len(after) && strings.TrimSpace(after[i]) == "" {
+		i++
+	}
+	newLines = append(newLines, after[i:]...)
 	return atomicWrite(path, strings.Join(newLines, "\n"))
 }
 

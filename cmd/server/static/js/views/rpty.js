@@ -3,6 +3,7 @@
 // 依赖: api.js, xterm.js (via index.html CDN)
 
 let rptyTerm = null;        // xterm.js Terminal 实例
+window.__rptyTerm = () => rptyTerm; // 调试用
 let rptyWs = null;          // WebSocket 连接
 let rptyReady = false;
 let rptyTabID = null;       // 当前 tab_id（持久化到 localStorage）
@@ -191,11 +192,12 @@ async function connectRPTY(tabID, dirID) {
     rptyReady = true;
     if (rptyTerm) {
       rptyTerm.writeln('\x1b[32m[xworkbench] 连接就绪\x1b[0m\r\n');
-      // WS 打开后，用 fit 后的尺寸通知后端（延迟一点确保 SSH 准备好）
+      // WS 打开后，延迟一点确保 SSH 准备好，再发 resize 并更新边界线
       setTimeout(() => {
         if (rptyWs && rptyWs.readyState === WebSocket.OPEN) {
           rptyWs.send('resize,' + rptyTerm.cols + ',' + rptyTerm.rows);
         }
+        updateRptyBoundaryLine();
       }, 100);
     }
     updateRptyStatus('connected');
@@ -238,6 +240,7 @@ async function connectRPTY(tabID, dirID) {
       if (rptyWs && rptyWs.readyState === WebSocket.OPEN) {
         rptyWs.send('resize,' + cols + ',' + rows);
       }
+      if (rptyReady) updateRptyBoundaryLine();
     });
   }
 }
@@ -248,6 +251,41 @@ function disconnectRPTY() {
   rptyReady = false;
   if (rptyTerm) { rptyTerm.clear(); rptyTerm.writeln('\x1b[36m[xworkbench] 远程终端\x1b[0m 已断开\r\n'); }
   updateRptyStatus('disconnected');
+  hideRptyBoundaryLine();
+}
+
+// updateRptyBoundaryLine 在视口上显示边界红线（fixed 定位，不被裁剪）
+// 基于终端实际列数（rptyTerm.cols）计算，而非硬编码值
+function updateRptyBoundaryLine() {
+  let line = document.getElementById('rpty-boundary');
+  if (!line) {
+    line = document.createElement('div');
+    line.id = 'rpty-boundary';
+    document.body.appendChild(line);
+  }
+  const container = document.getElementById('rpty-container');
+  if (!container || !rptyTerm) return;
+  const rect = container.getBoundingClientRect();
+  const dims = rptyTerm._core?._renderService?.dimensions?.css?.cell;
+  const cellW = dims?.width || 8;
+  // 使用终端实际列数（rptyTerm.cols），而非硬编码的 RPTY_COLS
+  const actualCols = rptyTerm.cols;
+  const boundaryX = rect.left + cellW * actualCols;
+  line.style.left = boundaryX + 'px';
+  // 设置 data-cols 属性，用于 ::before 伪元素显示列数标签
+  line.setAttribute('data-cols', actualCols);
+  line.classList.add('visible');
+
+  // 同时更新 header 中的列数显示
+  const colsDisplay = document.getElementById('rpty-cols-display');
+  if (colsDisplay) {
+    colsDisplay.textContent = actualCols + ' 列 × ' + rptyTerm.rows + ' 行';
+  }
+}
+
+function hideRptyBoundaryLine() {
+  const line = document.getElementById('rpty-boundary');
+  if (line) line.classList.remove('visible');
 }
 
 // submitAuthInput 向当前 session 发送 auth 响应（用于 Password:/yes 等）。
@@ -291,7 +329,6 @@ function initRptyTab() {
 
   requestAnimationFrame(() => {
     if (rptyTerm) return;
-    const fitAddon = new FitAddon.FitAddon();
     rptyTerm = new Terminal({
       fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace",
       fontSize: 13,
@@ -299,16 +336,54 @@ function initRptyTab() {
       cursorBlink: true,
       scrollback: 10000,
     });
-    rptyTerm.loadAddon(fitAddon);
     rptyTerm.open(container);
-    fitAddon.fit();
+
+    // 动态计算容器实际能容纳的列数（基于容器宽度 / 字符宽度）
+    const dims = rptyTerm._core?._renderService?.dimensions?.css?.cell;
+    const cellW = dims?.width || 8;
+    const cellH = dims?.height || 20;
+    const containerW = container.clientWidth || 800;
+    const containerH = container.clientHeight || 500;
+    // 计算实际能容纳的列数和行数，留 8px 右内边距余量
+    const RPTY_COLS = Math.max(80, Math.floor((containerW - 16) / cellW));
+    const RPTY_ROWS = Math.max(24, Math.floor((containerH - 16) / cellH));
+
+    // 强制 resize 到计算出的实际列数
+    rptyTerm.resize(RPTY_COLS, RPTY_ROWS);
+
+    // 动态设 CSS var，用于 ::after 边界线定位
+    const wrap = container.closest('.terminal-wrap');
+    if (wrap) {
+      wrap.style.setProperty('--rpty-cell-w', cellW + 'px');
+      wrap.style.setProperty('--rpty-cols', RPTY_COLS);
+    }
 
     // ResizeObserver 监听容器变化，动态 fit 并通知后端
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      // 重新计算容器能容纳的列数
+      const newDims = rptyTerm._core?._renderService?.dimensions?.css?.cell;
+      const newCellW = newDims?.width || cellW;
+      const newCellH = newDims?.height || cellH;
+      const newContainerW = container.clientWidth;
+      const newContainerH = container.clientHeight;
+      const newCols = Math.max(80, Math.floor((newContainerW - 16) / newCellW));
+      const newRows = Math.max(24, Math.floor((newContainerH - 16) / newCellH));
+
+      // 仅在列数变化时 resize（避免频繁重绘）
+      if (newCols !== RPTY_COLS || newRows !== RPTY_ROWS) {
+        rptyTerm.resize(newCols, newRows);
+        // 更新 wrap CSS var
+        const w = container.closest('.terminal-wrap');
+        if (w) {
+          w.style.setProperty('--rpty-cell-w', newCellW + 'px');
+          w.style.setProperty('--rpty-cols', newCols);
+        }
+      }
+
       if (rptyWs && rptyWs.readyState === WebSocket.OPEN) {
         rptyWs.send('resize,' + rptyTerm.cols + ',' + rptyTerm.rows);
       }
+      if (rptyReady) updateRptyBoundaryLine();
     });
     resizeObserver.observe(container);
 

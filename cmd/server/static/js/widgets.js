@@ -394,7 +394,8 @@ function renderTodoItem(i, indent) {
   }
 
   const paddingLeft = indent * 20 + 'px';
-  let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''}" style="padding-left:${paddingLeft}" data-line-no="${i.line_no}">
+  const hasChildren = i.children && i.children.length;
+  let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''} ${hasChildren?'has-children':''}" style="padding-left:${paddingLeft}" data-line-no="${i.line_no}">
   <input type="checkbox" ${i.done?'checked':''} onchange="event.stopPropagation(); toggleTodo(${i.line_no}, this.checked)">
   <span class="todo-text" onclick="toggleTodoItem(${i.line_no})">${esc(i.text)}</span>
   ${extraHtml}
@@ -411,14 +412,13 @@ function renderTodoItem(i, indent) {
   return html;
 }
 
-// 点击父任务文字，展开/收起子项；无子项则打开编辑弹框
+// 点击父任务文字，展开/收起子项；无子项不动作
 function toggleTodoItem(lineNo) {
     const itemEl = document.querySelector('.todo-item[data-line-no="' + lineNo + '"]');
     if (!itemEl) return;
     const childrenEl = itemEl.nextElementSibling;
     if (!childrenEl || !childrenEl.classList.contains('todo-children')) {
-        openTodoEditModal(lineNo);
-        return;
+        return; // 无子项，不动作
     }
     const isExpanded = childrenEl.style.display !== 'none';
     if (isExpanded) {
@@ -439,16 +439,14 @@ function toggleTodoExpandAll() {
     });
     const btn = document.getElementById('todo-expand-btn');
     if (anyExpanded) {
-        // 之前是展开的 → 现在收起
         _todoExpandedSet.clear();
-        if (btn) { btn.textContent = '全部展开'; btn.title = '展开所有子项'; }
+        if (btn) { btn.textContent = '▶'; btn.title = '展开所有子项'; }
     } else {
-        // 之前是收起的 → 现在展开
         document.querySelectorAll('.todo-item[data-line-no]').forEach(el => {
             const lineNo = parseInt(el.dataset.lineNo);
             if (!isNaN(lineNo)) _todoExpandedSet.add(lineNo);
         });
-        if (btn) { btn.textContent = '全部收起'; btn.title = '收起所有子项'; }
+        if (btn) { btn.textContent = '▼'; btn.title = '收起所有子项'; }
     }
     saveTodoExpandedSet();
 }
@@ -468,10 +466,10 @@ async function loadTodo() {
   if (expandBtn) {
     const anyExpanded = [...document.querySelectorAll('.todo-children')].some(el => el.style.display !== 'none');
     if (anyExpanded) {
-        expandBtn.textContent = '全部收起';
+        expandBtn.textContent = '▼';
         expandBtn.title = '收起所有子项';
     } else {
-        expandBtn.textContent = '全部展开';
+        expandBtn.textContent = '▶';
         expandBtn.title = '展开所有子项';
     }
   }
@@ -517,7 +515,7 @@ function openTodoEditModal(lineNo) {
   const container = document.getElementById('todo-modal-children');
   container.innerHTML = '';
   if (item.children) {
-    item.children.forEach(c => addTodoChildRow(c.text, c.line_no));
+    item.children.forEach(c => addTodoChildRow(c.text, c.line_no, c.done));
   }
   document.getElementById('todo-add-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('todo-modal-title-input').focus(), 50);
@@ -530,14 +528,20 @@ function getDefaultDue() {
   d.setDate(d.getDate() + 3);
   return d.toISOString().split('T')[0];
 }
-// 添加一行子项输入框，lineNo 可选（有则是已有子项，删除时需调用 API）
-function addTodoChildRow(text, lineNo) {
+// 添加一行子项输入框，lineNo/done 可选（有则是已有子项，删除时需调用 API）
+function addTodoChildRow(text, lineNo, done) {
   const container = document.getElementById('todo-modal-children');
   const row = document.createElement('div');
   row.style.display = 'flex';
   row.style.gap = '4px';
-  if (lineNo !== undefined) row.dataset.lineNo = lineNo;
+  row.style.alignItems = 'center';
+  if (lineNo !== undefined) {
+    row.dataset.lineNo = lineNo;
+    row.dataset.done = done ? '1' : '0';
+    row.dataset.originalDone = done ? '1' : '0'; // 原始勾选状态，用于保存时对比
+  }
   row.innerHTML = `
+    <input type="checkbox" class="todo-child-done" ${done ? 'checked' : ''}>
     <input type="text" class="todo-child-row" value="${esc(text || '')}" placeholder="子项内容" style="flex:1;box-sizing:border-box">
     <button class="btn btn-small" onclick="removeTodoChildRow(this)" title="删除">×</button>
   `;
@@ -583,16 +587,29 @@ async function submitTodoModal() {
       body: JSON.stringify({ text, due_date: dueDate })
     });
 
-    // 重新添加剩余子项（用原 lineNo 顺序，重新写入文本）
+    // 重新添加剩余子项（用原 lineNo 顺序，重新写入文本并同步勾选状态）
     for (const ln of existingLineNos) {
       const row = childRows.find(r => r.dataset.lineNo == ln);
       if (row) {
         const newText = row.querySelector('.todo-child-row').value.trim();
-        await fetch('/api/todo/' + ln + '/edit', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: newText })
-        });
+        const currentDone = row.querySelector('.todo-child-done').checked;
+        const originalDone = row.dataset.originalDone === '1';
+        // 同步勾选状态
+        if (currentDone !== originalDone) {
+          await fetch('/api/todo/' + ln, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ done: currentDone })
+          });
+        }
+        // 更新文本（仅当文本有变化时）
+        if (newText) {
+          await fetch('/api/todo/' + ln + '/edit', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: newText })
+          });
+        }
       }
     }
 
@@ -721,10 +738,11 @@ function findTodoItem(lineNo) {
 
 
 // ===== Todo 过滤 & 排序 =====
-let _todoFilter = { showDone: false };
+let _todoFilter = { showDone: localStorage.getItem('todoShowDone') === 'true' };
 
 function showTodoFilterMenu() {
     _todoFilter.showDone = !_todoFilter.showDone;
+    localStorage.setItem('todoShowDone', _todoFilter.showDone);
     loadTodo();
 }
 

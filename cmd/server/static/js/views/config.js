@@ -514,18 +514,29 @@ function renderSkillCard(s) {
   const examples = (s.examples || []).map(ex =>
     '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">• ' + esc(ex.description) + ' <code style="background:var(--bg);padding:1px 4px;border-radius:3px;font-size:11px">' + esc(JSON.stringify(ex.params || {})) + '</code></div>'
   ).join('');
-  const params = Object.entries(s.params || {}).map(([k, v]) =>
-    '<span style="font-size:12px;margin-right:12px"><code style="background:var(--bg);padding:1px 4px;border-radius:3px">' + esc(k) + '</code>: ' + esc(v) + '</span>'
-  ).join('');
+  const params = Object.entries(s.params || {}).map(([k, v]) => {
+    let displayVal = esc(v);
+    let displayKey = esc(k);
+    // urgency 显示为中文下拉说明
+    if (k === 'urgency') {
+      displayKey = '紧急程度';
+      displayVal = 'low=低 / normal=普通 / critical=紧急';
+    } else if (k === 'title') {
+      displayKey = '标题';
+    } else if (k === 'body') {
+      displayKey = '内容';
+    }
+    return '<span style="font-size:12px;margin-right:12px"><code style="background:var(--bg);padding:1px 4px;border-radius:3px">' + displayKey + '</code>: ' + displayVal + '</span>';
+  }).join('');
   const output = Object.entries(s.output || {}).map(([k, v]) =>
     '<span style="font-size:12px;margin-right:12px"><code style="background:var(--bg);padding:1px 4px;border-radius:3px">' + esc(k) + '</code>: ' + esc(v) + '</span>'
   ).join('');
   return `
     <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <div onclick="toggleSkillDetail(this)" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
         <span style="font-weight:600;font-size:14px;color:var(--primary)">${esc(s.name)}</span>
         ${s.version ? '<span style="font-size:11px;color:var(--text-secondary);background:var(--bg);padding:1px 6px;border-radius:10px">v' + esc(s.version) + '</span>' : ''}
-        <button onclick="toggleSkillDetail(this)" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:12px">详情 ▾</button>
+        <span style="margin-left:auto;background:none;border:none;color:var(--text-secondary);font-size:12px" class="skill-toggle-arrow">详情 ▾</span>
       </div>
       <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">${esc(s.description || '')}</div>
       <div class="skill-detail" style="display:none;border-top:1px solid var(--border);padding-top:12px;margin-top:8px">
@@ -549,70 +560,114 @@ function renderSkillCard(s) {
     </div>`;
 }
 
-function toggleSkillDetail(btn) {
-  // 向上两级：按钮 -> display:flex的div -> 卡片div -> skill-detail
-  const flexDiv = btn.closest('div');
-  const card = flexDiv ? flexDiv.parentElement : null;
+function toggleSkillDetail(el) {
+  // el 是 flex 容器 div
+  const card = el.parentElement;
   const detail = card ? card.querySelector('.skill-detail') : null;
+  const arrow = el.querySelector('.skill-toggle-arrow');
   if (!detail) return;
   const isHidden = detail.style.display === 'none' || detail.style.display === '';
   detail.style.display = isHidden ? 'block' : 'none';
-  btn.textContent = isHidden ? '收起 △' : '详情 ▾';
+  if (arrow) arrow.textContent = isHidden ? '收起 △' : '详情 ▾';
 }
 
 function showSkillTest(name, btn) {
   const card = btn.closest('div');
-  const resultSpan = card.querySelector('.skill-test-result');
   const skillData = window._skillCache ? window._skillCache[name] : null;
   const examples = skillData ? skillData.examples : [];
   const defaultParams = examples.length > 0 ? examples[0].params : {};
-  const paramKeys = skillData ? Object.keys(skillData.params || {}) : [];
-
-  if (paramKeys.length === 0) {
-    executeSkillTest(name, {}, resultSpan);
-    return;
-  }
-
-  let formHTML = '<div style="display:flex;flex-direction:column;gap:10px;padding:8px">';
-  paramKeys.forEach(key => {
-    const isRequired = (skillData.params[key] || '').includes('必填');
-    const defaultVal = defaultParams[key] !== undefined ? JSON.stringify(defaultParams[key]) : '';
-    formHTML += `<div style="display:flex;align-items:center;gap:8px">
-      <label style="font-size:13px;min-width:80px">${esc(key)}${isRequired ? ' <span style="color:var(--exception)">*</span>' : ''}</label>
-      <input type="text" id="st-param-${esc(key)}" value="${defaultVal}" placeholder="${esc(skillData.params[key])}"
-        style="flex:1;font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
-    </div>`;
-  });
-  formHTML += '</div>';
 
   const overlay = document.createElement('div');
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   overlay.id = 'skill-test-overlay';
-  overlay.style.cssText = `position:fixed;inset:0;background:${isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.6)'};display:flex;align-items:center;justify-content:center;z-index:1000`;
+  overlay.style.cssText = `position:fixed;inset:0;background:${isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.5)'};display:flex;align-items:center;justify-content:center;z-index:1000`;
   const onEsc = e => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } };
   document.addEventListener('keydown', onEsc);
+
+  const paramKeys = skillData ? Object.keys(skillData.params || {}) : [];
+  const getLabel = (hint) => hint.replace(/.*\[|\].*/g, '').split('|')[0] || '';
+
+  // 通用输入表单
+  let inputsHTML = '';
+  paramKeys.forEach(key => {
+    const hint = skillData.params[key] || '';
+    const isRequired = hint.includes('必填');
+    const label = getLabel(hint) || key;
+    const defaultVal = defaultParams[key] !== undefined ? String(defaultParams[key]).replace(/^"|"$/g, '') : '';
+    const placeholder = hint.replace(/.*：|.*:/, '') || hint || key;
+
+    if (key === 'urgency') {
+      const selected = defaultVal || 'normal';
+      inputsHTML += `
+        <div style="margin-bottom:12px">
+          <label style="font-size:13px;font-weight:500;margin-bottom:6px;display:block">${esc(label)}</label>
+          <div style="display:flex;gap:6px">
+            ${['low', 'normal', 'critical'].map(opt => {
+              const maps = { low: '低', normal: '普通', critical: '紧急' };
+              const isActive = selected === opt;
+              return `<button type="button" class="urgency-opt ${isActive ? 'active' : ''}" data-value="${opt}"
+                style="flex:1;padding:8px 12px;border:1px solid ${isActive ? 'var(--primary)' : 'var(--border)'};border-radius:6px;font-size:13px;cursor:pointer;transition:all 0.2s;background:${isActive ? 'var(--primary)' : 'var(--card)'};color:${isActive ? '#fff' : 'var(--text)'}">
+                ${maps[opt]}
+              </button>`;
+            }).join('')}
+          </div>
+        </div>`;
+    } else {
+      inputsHTML += `
+        <div style="margin-bottom:12px">
+          <label style="font-size:13px;font-weight:500;margin-bottom:6px;display:block">${esc(label)}${isRequired ? ' <span style="color:var(--exception)">*</span>' : ''}</label>
+          <input type="text" id="st-param-${esc(key)}" value="${esc(defaultVal)}" placeholder="${esc(placeholder)}"
+            style="width:100%;padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);box-sizing:border-box">
+        </div>`;
+    }
+  });
+
   overlay.innerHTML = `
-    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:360px;max-width:500px">
-      <h3 style="margin:0 0 4px;font-size:15px">测试 ${esc(name)}</h3>
-      <p style="margin:0 0 12px;font-size:12px;color:var(--text-secondary)">请输入参数值</p>
-      ${formHTML}
+    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;min-width:360px;max-width:90vw">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <h3 style="margin:0;font-size:15px;font-weight:600">测试 ${esc(name)}</h3>
+        <button onclick="document.getElementById('skill-test-overlay').remove()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:18px;padding:0">&times;</button>
+      </div>
+      <div id="skill-form">${inputsHTML}</div>
+      <div id="skill-test-result-area" style="margin-top:12px"></div>
       <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-        <button onclick="document.getElementById('skill-test-overlay').remove()" style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);cursor:pointer;font-size:13px">取消</button>
-        <button onclick="executeSkillTestFromForm('${esc(name)}', this)" style="padding:6px 12px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">▶ 执行</button>
+        <button onclick="document.getElementById('skill-test-overlay').remove()" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font-size:13px">取消</button>
+        <button id="skill-test-execute-btn" onclick="executeSkillTestFromForm('${esc(name)}', this)" style="padding:8px 16px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">▶ 执行</button>
       </div>
     </div>`;
+
   document.body.appendChild(overlay);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  // 绑定 urgency 选项
+  document.querySelectorAll('.urgency-opt').forEach(el => {
+    el.addEventListener('click', function() {
+      document.querySelectorAll('.urgency-opt').forEach(opt => {
+        opt.classList.remove('active');
+        opt.style.background = 'var(--card)';
+        opt.style.color = 'var(--text)';
+        opt.style.borderColor = 'var(--border)';
+      });
+      this.classList.add('active');
+      this.style.background = 'var(--primary)';
+      this.style.color = '#fff';
+      this.style.borderColor = 'var(--primary)';
+    });
+  });
 }
 
 async function executeSkillTestFromForm(name, btn) {
-  const overlay = btn.closest('[style*="position:fixed"]');
   const skillData = window._skillCache ? window._skillCache[name] : null;
   const paramKeys = skillData ? Object.keys(skillData.params || {}) : [];
   const params = {};
   let valid = true;
 
   paramKeys.forEach(key => {
+    if (key === 'urgency') {
+      const activeBtn = document.querySelector('.urgency-opt.active');
+      if (activeBtn) params[key] = activeBtn.dataset.value;
+      return;
+    }
     const input = document.getElementById('st-param-' + key);
     if (!input) return;
     let val = input.value.trim();
@@ -623,18 +678,18 @@ async function executeSkillTestFromForm(name, btn) {
       }
       return;
     }
-    try { val = JSON.parse(val); } catch(e) {}
     params[key] = val;
   });
   if (!valid) return;
 
-  // 找到原始卡片的 resultSpan
-  const card = document.querySelector('.skill-card[data-name="' + name.replace(/"/g, '\\"') + '"]') ||
-    document.querySelector('.cfg-tab-panel[data-tab="skills"] .skill-detail')?.parentElement;
-  const resultSpan = card ? card.querySelector('.skill-test-result') : null;
-
+  const resultArea = document.getElementById('skill-test-result-area');
   btn.disabled = true;
   btn.textContent = '执行中…';
+
+  if (resultArea) {
+    resultArea.innerHTML = '<span style="color:var(--text-secondary)">⏳ 执行中...</span>';
+  }
+
   try {
     const data = await fetchJSON(API + '/api/skills/execute', {
       method: 'POST',
@@ -644,35 +699,31 @@ async function executeSkillTestFromForm(name, btn) {
     const output = data.output || {};
     const status = data.status;
     const rawErr = data.raw_err || '';
+    const isSuccess = status === 'ok';
 
-    let summary = '';
-    if (status === 'ok') {
-      if (output.status === 'sent') {
-        summary = '✓ 通知已发送';
-      } else if (output.status === 'reachable') {
-        summary = '✓ 服务可达 (延迟 ' + (output.latency_ms >= 0 ? output.latency_ms + 'ms' : 'N/A') + ')';
-      } else if (output.status === 'running') {
-        summary = '✓ 进程运行中 PID=' + (output.pid || '?');
-      } else if (output.backup_path) {
-        summary = '✓ 已备份至 ' + output.backup_path.split('/').pop();
-      } else {
-        const keys = Object.keys(output).filter(k => k !== 'status');
-        summary = '✓ ' + keys.slice(0,3).map(k => k + '=' + String(output[k]).slice(0,30)).join(', ');
+    const resultText = isSuccess
+      ? (output.status === 'sent' ? '通知已发送' : output.status === 'reachable' ? '服务可达' : output.status === 'running' ? '进程已启动' : '执行成功')
+      : (output.error || rawErr || '执行失败');
+
+    // 关闭测试表单
+    const formOverlay = document.getElementById('skill-test-overlay');
+    if (formOverlay) formOverlay.remove();
+
+    // 弹出精美通知弹窗
+    showNotifyPopup(name, isSuccess, resultText, rawErr, params);
+
+    // 更新原始卡片的 resultSpan
+    const allCards = document.querySelectorAll('.skill-card');
+    allCards.forEach(c => {
+      const span = c.querySelector('.skill-test-result');
+      if (span) {
+        span.textContent = isSuccess ? '✓ ' + resultText : '✗ ' + resultText;
+        span.style.color = isSuccess ? 'var(--success)' : 'var(--exception)';
       }
-    } else {
-      summary = '✗ ' + (output.error || rawErr || status);
-    }
-
-    if (resultSpan) {
-      resultSpan.textContent = summary.length > 120 ? summary.substring(0, 120) + '…' : summary;
-      resultSpan.style.color = status === 'ok' ? 'var(--success)' : 'var(--exception)';
-      resultSpan.title = summary;
-    }
-    overlay.remove();
+    });
   } catch (e) {
-    if (resultSpan) {
-      resultSpan.textContent = '✗ ' + e.message;
-      resultSpan.style.color = 'var(--exception)';
+    if (resultArea) {
+      resultArea.innerHTML = '<span style="color:var(--exception)">✗ ' + esc(e.message) + '</span>';
     }
   } finally {
     btn.disabled = false;
@@ -680,49 +731,107 @@ async function executeSkillTestFromForm(name, btn) {
   }
 }
 
-async function executeSkillTest(name, params, resultSpan) {
-  if (!resultSpan) return;
-  resultSpan.textContent = '执行中…';
-  resultSpan.style.color = 'var(--text-secondary)';
+// 精美的通知弹窗
+function showNotifyPopup(name, isSuccess, message, detail, params) {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const overlay = document.createElement('div');
+  overlay.id = 'notify-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:' + (isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)') + ';display:flex;align-items:center;justify-content:center;z-index:2000';
+
+  const iconBg = isSuccess ? 'var(--success)' : 'var(--exception)';
+  const iconContent = isSuccess
+    ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+    : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+
+  const paramsText = Object.entries(params).map(function(e) { return e[0] + ': ' + e[1]; }).join('\n');
+
+  overlay.innerHTML = '<div style="background:' + (isDark ? '#1e1e1e' : '#fff') + ';border-radius:16px;padding:0;width:380px;max-width:90vw;box-shadow:0 25px 80px ' + (isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.25)') + ';overflow:hidden">' +
+    '<div style="height:4px;background:' + iconBg + '"></div>' +
+    '<div style="padding:24px">' +
+      '<div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px">' +
+        '<div style="width:48px;height:48px;border-radius:12px;background:' + iconBg + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 12px ' + (isSuccess ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)') + '">' + iconContent + '</div>' +
+        '<div style="flex:1">' +
+          '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">' + (isSuccess ? '执行成功' : '执行失败') + '</div>' +
+          '<div style="font-size:16px;font-weight:600;color:var(--text)">' + esc(name) + '</div>' +
+        '</div>' +
+        '<button onclick="document.getElementById(\'notify-popup-overlay\').remove()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;padding:4px;line-height:1">&times;</button>' +
+      '</div>' +
+      '<div style="background:' + (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)') + ';border-radius:10px;padding:14px;margin-bottom:20px">' +
+        '<div style="font-size:14px;font-weight:500;color:' + (isSuccess ? 'var(--success)' : 'var(--exception)') + ';margin-bottom:6px">' + esc(message) + '</div>' +
+        (detail ? '<div style="font-size:12px;color:var(--text-secondary)">' + esc(detail) + '</div>' : '') +
+      '</div>' +
+      (paramsText ? '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px"><span style="font-weight:500">参数:</span> ' + esc(paramsText.replace(/\n/g, ' | ')) + '</div>' : '') +
+      '<div style="display:flex;gap:10px">' +
+        '<button onclick="copyNotifyResult(\'' + esc(name) + '\', \'' + esc(paramsText) + '\')" style="flex:1;padding:12px 16px;border:1px solid var(--border);border-radius:10px;background:' + (isDark ? 'rgba(255,255,255,0.05)' : '#f5f5f5') + ';color:var(--text);cursor:pointer;font-size:14px;font-weight:500;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:8px">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>' +
+          '复制结果' +
+        '</button>' +
+        '<button onclick="document.getElementById(\'notify-popup-overlay\').remove()" style="flex:1;padding:12px 16px;border:none;border-radius:10px;background:' + iconBg + ';color:#fff;cursor:pointer;font-size:14px;font-weight:500;transition:all 0.2s">确定</button>' +
+      '</div>' +
+    '</div></div>';
+
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+}
+
+// 复制通知结果
+async function copyNotifyResult(name, paramsText) {
+  const text = name + '\n' + paramsText;
+  const btn = event.target.closest('button');
+  const originalHTML = btn.innerHTML;
+
   try {
-    const data = await fetchJSON(API + '/api/skills/execute', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, params }),
-    });
-    const output = data.output || {};
-    const status = data.status;
-    const rawErr = data.raw_err || '';
-
-    // 构建人类可读的结果描述
-    let summary = '';
-    if (status === 'ok') {
-      if (output.status === 'sent') {
-        summary = '✓ 通知已发送';
-      } else if (output.status === 'reachable') {
-        summary = '✓ 服务可达 (延迟 ' + (output.latency_ms >= 0 ? output.latency_ms + 'ms' : 'N/A') + ')';
-      } else if (output.status === 'running') {
-        summary = '✓ 进程运行中 PID=' + (output.pid || '?');
-      } else if (output.raw && typeof output.raw === 'object') {
-        summary = '✓ ' + Object.keys(output.raw).slice(0,3).map(k => k + '=' + JSON.stringify(output.raw[k]).slice(0,20)).join(', ');
-      } else if (output.backup_path) {
-        summary = '✓ 已备份至 ' + output.backup_path.split('/').pop();
-      } else {
-        // fallback: 取前3个非status字段
-        const keys = Object.keys(output).filter(k => k !== 'status');
-        summary = '✓ ' + keys.slice(0,3).map(k => k + '=' + String(output[k]).slice(0,30)).join(', ');
-      }
-    } else {
-      summary = '✗ ' + (output.error || rawErr || status);
-    }
-
-    const text = summary;
-    resultSpan.textContent = text.length > 120 ? text.substring(0, 120) + '…' : text;
-    resultSpan.style.color = status === 'ok' ? 'var(--success)' : 'var(--exception)';
-    resultSpan.title = text;
+    await navigator.clipboard.writeText(text);
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> 已复制!';
+    btn.style.background = 'var(--success)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'var(--success)';
+    setTimeout(function() {
+      btn.innerHTML = originalHTML;
+      btn.style.background = '';
+      btn.style.color = '';
+      btn.style.borderColor = '';
+    }, 1500);
   } catch (e) {
-    resultSpan.textContent = '✗ ' + e.message;
-    resultSpan.style.color = 'var(--exception)';
+    btn.textContent = '复制失败';
+    setTimeout(function() { btn.innerHTML = originalHTML; }, 1500);
+  }
+}
+
+// 复制技能参数到剪贴板
+async function copySkillParams(name) {
+  const skillData = window._skillCache ? window._skillCache[name] : null;
+  if (!skillData) return;
+
+  const paramKeys = skillData ? Object.keys(skillData.params || {}) : [];
+  const lines = [];
+  paramKeys.forEach(key => {
+    const input = document.getElementById('st-param-' + key);
+    if (!input) return;
+    const val = input.value ? input.value.trim() : '(未填写)';
+    lines.push(`${key}: ${val}`);
+  });
+
+  const text = lines.join('\n');
+
+  const copyBtn = document.getElementById('copy-btn');
+  const originalHTML = copyBtn.innerHTML;
+
+  try {
+    await navigator.clipboard.writeText(text);
+    copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> 已复制!';
+    copyBtn.style.background = 'var(--success)';
+    copyBtn.style.color = '#fff';
+    copyBtn.style.borderColor = 'var(--success)';
+    setTimeout(() => {
+      copyBtn.innerHTML = originalHTML;
+      copyBtn.style.background = '';
+      copyBtn.style.color = '';
+      copyBtn.style.borderColor = '';
+    }, 1500);
+  } catch (e) {
+    copyBtn.textContent = '复制失败';
+    setTimeout(() => { copyBtn.innerHTML = originalHTML; }, 1500);
   }
 }
 

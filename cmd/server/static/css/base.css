@@ -197,9 +197,10 @@ body.windows { zoom: 1.15; }
 .widget-sidebar .widget-title {
   font-size: 11px; font-weight: 600; color: var(--text-secondary);
   margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;
-  display: flex; justify-content: space-between; align-items: center; gap: 4px;
+  display: flex; justify-content: space-between; align-items: center; gap: 6px;
 }
-.widget-sidebar .widget-title .btn { font-size: 10px; padding: 1px 5px; text-transform: none; letter-spacing: 0; flex-shrink: 0; }
+.widget-sidebar .widget-title .btn { font-size: 10px; padding: 1px 4px; text-transform: none; letter-spacing: 0; flex-shrink: 0; }
+.widget-sidebar .widget-title > span:first-of-type { display: flex; align-items: center; gap: 4px; }
 
 .main { flex: 1; padding: 28px; overflow-y: auto; }
 .page-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
@@ -503,12 +504,48 @@ tr:last-child td { border-bottom: none; }
 .exp-picker-item.selected { background: rgba(37, 99, 235, 0.08); }
 
 /* ===== 终端 ===== */
-.terminal-wrap { background: #0f172a; border-radius: 8px; overflow: hidden; margin-bottom: 16px; }
+.terminal-wrap { background: #0f172a; border-radius: 8px; clip-path: inset(0 round 8px); margin-bottom: 16px; position: relative; }
 .terminal-wrap:focus-within { outline: 2px solid rgba(34, 211, 238, 0.25); outline-offset: -2px; }
 .terminal-wrap:not(:focus-within) { outline: 1px solid rgba(148, 163, 184, 0.15); }
 /* terminal div 可聚焦 */
-#shell-terminal, #rpty-container { outline: none; cursor: text; }
+#shell-terminal, #rpty-container { outline: none; cursor: text; overflow-x: auto; }
 #shell-terminal:focus-visible, #rpty-container:focus-visible { outline: none; }
+/* 边界指示线（fixed 在视口，不被裁剪）- 显示终端实际列数边界 */
+#rpty-boundary {
+  display: none;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom,
+    rgba(239, 68, 68, 0.9) 0%,
+    rgba(239, 68, 68, 0.5) 20%,
+    rgba(239, 68, 68, 0.3) 50%,
+    rgba(239, 68, 68, 0.5) 80%,
+    rgba(239, 68, 68, 0.9) 100%);
+  pointer-events: none;
+  z-index: 9999;
+  /* 发光效果 */
+  box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.4);
+}
+#rpty-boundary.visible {
+  display: block;
+}
+/* 边界线顶端标签 */
+#rpty-boundary::before {
+  content: attr(data-cols) '列';
+  position: absolute;
+  top: 8px;
+  left: 6px;
+  background: rgba(239, 68, 68, 0.9);
+  color: #fff;
+  font-size: 10px;
+  font-family: monospace;
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
 .terminal-header { background: #1e293b; padding: 8px 12px; display: flex; align-items: center; gap: 8px; }
 .terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
 .terminal-dot.red { background: #ef4444; }
@@ -552,6 +589,7 @@ tr:last-child td { border-bottom: none; }
 
 .todo-list { }
 .todo-item { display: flex; align-items: center; gap: 4px; padding: 3px 4px; font-size: 12px; position: relative; flex-wrap: wrap; }
+.todo-item.has-children { cursor: pointer; }
 .todo-item input { cursor: pointer; flex-shrink: 0; }
 .todo-item .todo-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .todo-item.done .todo-text { text-decoration: line-through; color: var(--text-secondary); }

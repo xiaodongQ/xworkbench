@@ -110,11 +110,13 @@
 
     <div class="widget" id="widget-todo">
       <div class="widget-title">
-        <span>☑️ 待办</span>
+        <span id="todo-title-group" style="display:flex;align-items:center;gap:4px">
+          <button id="todo-expand-btn" class="btn btn-small" onclick="toggleTodoExpandAll()" title="展开所有子项" style="font-size:14px;padding:1px 4px;color:var(--primary)">▶</button>
+          <span>☑️ 待办</span>
+        </span>
         <span>
           <button class="btn btn-small" onclick="showTodoAddModal()">+ 添加</button>
           <button class="btn btn-small" onclick="showTodoPathModal()">设置</button>
-          <button id="todo-expand-btn" class="btn btn-small" onclick="toggleTodoExpandAll()" title="展开所有子项">全部展开</button>
           <button id="todo-filter-btn" class="btn btn-small" onclick="showTodoFilterMenu()" title="点击切换到: 仅未完成">☐</button>
         </span>
       </div>
@@ -516,12 +518,13 @@
     </div>
 
     <!-- 终端区 -->
-    <div class="terminal-wrap">
+    <div class="terminal-wrap rpty-mode">
       <div class="terminal-header">
         <div class="terminal-dot red"></div>
         <div class="terminal-dot yellow"></div>
         <div class="terminal-dot green"></div>
         <div class="terminal-title">xworkbench · 远程终端</div>
+        <div id="rpty-cols-display" style="margin-left:auto;font-size:11px;color:#94a3b8;font-family:monospace"></div>
       </div>
       <div id="rpty-container" tabindex="0" style="height:calc(100vh - 180px);min-height:350px;width:100%"></div>
     </div>
