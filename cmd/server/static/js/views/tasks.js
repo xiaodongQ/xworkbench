@@ -932,7 +932,7 @@ async function updateAILoopBlockVisibility() {
   if (!block) return;
   try {
     const status = await fetchJSON(API + '/api/ai-loop/status');
-    if (status.ai_loop_enabled) {
+    if (status.enabled) {
       block.classList.remove('hidden');
     } else {
       block.classList.add('hidden');
