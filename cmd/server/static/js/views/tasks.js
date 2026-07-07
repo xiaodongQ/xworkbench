@@ -292,6 +292,14 @@ function showRunTaskModal(task) {
   // AI 自治区块：根据 ai_loop_enabled 决定显示/隐藏
   updateAILoopBlockVisibility();
 
+  // Run Loop prompt 预填：复用 task description + acceptance
+  const loopPromptEl = document.getElementById('run-loop-prompt');
+  if (loopPromptEl) {
+    const desc = task.description || '';
+    const acc = task.acceptance || '';
+    loopPromptEl.value = desc + (acc ? '\n\n验收标准：\n' + acc : '');
+  }
+
   // goal_mode 回显（从 task 读取，支持本次勾选/取消）
   document.getElementById('run-task-goal-mode').checked = task.goal_mode || false;
 
