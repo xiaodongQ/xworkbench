@@ -501,15 +501,10 @@ async function loadSkills() {
     window._skillCache = {};
     skills.forEach(s => { window._skillCache[s.name] = s; });
     if (skills.length === 0) {
-      container.innerHTML = '<div style="display:flex;flex-direction:column;gap:12px;align-items:flex-start">' +
-        '<div style="color:var(--text-secondary);font-size:13px">暂无可用的工具技能</div>' +
-        '<button onclick="showCreateSkill()" style="background:var(--primary);color:#fff;border:none;cursor:pointer;padding:8px 16px;border-radius:6px;font-size:13px">+ 新建工具</button>' +
-        '</div>';
+      container.innerHTML = '<div style="color:var(--text-secondary);font-size:13px">暂无可用的工具技能</div>';
       return;
     }
-    container.innerHTML = '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">' +
-      '<button onclick="showCreateSkill()" style="background:var(--primary);color:#fff;border:none;cursor:pointer;padding:8px 16px;border-radius:6px;font-size:13px">+ 新建工具</button>' +
-      '</div>' + skills.map(s => renderSkillCard(s)).join('');
+    container.innerHTML = skills.map(s => renderSkillCard(s)).join('');
   } catch (e) {
     container.innerHTML = '<div style="color:var(--exception);font-size:13px">加载失败：' + esc(e.message) + '</div>';
   }

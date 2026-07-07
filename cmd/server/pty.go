@@ -316,24 +316,25 @@ type wsReader struct {
 }
 
 func (r *wsReader) Read(p []byte) (int, error) {
-	msgType, data, err := r.conn.ReadMessage()
-	if err != nil {
-		return 0, err
-	}
-	if msgType == websocket.TextMessage && strings.HasPrefix(string(data), "resize,") {
-		parts := strings.Split(string(data), ",")
-		if len(parts) == 3 {
-			var ws pty.Winsize
-			ws.Cols = uint16(parseInt(parts[1], 80))
-			ws.Rows = uint16(parseInt(parts[2], 24))
-			pty.Setsize(r.ptmx, &ws)
+	for {
+		msgType, data, err := r.conn.ReadMessage()
+		if err != nil {
+			return 0, err
 		}
-		return 0, nil
+		if msgType == websocket.TextMessage && strings.HasPrefix(string(data), "resize,") {
+			parts := strings.Split(string(data), ",")
+			if len(parts) == 3 {
+				var ws pty.Winsize
+				ws.Cols = uint16(parseInt(parts[1], 80))
+				ws.Rows = uint16(parseInt(parts[2], 24))
+				pty.Setsize(r.ptmx, &ws)
+			}
+			continue // 丢弃，继续读下一条消息（不能返回 0,nil 否则 io.Copy 死循环）
+		}
+		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+			return copy(p, data), nil
+		}
 	}
-	if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
-		return copy(p, data), nil
-	}
-	return 0, nil
 }
 
 func getContextDir() string {

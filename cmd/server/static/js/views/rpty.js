@@ -189,7 +189,15 @@ async function connectRPTY(tabID, dirID) {
 
   rptyWs.onopen = () => {
     rptyReady = true;
-    if (rptyTerm) rptyTerm.writeln('\x1b[32m[xworkbench] 连接就绪\x1b[0m\r\n');
+    if (rptyTerm) {
+      rptyTerm.writeln('\x1b[32m[xworkbench] 连接就绪\x1b[0m\r\n');
+      // WS 打开后，用 fit 后的尺寸通知后端（延迟一点确保 SSH 准备好）
+      setTimeout(() => {
+        if (rptyWs && rptyWs.readyState === WebSocket.OPEN) {
+          rptyWs.send('resize,' + rptyTerm.cols + ',' + rptyTerm.rows);
+        }
+      }, 100);
+    }
     updateRptyStatus('connected');
   };
 
@@ -283,6 +291,7 @@ function initRptyTab() {
 
   requestAnimationFrame(() => {
     if (rptyTerm) return;
+    const fitAddon = new FitAddon.FitAddon();
     rptyTerm = new Terminal({
       fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace",
       fontSize: 13,
@@ -290,7 +299,18 @@ function initRptyTab() {
       cursorBlink: true,
       scrollback: 10000,
     });
+    rptyTerm.loadAddon(fitAddon);
     rptyTerm.open(container);
+    fitAddon.fit();
+
+    // ResizeObserver 监听容器变化，动态 fit 并通知后端
+    const resizeObserver = new ResizeObserver(() => {
+      fitAddon.fit();
+      if (rptyWs && rptyWs.readyState === WebSocket.OPEN) {
+        rptyWs.send('resize,' + rptyTerm.cols + ',' + rptyTerm.rows);
+      }
+    });
+    resizeObserver.observe(container);
 
     rptyTerm.writeln('\x1b[36m[xworkbench] 远程终端\x1b[0m 请选择目录后点击"连接"\r\n');
     rptyTerm.writeln('\x1b[2m提示：在侧边栏选择一个远程目录（🌐），点击终端图标选择"Web 内嵌终端"\x1b[0m\r\n');

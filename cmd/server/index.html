@@ -6,6 +6,7 @@
 <title>个人工作台 · Workbench</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="/static/js/addon-fit.js"></script>
 <link rel="stylesheet" href="/static/css/base.css">
 <script src="/static/js/ws-client.js"></script>
 <script>
@@ -113,7 +114,7 @@
         <span>
           <button class="btn btn-small" onclick="showTodoAddModal()">+ 添加</button>
           <button class="btn btn-small" onclick="showTodoPathModal()">设置</button>
-          <button id="todo-filter-btn" class="btn btn-small" onclick="showTodoFilterMenu()" title="过滤">🔍</button>
+          <button id="todo-filter-btn" class="btn btn-small" onclick="showTodoFilterMenu()" title="点击切换过滤模式：仅未完成 → 仅过期 → 全部">○ 仅未完成</button>
         </span>
       </div>
       <div id="todo-container" style="overflow-y:auto;flex:1;min-height:0">
@@ -521,7 +522,7 @@
         <div class="terminal-dot green"></div>
         <div class="terminal-title">xworkbench · 远程终端</div>
       </div>
-      <div id="rpty-container" tabindex="0" style="height:calc(100vh - 180px);min-height:350px"></div>
+      <div id="rpty-container" tabindex="0" style="height:calc(100vh - 180px);min-height:350px;width:100%"></div>
     </div>
   </div>
 
@@ -952,14 +953,6 @@
     <div class="form-group">
       <label>截止日期</label>
       <input id="todo-add-due" type="date" style="width:100%;box-sizing:border-box">
-    </div>
-    <div class="form-group">
-      <label>标签 <span class="field-hint">(逗号分隔)</span></label>
-      <input id="todo-add-tags" placeholder="personal,shopping" style="width:100%;box-sizing:border-box">
-    </div>
-    <div class="form-group">
-      <label>备注</label>
-      <textarea id="todo-add-note" placeholder="详细描述..." rows="3" style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTodoAddModal()">取消</button>

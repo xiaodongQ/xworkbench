@@ -281,6 +281,14 @@
       const onMove = ev => {
         const h = Math.max(120, Math.min(window.innerHeight - 200, startH + (startY - ev.clientY)));
         region.style.height = h + 'px';
+        // 抽屉高度变化时同步 fit（shell-terminal 容器宽高随之变化）
+        const termContainer = document.getElementById('shell-terminal');
+        if (termContainer?._fitAddon) {
+          termContainer._fitAddon.fit();
+          if (ptyWs && ptyWs.readyState === 1) {
+            ptyWs.send('resize,' + term.cols + ',' + term.rows);
+          }
+        }
       };
       const onUp = () => {
         document.removeEventListener('mousemove', onMove);
@@ -578,6 +586,7 @@
     if (!termContainer) return;
 
     requestAnimationFrame(() => {
+      const fitAddon = new FitAddon.FitAddon();
       term = new Terminal({
         fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace",
         fontSize: 13,
@@ -585,7 +594,10 @@
         cursorBlink: true,
         scrollback: 10000,
       });
+      term.loadAddon(fitAddon);
       term.open(termContainer);
+      termContainer._fitAddon = fitAddon; // 供抽屉拖动时引用
+      fitAddon.fit();
 
       const sessId = getLastId() || ('sess_' + Date.now());
       const wsUrl = 'ws://' + window.location.host + '/api/pty?session_id=' + encodeURIComponent(sessId);
@@ -597,6 +609,8 @@
         termReady = true;
         term.writeln('\x1b[32m[xworkbench] 网页终端已连接\x1b[0m\r\n');
         if (typeof loadCliSetting === 'function') loadCliSetting();
+        // 连接建立后立即发送正确尺寸给后端
+        ptyWs.send('resize,' + term.cols + ',' + term.rows);
       };
       ptyWs.onmessage = (e) => {
         if (!termReady) return;
@@ -629,6 +643,15 @@
           ptyWs.send('resize,' + term.cols + ',' + term.rows);
         }
       });
+
+      // ResizeObserver 监听容器变化，动态 fit 并通知后端
+      const resizeObserver = new ResizeObserver(() => {
+        fitAddon.fit();
+        if (ptyWs && ptyWs.readyState === 1) {
+          ptyWs.send('resize,' + term.cols + ',' + term.rows);
+        }
+      });
+      resizeObserver.observe(termContainer);
     });
   }
 

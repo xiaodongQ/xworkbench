@@ -247,7 +247,7 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 	}
-	if err := session.RequestPty("xterm-256color", 80, 40, modes); err != nil {
+	if err := session.RequestPty("xterm-256color", 120, 40, modes); err != nil {
 		session.Close()
 		client.Close()
 		logger.Errorf("rpty: request pty error: %v", err)
@@ -389,24 +389,25 @@ type rptyWsReader struct {
 }
 
 func (r *rptyWsReader) Read(p []byte) (int, error) {
-	msgType, data, err := r.conn.ReadMessage()
-	if err != nil {
-		return 0, err
-	}
-	// 拦截 resize 消息："resize,<cols>,<rows>"
-	if msgType == websocket.TextMessage && strings.HasPrefix(string(data), "resize,") {
-		parts := strings.Split(string(data), ",")
-		if len(parts) == 3 {
-			cols := parseInt(parts[1], 80)
-			rows := parseInt(parts[2], 24)
-			_ = r.session.WindowChange(cols, rows)
+	for {
+		msgType, data, err := r.conn.ReadMessage()
+		if err != nil {
+			return 0, err
 		}
-		return 0, nil
+		// 拦截 resize 消息："resize,<cols>,<rows>"
+		if msgType == websocket.TextMessage && strings.HasPrefix(string(data), "resize,") {
+			parts := strings.Split(string(data), ",")
+			if len(parts) == 3 {
+				cols := parseInt(parts[1], 80)
+				rows := parseInt(parts[2], 24)
+				_ = r.session.WindowChange(cols, rows)
+			}
+			continue // 丢弃，继续读下一条消息（不能返回 0,nil 否则 io.Copy 死循环）
+		}
+		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+			return copy(p, data), nil
+		}
 	}
-	if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
-		return copy(p, data), nil
-	}
-	return 0, nil
 }
 
 // handleRptyInput 处理 POST /api/rpty/{tab_id}/submit-input
