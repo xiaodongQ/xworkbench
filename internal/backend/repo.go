@@ -151,6 +151,7 @@ func InitSchema(db *sql.DB) error {
 		last_status TEXT,
 		last_execution_id TEXT,
 		last_session_id TEXT,
+			resume_count INTEGER DEFAULT 0,
 		created_at DATETIME
 	);
 	-- 注:app_settings 表于 2026-06 重构移除,所有 KV 偏好已迁至 config.json 顶层字段
@@ -416,6 +417,7 @@ func migrateScheduledTasksColumns(db *sql.DB) error {
 	add := []struct{ n, d string }{
 		{"timeout_sec", "timeout_sec INTEGER DEFAULT 0"},
 		{"last_session_id", "last_session_id TEXT"},
+		{"resume_count", "resume_count INTEGER DEFAULT 0"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
@@ -2017,6 +2019,17 @@ func (r *ScheduledTaskRepo) UpdateAfterRun(id, status, executionID string) error
 		return err
 	}
 	logger.Logger.Infow("scheduled_tasks updated", "id", id)
+	return nil
+}
+
+// UpdateSessionInfo 更新任务的 session 信息（跨执行续用）
+func (r *ScheduledTaskRepo) UpdateSessionInfo(id, sessionID string, resumeCount int) error {
+	_, err := r.db.Exec(`UPDATE scheduled_tasks SET last_session_id=?, resume_count=? WHERE id=?`,
+		sessionID, resumeCount, id)
+	if err != nil {
+		logger.Logger.Errorw("scheduled_tasks session update failed", "id", id, "error", err.Error())
+		return err
+	}
 	return nil
 }
 

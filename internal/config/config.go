@@ -141,6 +141,14 @@ type Config struct {
 
 	// AI Chat 配置（模型 API + 函数调用）
 	AIChat AIChatConfig `json:"ai_chat"`
+
+	// Scheduler 调度器配置
+	Scheduler SchedulerConfig `json:"scheduler"`
+}
+
+// SchedulerConfig 调度器相关配置
+type SchedulerConfig struct {
+	MaxResumeCount int `json:"max_resume_count"` // AI 任务最大连续 resume 次数，默认 20 次后重置会话
 }
 
 // SupportedCLIs 允许的 CLI 名（不区分大小写）
@@ -545,6 +553,9 @@ func DefaultConfig() *Config {
 		PreferredCLI:     "claude",
 		AichatDefaultCLI: "claude",
 		DangerouslySkipPermissions: false,
+		Scheduler: SchedulerConfig{
+			MaxResumeCount: 20,
+		},
 		Terminal: TerminalConfig{
 			DetectPaths: map[string][]string{
 				"wezterm": {"/Applications/WezTerm.app/Contents/MacOS/WezTerm"},

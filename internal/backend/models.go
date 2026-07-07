@@ -204,6 +204,7 @@ type ScheduledTask struct {
 	LastStatus      string     `json:"last_status,omitempty"`
 	LastExecutionID string    `json:"last_execution_id,omitempty"`
 	LastSessionID   string    `json:"last_session_id,omitempty"` // 跨执行续用 session_id
+	ResumeCount     int       `json:"resume_count"`              // 当前连续 resume 次数，达到 MaxResumeCount 后重置会话
 	CreatedAt       time.Time `json:"created_at"`
 }
 

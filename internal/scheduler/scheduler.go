@@ -208,20 +208,40 @@ func (s *Scheduler) execute(t *backend.ScheduledTask) {
 func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 	// 是否完全放开 CLI 权限（根据配置开关注定，默认关闭）
 	skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
+
+	// 是否为 AI 任务（claude/cbc），只有 AI 任务才支持 resume session
+	isAI := t.CommandType == "claude" || t.CommandType == "cbc"
+
+	// 获取 MaxResumeCount 配置
+	maxResume := 20
+	if cfg := config.Snapshot(); cfg != nil && cfg.Scheduler.MaxResumeCount > 0 {
+		maxResume = cfg.Scheduler.MaxResumeCount
+	}
+
+	// 决定是否使用 resume session
+	// - AI 任务：ResumeCount < MaxResumeCount 时使用 resume
+	// - 非 AI 任务（shell）：不使用 resume
+	var sessionID string
+	if isAI && t.LastSessionID != "" && t.ResumeCount < maxResume {
+		sessionID = t.LastSessionID
+	}
+
 	var (
 		cmd     []string
 		stdin   string
 		cleanup func()
 		err     error
 	)
+
+	// 根据权限和 session 配置构建命令
 	if skip {
-		cmd, stdin, cleanup, err = runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
+		cmd, stdin, cleanup, err = runner.BuildCommand(t.CommandType, t.Model, sessionID, t.Prompt,
 			runner.WithStdin(),
 			runner.WithActionReport(),
 			runner.WithSkipPermissions(),
 		)
 	} else {
-		cmd, stdin, cleanup, err = runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
+		cmd, stdin, cleanup, err = runner.BuildCommand(t.CommandType, t.Model, sessionID, t.Prompt,
 			runner.WithStdin(),
 			runner.WithActionReport(),
 			runner.WithAllowedTools("Bash", "Write", "Edit", "Read", "Grep"),
@@ -295,6 +315,15 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 	// 解析 claude/cbc -p --output-format json 输出中的 session_id/sessionId（用于 --resume 继续对话）
 	resumeSessionID := extractSessionID(out)
 	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
+
+	// 更新任务的 session 信息：成功后更新 session_id 和 resume_count
+	// 失败时也继续（不重置 resume_count），让下次执行还有机会继续
+	newResumeCount := t.ResumeCount
+	if resumeSessionID != "" {
+		newResumeCount = t.ResumeCount + 1
+		_ = s.repo.UpdateSessionInfo(t.ID, resumeSessionID, newResumeCount)
+	}
+
 	_ = s.repo.UpdateAfterRun(t.ID, status, exec.ID)
 	// 刷新 nextRun map:trigger 后 cron library 的 Schedule.Next 已推进到下一次触发时间,
 	// 写回 s.nextRun 让 NextRunAt 返回新值(否则前端 loadScheduled 拿到的 next_run_at

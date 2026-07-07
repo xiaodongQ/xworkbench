@@ -241,13 +241,32 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 请求 PTY
+	// 等待前端的第一条 resize 消息，获取正确的 PTY 尺寸
+	// 这确保 bash 启动时就获得正确的 COLUMNS/LINES
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, data, err := conn.ReadMessage()
+	conn.SetReadDeadline(time.Time{}) // 清除超时
+	if err != nil || !strings.HasPrefix(string(data), "resize,") {
+		// 没有收到 resize 或超时，使用默认值
+		logger.Warnf("rpty: no resize received, using defaults tab_id=%q", tabID)
+	}
+	var cols, rows int = 120, 40
+	if strings.HasPrefix(string(data), "resize,") {
+		parts := strings.Split(string(data), ",")
+		if len(parts) == 3 {
+			cols = parseInt(parts[1], 80)
+			rows = parseInt(parts[2], 24)
+		}
+	}
+	logger.Infof("rpty: using PTY size %dx%d tab_id=%q", cols, rows, tabID)
+
+	// 请求 PTY（使用前端指定的尺寸）
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          1, // 保留服务器 echo，但 xterm.js 也做本地 echo，双写可通过前端去重解决
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 	}
-	if err := session.RequestPty("xterm-256color", 120, 40, modes); err != nil {
+	if err := session.RequestPty("xterm-256color", cols, rows, modes); err != nil {
 		session.Close()
 		client.Close()
 		logger.Errorf("rpty: request pty error: %v", err)
@@ -288,14 +307,15 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 	RegisterRPTY(tabID, sess)
 
 	// 构建 cd 到 remote_path 的启动命令
+	// 显式设置 COLUMNS/LINES 环境变量，确保 bash 使用正确的终端宽度
 	// 使用 $SHELL 或 fallback 到 bash，避免 exec 失败导致连接断开
-	shellCmd := `SHELL=${SHELL:-/bin/bash} && exec ${SHELL} -l`
+	shellCmd := fmt.Sprintf(`COLUMNS=%d LINES=%d SHELL=${SHELL:-/bin/bash} && exec ${SHELL} -l`, cols, rows)
 	if dir.RemotePath != "" {
 		// 先 cd 到目录，失败时仍保持 shell 存活（用 || true 防止 cd 失败导致 shell 退出）
-		shellCmd = fmt.Sprintf(`SHELL=${SHELL:-/bin/bash} && cd "%s" 2>/dev/null || true && exec ${SHELL} -l`, dir.RemotePath)
+		shellCmd = fmt.Sprintf(`COLUMNS=%d LINES=%d SHELL=${SHELL:-/bin/bash} && cd "%s" 2>/dev/null || true && exec ${SHELL} -l`, cols, rows, dir.RemotePath)
 	}
 	if dir.TerminalCmd != "" {
-		shellCmd = fmt.Sprintf(`SHELL=${SHELL:-/bin/bash} && cd "%s" 2>/dev/null || true && %s && exec ${SHELL} -l`, dir.RemotePath, dir.TerminalCmd)
+		shellCmd = fmt.Sprintf(`COLUMNS=%d LINES=%d SHELL=${SHELL:-/bin/bash} && cd "%s" 2>/dev/null || true && %s && exec ${SHELL} -l`, cols, rows, dir.RemotePath, dir.TerminalCmd)
 	}
 
 	if err := session.Start(shellCmd); err != nil {
