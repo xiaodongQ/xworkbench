@@ -70,18 +70,6 @@ func TestHandleTaskReevaluate_NotFound(t *testing.T) {
 	}
 }
 
-func TestHandleTaskLearn_NotFound(t *testing.T) {
-	s := newEvalTestServer(t)
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/tasks/{id}/learn", s.handleTaskLearn)
-	req := httptest.NewRequest("POST", "/api/tasks/nonexistent/learn", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Errorf("learn notfound = %d, want 404", w.Code)
-	}
-}
-
 func TestHandleTaskRunLoop_NotFound(t *testing.T) {
 	s := newEvalTestServer(t)
 	mux := http.NewServeMux()
@@ -109,42 +97,6 @@ func TestHandleTaskRunLoop_InvalidJSON(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("run-loop bad json = %d, want 400", w.Code)
-	}
-}
-
-func TestHandleTaskLearn_Success(t *testing.T) {
-	s := newEvalTestServer(t)
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/tasks/{id}/learn", s.handleTaskLearn)
-	mux.HandleFunc("GET /api/experiences", s.handleExperiences)
-
-	task := &backend.Task{
-		ID:          "learn-task-1",
-		Title:       "学习测试任务",
-		Description: "测试 self-learning",
-		Status:      backend.TaskStatusArchived,
-	}
-	if err := s.db.Create(task); err != nil {
-		t.Fatalf("create task: %v", err)
-	}
-	exec := &backend.Execution{
-		ID:        "learn-exec-1",
-		TaskID:    "learn-task-1",
-		Source:    "manual",
-		Command:   "echo hello",
-		Output:    "hello\nworld",
-		ExitCode:  0,
-		StartedAt: time.Now(),
-	}
-	if err := s.execDB.Create(exec); err != nil {
-		t.Fatalf("create execution: %v", err)
-	}
-
-	req := httptest.NewRequest("POST", "/api/tasks/learn-task-1/learn", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("learn status = %d, want 200, body=%s", w.Code, w.Body.String())
 	}
 }
 

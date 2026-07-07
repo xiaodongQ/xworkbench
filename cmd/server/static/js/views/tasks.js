@@ -1155,29 +1155,6 @@ async function reevaluateTask() {
   }
 }
 
-async function learnFromTask() {
-  const id = _currentTaskId();
-  if (!id) return;
-  const btn = document.getElementById('run-btn-learn');
-  if (btn) btn.disabled = true;
-  if (!confirm('从该 task 的执行记录生成经验写入 experiences 表？')) {
-    if (btn) btn.disabled = false;
-    return;
-  }
-  const progWrap = document.getElementById('run-ai-loop-progress');
-  const textEl = document.getElementById('run-ai-loop-status-text');
-  if (progWrap) progWrap.classList.remove('hidden');
-  if (textEl) textEl.textContent = '📚 正在分析执行记录生成经验...';
-  try {
-    const result = await fetchJSON('/api/tasks/' + id + '/learn', { method: 'POST' });
-    if (textEl) textEl.textContent = '✓ 经验已生成（exp_id: ' + (result.exp_id || '?') + '）';
-  } catch (e) {
-    if (textEl) textEl.textContent = '❌ ' + e.message;
-    alert('❌ Learn 失败：' + e.message);
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
 
 // ─── 任务详情执行历史 分页状态 ───
 var _taskExecList = [];       // 当前任务所有 executions
@@ -1213,14 +1190,9 @@ async function loadRunTaskExecHistory(taskId) {
 function syncAILoopButtons() {
   const hasExec = _taskExecList.length > 0;
   const revalBtn = document.getElementById('btn-reevaluate');
-  const learnBtn = document.getElementById('btn-learn');
   if (revalBtn) {
     revalBtn.disabled = !hasExec;
     revalBtn.title = hasExec ? '重新评估最新执行结果' : '需要先运行一次任务';
-  }
-  if (learnBtn) {
-    learnBtn.disabled = !hasExec;
-    learnBtn.title = hasExec ? '从执行记录生成经验写入知识库' : '需要先运行一次任务';
   }
 }
 
@@ -1295,16 +1267,9 @@ function renderRunTaskExecHistory() {
 function syncRunTaskAILoopButtons() {
   const hasExec = _taskExecList.length > 0;
   const revalBtn = document.getElementById('run-btn-reevaluate');
-  const learnBtn = document.getElementById('run-btn-learn');
   if (revalBtn) {
     revalBtn.disabled = !hasExec;
     revalBtn.title = hasExec ? '重新评估最新执行结果' : '需要先运行一次任务';
-  }
-  if (learnBtn) {
-    learnBtn.disabled = !hasExec;
-    learnBtn.title = hasExec ? '从执行记录生成经验写入知识库' : '需要先运行一次任务';
-    // 有执行记录时显示 Learn 按钮（ai_loop_enabled 已在 updateAILoopBlockVisibility 中控制区块显示）
-    learnBtn.style.display = hasExec ? '' : 'none';
   }
 }
 

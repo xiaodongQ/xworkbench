@@ -97,23 +97,6 @@ func TestReevaluate_Disabled_Returns403(t *testing.T) {
 	}
 }
 
-// TestLearn_Disabled_Returns403 验证 learn 在开关未启用时返回 403
-func TestLearn_Disabled_Returns403(t *testing.T) {
-	t.Cleanup(config.TestSnapshotAndRestore())
-
-	srv := newTestAPIServer(t)
-	defer srv.cleanup()
-	config.Update(func(c *config.Config) { c.AILoopEnabled = false })
-
-	req := httptest.NewRequest("POST", "/api/tasks/test-id/learn", nil)
-	req.SetPathValue("id", "test-id")
-	rec := httptest.NewRecorder()
-	srv.srv.handleTaskLearn(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("disabled learn code = %d, want 403", rec.Code)
-	}
-}
-
 // testServer 包装：提供 srv + cleanup。
 type testServer struct {
 	srv     *APIServer

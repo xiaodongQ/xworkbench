@@ -947,8 +947,9 @@
   <div class="modal" style="min-width:400px">
     <h2>添加任务</h2>
     <div class="form-group">
-      <label>任务标题 <span class="field-hint">必填</span></label>
-      <input id="todo-add-title" placeholder="任务内容" style="width:100%;box-sizing:border-box">
+      <label>任务内容 <span class="field-hint">可填多项，回车换行</span></label>
+      <div id="todo-add-items" style="display:flex;flex-direction:column;gap:4px"></div>
+      <button class="btn btn-small" onclick="addTodoItemRow()" style="margin-top:4px">+ 添加一项</button>
     </div>
     <div class="form-group">
       <label>截止日期</label>
@@ -1180,7 +1181,6 @@
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-weight:600;font-size:13px">📋 执行历史</span>
-            <button type="button" id="run-btn-learn" class="btn btn-primary btn-small" style="display:none" disabled onclick="learnFromTask()">📚 Learn</button>
           </div>
           <span id="run-task-exec-history-info" style="font-size:11px;color:var(--text-secondary)"></span>
         </div>
@@ -1263,9 +1263,6 @@
             </div>
             <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">
               <span style="color:var(--info)">📊 reevaluate</span> — 重新评估任务最新执行结果
-            </div>
-            <div style="font-size:12px;color:var(--text-secondary)">
-              <span style="color:var(--info)">📚 learn</span> — 从执行记录生成经验，写入经验库
             </div>
           </div>
         </div>
