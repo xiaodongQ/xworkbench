@@ -259,6 +259,34 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) error {
 	return atomicWrite(path, content)
 }
 
+// AddChildAndWrite 在指定父行后追加一个子项（缩进 +2 空格）。
+func AddChildAndWrite(path string, parentLineNo int, text, dueDate string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return fmt.Errorf("text is empty")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	if parentLineNo < 1 || parentLineNo > len(lines) {
+		return fmt.Errorf("parent line_no %d out of range", parentLineNo)
+	}
+	item := &Item{
+		Text:    text,
+		DueDate: dueDate,
+		Indent:  "  ", // 子项固定 +2 空格缩进
+	}
+	newLine := itemToLine(item)
+	// 插入到父行之后
+	before := lines[:parentLineNo]
+	after := lines[parentLineNo:]
+	newLines := append(before, newLine)
+	newLines = append(newLines, after...)
+	return atomicWrite(path, strings.Join(newLines, "\n"))
+}
+
 // DeleteAndWrite 删除指定行号的项（按 1-based line_no）。
 // 直接按行号切除并写回，note 行不会被误删（note 是单独的 `>` 行，不在 item 行号范围内）。
 func DeleteAndWrite(path string, lineNo int) error {

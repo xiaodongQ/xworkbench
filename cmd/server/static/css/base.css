@@ -557,10 +557,28 @@ tr:last-child td { border-bottom: none; }
 .todo-item.done .todo-text { text-decoration: line-through; color: var(--text-secondary); }
 .todo-item .todo-del { color: var(--danger); cursor: pointer; padding: 0 2px; opacity: 0; font-size: 12px; }
 .todo-item:hover .todo-del { opacity: 1; }
+.todo-item .todo-edit { color: var(--text-secondary); cursor: pointer; padding: 0 2px; opacity: 0; font-size: 12px; }
+.todo-item:hover .todo-edit { opacity: 1; }
+.todo-child-count {
+    font-size: 10px;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0 5px;
+    line-height: 14px;
+    flex-shrink: 0;
+    transition: color 0.15s;
+}
+/* 悬停有子项的行时，徽章高亮提示可点击 */
+.todo-item:hover .todo-child-count {
+    color: var(--primary, #3182ce);
+}
+.todo-children {
+    margin-left: 0;
+}
 .todo-note { cursor: pointer; opacity: 0.5; font-size: 11px; }
 .todo-note:hover { opacity: 1; }
-.todo-note-content { padding: 2px 0 2px 20px; color: var(--text-secondary); font-size: 11px; white-space: normal; word-break: break-all; width: 100%; box-sizing: border-box; display: none; }
-.todo-note-content:not(.hidden) { display: block; }
 
 .scheduler-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
 .scheduler-badge.running { background: rgba(16, 185, 129, 0.15); color: var(--archived); }
@@ -979,48 +997,3 @@ tr:last-child td { border-bottom: none; }
   margin-left: 4px;
 }
 
-/* Todo 展开详情面板 */
-.todo-detail-expanded {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 10px;
-    margin: 4px 0 4px 24px;
-}
-.todo-detail-content {
-    font-size: 12px;
-}
-.todo-detail-due {
-    color: var(--text-secondary);
-    margin-bottom: 4px;
-}
-.todo-detail-tags {
-    color: var(--accent-color, #3182ce);
-    margin-bottom: 4px;
-}
-.todo-detail-note {
-    margin: 8px 0;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-}
-.todo-detail-label {
-    color: var(--text-secondary);
-    font-size: 12px;
-    margin-bottom: 4px;
-}
-.todo-detail-note-text {
-    white-space: pre-wrap;
-    line-height: 1.5;
-}
-.todo-detail-children {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-}
-.todo-child-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 0;
-    margin-left: 12px;
-}

@@ -227,6 +227,8 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/todo", s.handleTodoAdd)
 	mux.HandleFunc("PUT /api/todo/{line_no}", s.handleTodoToggle)
 	mux.HandleFunc("DELETE /api/todo/{line_no}", s.handleTodoDelete)
+	mux.HandleFunc("POST /api/todo/{line_no}/children", s.handleTodoAddChild)
+	mux.HandleFunc("PUT /api/todo/{line_no}/edit", s.handleTodoEdit)
 	mux.HandleFunc("GET /api/todo/path", s.handleTodoPath)
 	mux.HandleFunc("PUT /api/todo/path", s.handleTodoPathSet)
 
@@ -2393,6 +2395,87 @@ func (s *APIServer) handleTodoDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"line_no": lineNo, "status": "deleted"})
+}
+
+func (s *APIServer) handleTodoAddChild(w http.ResponseWriter, r *http.Request) {
+	path := todoPath()
+	if path == "" {
+		writeErr(w, http.StatusBadRequest, "todo_md_path not set")
+		return
+	}
+	parentLineNo := parseInt(r.PathValue("line_no"), 0)
+	if parentLineNo <= 0 {
+		writeErr(w, http.StatusBadRequest, "invalid line_no")
+		return
+	}
+	var req struct {
+		Text    string `json:"text"`
+		DueDate string `json:"due_date,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Text == "" {
+		writeErr(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	if err := todo.AddChildAndWrite(path, parentLineNo, req.Text, req.DueDate); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"text": req.Text, "status": "added"})
+}
+
+func (s *APIServer) handleTodoEdit(w http.ResponseWriter, r *http.Request) {
+	path := todoPath()
+	if path == "" {
+		writeErr(w, http.StatusBadRequest, "todo_md_path not set")
+		return
+	}
+	lineNo := parseInt(r.PathValue("line_no"), 0)
+	if lineNo <= 0 {
+		writeErr(w, http.StatusBadRequest, "invalid line_no")
+		return
+	}
+	var req struct {
+		Text    string `json:"text,omitempty"`
+		DueDate string `json:"due_date,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Text == "" {
+		writeErr(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	items, err := todo.ReadAndParse(path)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	flat := todo.Flatten(items)
+	var found bool
+	for i := range flat {
+		if flat[i].LineNo == lineNo {
+			flat[i].Text = req.Text
+			if req.DueDate != "" {
+				flat[i].DueDate = req.DueDate
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeErr(w, http.StatusNotFound, "line not found")
+		return
+	}
+	if err := todo.ToggleAndWrite(path, flat); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"line_no": lineNo, "status": "updated"})
 }
 
 func (s *APIServer) handleTodoPath(w http.ResponseWriter, r *http.Request) {

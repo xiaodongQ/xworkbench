@@ -371,53 +371,112 @@ function deleteDir(id) {
 // ===== 待办（支持增删 + 勾选） =====
 // 渲染单个 todo item（递归处理 children 子项）
 // _depth 是从扁平化过滤排序传入的层级（保留缩进），定义后跳过递归（避免重复渲染）
+// 展开状态：Set of parent lineNo，localStorage 持久化
+let _todoExpandedSet = new Set(JSON.parse(localStorage.getItem('todoExpandedSet') || '[]'));
+function saveTodoExpandedSet() {
+    localStorage.setItem('todoExpandedSet', JSON.stringify([..._todoExpandedSet]));
+}
+
 function renderTodoItem(i, indent) {
-  if (indent === undefined) indent = (i._depth !== undefined ? i._depth : 0);
+  if (indent === undefined) indent = 0;
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = i.due_date && !i.done && i.due_date < today;
-  const dueLabel = i.due_date ? i.due_date.slice(5) : ''; // MM-DD 格式
+  const dueLabel = i.due_date ? i.due_date.slice(5) : '';
+  const hasChildren = i.children && i.children.length;
+  const isExpanded = _todoExpandedSet.has(i.line_no);
 
   let extraHtml = '';
   if (i.due_date) {
     extraHtml += `<span class="todo-due ${isOverdue ? 'overdue' : ''}" title="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
   }
+  if (hasChildren) {
+    extraHtml += `<span class="todo-child-count" title="${i.children.length} 个子项">${i.children.length}</span>`;
+  }
 
-  const paddingLeft = indent * 16 + 'px';
-  let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''}" style="padding-left:${paddingLeft}" onclick="toggleTodoExpand(this, ${i.line_no})">
+  const paddingLeft = indent * 20 + 'px';
+  let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''}" style="padding-left:${paddingLeft}" data-line-no="${i.line_no}">
   <input type="checkbox" ${i.done?'checked':''} onchange="event.stopPropagation(); toggleTodo(${i.line_no}, this.checked)">
-  <span class="todo-text">${esc(i.text)}</span>
+  <span class="todo-text" onclick="toggleTodoItem(${i.line_no})">${esc(i.text)}</span>
   ${extraHtml}
+  <span class="todo-edit" onclick="event.stopPropagation(); openTodoEditModal(${i.line_no})" title="编辑">✎</span>
   <span class="todo-del" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no})" title="删除">×</span>
 </div>`;
 
-  // 递归渲染子项 - 如果 _depth 已设置（扁平化渲染），跳过递归（避免重复）
-  if (i._depth === undefined && i.children && i.children.length) {
-    for (const child of i.children) {
-      html += renderTodoItem(child, indent + 1);
-    }
+  // 子项内联展开
+  if (hasChildren) {
+    html += `<div class="todo-children" ${isExpanded ? '' : 'style="display:none"'}>
+      ${i.children.map(c => renderTodoItem(c, indent + 1)).join('')}
+    </div>`;
   }
   return html;
+}
+
+// 点击父任务文字，展开/收起子项；无子项则打开编辑弹框
+function toggleTodoItem(lineNo) {
+    const itemEl = document.querySelector('.todo-item[data-line-no="' + lineNo + '"]');
+    if (!itemEl) return;
+    const childrenEl = itemEl.nextElementSibling;
+    if (!childrenEl || !childrenEl.classList.contains('todo-children')) {
+        openTodoEditModal(lineNo);
+        return;
+    }
+    const isExpanded = childrenEl.style.display !== 'none';
+    if (isExpanded) {
+        childrenEl.style.display = 'none';
+        _todoExpandedSet.delete(lineNo);
+    } else {
+        childrenEl.style.display = '';
+        _todoExpandedSet.add(lineNo);
+    }
+    saveTodoExpandedSet();
+}
+
+// 标题栏：展开/收起所有
+function toggleTodoExpandAll() {
+    const anyExpanded = [...document.querySelectorAll('.todo-children')].some(el => el.style.display !== 'none');
+    document.querySelectorAll('.todo-children').forEach(el => {
+        el.style.display = anyExpanded ? 'none' : '';
+    });
+    const btn = document.getElementById('todo-expand-btn');
+    if (anyExpanded) {
+        // 之前是展开的 → 现在收起
+        _todoExpandedSet.clear();
+        if (btn) { btn.textContent = '全部展开'; btn.title = '展开所有子项'; }
+    } else {
+        // 之前是收起的 → 现在展开
+        document.querySelectorAll('.todo-item[data-line-no]').forEach(el => {
+            const lineNo = parseInt(el.dataset.lineNo);
+            if (!isNaN(lineNo)) _todoExpandedSet.add(lineNo);
+        });
+        if (btn) { btn.textContent = '全部收起'; btn.title = '收起所有子项'; }
+    }
+    saveTodoExpandedSet();
 }
 
 async function loadTodo() {
   const data = await fetchJSON('/api/todo');
   const el = document.getElementById('todo-list');
   if (!data.path) { el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">未配置 todo.md 路径，点击"设置"</div>'; return; }
-  // 应用过滤 + 排序（基于 _todoFilter 状态）
   const items = sortAndFilterItems(data.items || []);
-  // 保存数据供展开详情用
   window._todoItems = items;
-  // 更新过滤按钮文字（显示当前模式：🔍全部 / 🔍仅未 / 🔍过期）
   const filterBtn = document.getElementById('todo-filter-btn');
   if (filterBtn) {
-    const label = getTodoFilterLabel();
-    const icon = label === '全部' ? '🔍' : (label === '仅过期' ? '⏰' : '○');
-    filterBtn.textContent = icon + ' ' + label;
-    filterBtn.title = '点击切换过滤模式：仅未完成 → 仅过期 → 全部';
+    filterBtn.textContent = _todoFilter.showDone ? '◉' : '☐';
+    filterBtn.title = '点击切换到: ' + (_todoFilter.showDone ? '仅未完成' : '显示全部');
+  }
+  const expandBtn = document.getElementById('todo-expand-btn');
+  if (expandBtn) {
+    const anyExpanded = [...document.querySelectorAll('.todo-children')].some(el => el.style.display !== 'none');
+    if (anyExpanded) {
+        expandBtn.textContent = '全部收起';
+        expandBtn.title = '收起所有子项';
+    } else {
+        expandBtn.textContent = '全部展开';
+        expandBtn.title = '展开所有子项';
+    }
   }
   if (items.length === 0) {
-    const label = getTodoFilterLabel();
-    const hint = label === '仅过期' ? '（无过期项）' : (label === '仅未完成' ? '（全部已完成）' : '');
+    const hint = _todoFilter.showDone ? '' : '（全部已完成）';
     el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">' + esc(data.path) + ' 无 todo 项' + hint + '</div>'; return;
   }
   let html = '';
@@ -437,34 +496,150 @@ async function deleteTodoItem(lineNo) {
   loadTodo();
 }
 function showTodoAddModal() {
-  document.getElementById('todo-add-title').value = '';
-  document.getElementById('todo-add-due').value = '';
+  document.getElementById('todo-modal-title').textContent = '添加任务';
+  document.getElementById('todo-edit-line-no').value = '';
+  document.getElementById('todo-modal-title-input').value = '';
+  document.getElementById('todo-modal-due').value = getDefaultDue();
+  document.getElementById('todo-modal-submit').textContent = '添加';
+  document.getElementById('todo-modal-children').innerHTML = '';
   document.getElementById('todo-add-modal').classList.remove('hidden');
-  setTimeout(() => document.getElementById('todo-add-title').focus(), 50);
+  setTimeout(() => document.getElementById('todo-modal-title-input').focus(), 50);
+}
+function openTodoEditModal(lineNo) {
+  const item = findTodoItem(lineNo);
+  if (!item) return;
+  document.getElementById('todo-modal-title').textContent = '编辑任务';
+  document.getElementById('todo-edit-line-no').value = lineNo;
+  document.getElementById('todo-modal-title-input').value = item.text;
+  document.getElementById('todo-modal-due').value = item.due_date || '';
+  document.getElementById('todo-modal-submit').textContent = '保存';
+  // 渲染现有子项（存 line_no 以便保存时对比）
+  const container = document.getElementById('todo-modal-children');
+  container.innerHTML = '';
+  if (item.children) {
+    item.children.forEach(c => addTodoChildRow(c.text, c.line_no));
+  }
+  document.getElementById('todo-add-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('todo-modal-title-input').focus(), 50);
 }
 function closeTodoAddModal() {
   document.getElementById('todo-add-modal').classList.add('hidden');
-  // 清空表单
-  document.getElementById('todo-add-title').value = '';
-  document.getElementById('todo-add-due').value = '';
 }
-async function submitTodoAdd() {
-  const text = document.getElementById('todo-add-title').value.trim();
-  if (!text) { alert('请输入任务标题'); return; }
+function getDefaultDue() {
+  const d = new Date();
+  d.setDate(d.getDate() + 3);
+  return d.toISOString().split('T')[0];
+}
+// 添加一行子项输入框，lineNo 可选（有则是已有子项，删除时需调用 API）
+function addTodoChildRow(text, lineNo) {
+  const container = document.getElementById('todo-modal-children');
+  const row = document.createElement('div');
+  row.style.display = 'flex';
+  row.style.gap = '4px';
+  if (lineNo !== undefined) row.dataset.lineNo = lineNo;
+  row.innerHTML = `
+    <input type="text" class="todo-child-row" value="${esc(text || '')}" placeholder="子项内容" style="flex:1;box-sizing:border-box">
+    <button class="btn btn-small" onclick="removeTodoChildRow(this)" title="删除">×</button>
+  `;
+  container.appendChild(row);
+}
+function removeTodoChildRow(btn) {
+  const row = btn.parentElement;
+  // 如果有 line_no，说明是已有子项，需要删掉
+  const lineNo = row.dataset.lineNo;
+  if (lineNo) {
+    deleteTodoItem(parseInt(lineNo));
+  }
+  row.remove();
+}
+async function submitTodoModal() {
+  const text = document.getElementById('todo-modal-title-input').value.trim();
+  if (!text) { alert('请输入任务内容'); return; }
+  const dueDate = document.getElementById('todo-modal-due').value;
+  const editLineNo = document.getElementById('todo-edit-line-no').value;
 
-  const dueDate = document.getElementById('todo-add-due').value;
+  if (editLineNo) {
+    // 编辑：获取当前表单中所有子项行（区分已有 lineNo 和新增无 lineNo）
+    const childRows = Array.from(document.querySelectorAll('#todo-modal-children > div'));
+    const existingLineNos = childRows.filter(r => r.dataset.lineNo).map(r => parseInt(r.dataset.lineNo));
+    const newChildTexts = childRows.filter(r => !r.dataset.lineNo).map(r => r.querySelector('.todo-child-row').value.trim()).filter(t => t);
+    const keptTexts = childRows.filter(r => r.dataset.lineNo).map(r => r.querySelector('.todo-child-row').value.trim()).filter(t => t);
 
-  const body = { text };
-  if (dueDate) body.due_date = dueDate;
+    // 读取原始子项 lineNo 列表
+    const item = findTodoItem(parseInt(editLineNo));
+    const originalChildLineNos = (item && item.children) ? item.children.map(c => c.line_no) : [];
 
-  const r = await fetch('/api/todo', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!r.ok) { const b = await r.json().catch(() => ({})); alert('添加失败：' + (b.error || r.statusText)); return; }
+    // 删除被移除的子项
+    for (const ln of originalChildLineNos) {
+      if (!existingLineNos.includes(ln)) {
+        await fetch('/api/todo/' + ln, { method: 'DELETE' });
+      }
+    }
+
+    // 更新主任务
+    await fetch('/api/todo/' + editLineNo + '/edit', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, due_date: dueDate })
+    });
+
+    // 重新添加剩余子项（用原 lineNo 顺序，重新写入文本）
+    for (const ln of existingLineNos) {
+      const row = childRows.find(r => r.dataset.lineNo == ln);
+      if (row) {
+        const newText = row.querySelector('.todo-child-row').value.trim();
+        await fetch('/api/todo/' + ln + '/edit', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: newText })
+        });
+      }
+    }
+
+    // 添加新增子项
+    for (const c of newChildTexts) {
+      await fetch('/api/todo/' + editLineNo + '/children', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: c })
+      });
+    }
+  } else {
+    // 添加：先加主任务，再加子项
+    const body = { text };
+    if (dueDate) body.due_date = dueDate;
+    const r = await fetch('/api/todo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) { const b = await r.json().catch(() => ({})); alert('添加失败：' + (b.error || r.statusText)); return; }
+    const childTexts = Array.from(document.querySelectorAll('.todo-child-row'))
+      .map(r => r.value.trim()).filter(t => t);
+    if (childTexts.length > 0) {
+      const data = await fetchJSON('/api/todo');
+      const lastItem = flattenItemsDeep(data.items || []).pop();
+      if (lastItem) {
+        for (const c of childTexts) {
+          await fetch('/api/todo/' + lastItem.line_no + '/children', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: c })
+          });
+        }
+      }
+    }
+  }
   closeTodoAddModal();
   loadTodo();
+}
+function flattenItemsDeep(items) {
+  let result = [];
+  for (const item of items) {
+    result.push(item);
+    if (item.children) result = result.concat(flattenItemsDeep(item.children));
+  }
+  return result;
 }
 async function showTodoPathModal() {
   const d = await fetchJSON('/api/todo/path');
@@ -530,67 +705,7 @@ if (typeof window !== "undefined") {
   });
 }
 
-// 展开 todo 行详情面板（点击行展开，再次点击收起）
-// 存储当前展开的行号
-let _expandedTodoLine = null;
-
-function toggleTodoExpand(el, lineNo) {
-    // 关闭已展开的
-    const existing = document.querySelector('.todo-detail-expanded');
-    if (existing) {
-        existing.remove();
-        if (_expandedTodoLine === lineNo) {
-            _expandedTodoLine = null;
-            return;
-        }
-    }
-
-    _expandedTodoLine = lineNo;
-
-    // 找到对应 item 数据
-    const itemData = findTodoItem(lineNo);
-    if (!itemData) return;
-
-    // 计算剩余天数
-    let dueInfo = '';
-    if (itemData.due_date) {
-        const daysLeft = daysUntil(itemData.due_date);
-        let statusText;
-        if (daysLeft < 0) {
-            statusText = `（已过期 ${Math.abs(daysLeft)} 天）`;
-        } else if (daysLeft === 0) {
-            statusText = '（今天）';
-        } else {
-            statusText = `（还有 ${daysLeft} 天）`;
-        }
-        dueInfo = `<div class="todo-detail-due">📅 截止：${itemData.due_date}${statusText}</div>`;
-    }
-
-    // 子任务
-    let childrenHtml = '';
-    if (itemData.children && itemData.children.length) {
-        childrenHtml = `<div class="todo-detail-children"><div class="todo-detail-label">子任务：</div>`;
-        for (const c of itemData.children) {
-            const cDue = c.due_date ? `📅 ${c.due_date.slice(5)}` : '';
-            childrenHtml += `<div class="todo-child-item">
-              <input type="checkbox" ${c.done?'checked':''} onchange="toggleTodo(${c.line_no}, this.checked)">
-              <span class="${c.done?'done':''}">${esc(c.text)}</span>
-              ${cDue ? `<span class="todo-due">${cDue}</span>` : ''}
-            </div>`;
-        }
-        childrenHtml += '</div>';
-    }
-
-    const detailHtml = `<div class="todo-detail-expanded">
-      <div class="todo-detail-content">
-        ${dueInfo}
-        ${childrenHtml}
-      </div>
-    </div>`;
-
-    el.insertAdjacentHTML('afterend', detailHtml);
-}
-
+// 保留 findTodoItem 供编辑弹框使用
 function findTodoItem(lineNo) {
     if (!window._todoItems) return null;
     for (const item of window._todoItems) {
@@ -604,39 +719,17 @@ function findTodoItem(lineNo) {
     return null;
 }
 
-function daysUntil(dueDate) {
-    const due = new Date(dueDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    due.setHours(0, 0, 0, 0);
-    return Math.ceil((due - today) / (1000 * 60 * 60 * 24));
-}
 
-// ===== Todo 过滤 & 排序(Task 11)=====
-// 状态：showDone=false 隐藏已完成；tag='overdue' 仅过期；其它空 = 全部未完成
-let _todoFilter = {
-    showDone: false,
-    tag: '',
-};
+// ===== Todo 过滤 & 排序 =====
+let _todoFilter = { showDone: false };
 
-// 循环切换：仅未完成 → 仅过期 → 全部 → 仅未完成
 function showTodoFilterMenu() {
-    if (!_todoFilter.showDone && !_todoFilter.tag) {
-        _todoFilter.tag = 'overdue';
-    } else if (_todoFilter.tag === 'overdue') {
-        _todoFilter.showDone = true;
-        _todoFilter.tag = '';
-    } else {
-        _todoFilter.showDone = false;
-        _todoFilter.tag = '';
-    }
+    _todoFilter.showDone = !_todoFilter.showDone;
     loadTodo();
 }
 
 function getTodoFilterLabel() {
-    if (!_todoFilter.showDone && _todoFilter.tag === 'overdue') return '仅过期';
-    if (!_todoFilter.showDone) return '仅未完成';
-    return '全部';
+    return _todoFilter.showDone ? '显示全部' : '仅未完成';
 }
 
 // 扁平化树（保留 _depth 用于缩进），供 sortAndFilterItems 使用
@@ -652,13 +745,12 @@ function flattenItems(items, depth) {
     return result;
 }
 
-// 按过期/日期排序 + 应用过滤（showDone / overdue tag）
+// 按过期/日期排序 + 应用过滤（showDone）
 function sortAndFilterItems(items) {
     const today = new Date().toISOString().split('T')[0];
 
     let filtered = flattenItems(items).filter(item => {
         if (!_todoFilter.showDone && item.done) return false;
-        if (_todoFilter.tag === 'overdue' && (!item.due_date || item.due_date >= today)) return false;
         return true;
     });
 
