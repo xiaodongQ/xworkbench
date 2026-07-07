@@ -250,6 +250,7 @@ async function runTask(id) {
 }
 
 function showRunTaskModal(task) {
+  window._currentRunTask = task; // 供 runTaskLoop 使用
   document.getElementById('run-task-title').textContent = task.title + (task.description ? ' — ' + task.description.slice(0, 60) : '');
   // command_type/model：优先用 task 创建时确定的默认值，可临时调整
   const typeSel = document.getElementById('run-task-type');
@@ -292,12 +293,12 @@ function showRunTaskModal(task) {
   // AI 自治区块：根据 ai_loop_enabled 决定显示/隐藏
   updateAILoopBlockVisibility();
 
-  // Run Loop prompt 预填：复用 task description + acceptance
-  const loopPromptEl = document.getElementById('run-loop-prompt');
-  if (loopPromptEl) {
+  // Run Loop prompt 只读展示：复用 task description + acceptance
+  const loopDisplay = document.getElementById('run-loop-prompt-display');
+  if (loopDisplay) {
     const desc = task.description || '';
     const acc = task.acceptance || '';
-    loopPromptEl.value = desc + (acc ? '\n\n验收标准：\n' + acc : '');
+    loopDisplay.textContent = desc + (acc ? '\n\n验收标准：\n' + acc : '(未提供)');
   }
 
   // goal_mode 回显（从 task 读取，支持本次勾选/取消）
@@ -1020,9 +1021,12 @@ function _aiLoopErrorHandler(e) {
 async function runTaskLoop() {
   const id = document.getElementById('run-task-modal')?.dataset?.taskId;
   if (!id) return;
-  const loopPrompt = document.getElementById('run-loop-prompt')?.value?.trim();
-  if (!loopPrompt) {
-    alert('⚠️ 请填写 Run Loop 的描述内容');
+  const t = window._currentRunTask;
+  const desc = t?.description || '';
+  const acc = t?.acceptance || '';
+  const loopPrompt = desc + (acc ? '\n\n验收标准：\n' + acc : '');
+  if (!loopPrompt.trim()) {
+    alert('⚠️ 任务描述为空，无法启动 Run Loop');
     return;
   }
   const threshold = parseFloat(document.getElementById('run-loop-threshold')?.value) || 7;
