@@ -267,11 +267,21 @@ func Save() error {
 	if current == nil {
 		return nil
 	}
+	// 优先用已知路径，找不到时降级到可执行文件同目录的 data/config.json
 	if path == "" {
 		path = configPath()
 	}
 	if path == "" {
-		return nil
+		// 完全没有配置文件时，创建默认路径（可执行文件同目录/data/config.json）
+		// 确保 Save 不会静默失败
+		exe, err := os.Executable()
+		if err == nil && exe != "" {
+			dir := filepath.Dir(exe)
+			path = filepath.Join(dir, "data", "config.json")
+		}
+	}
+	if path == "" {
+		return fmt.Errorf("config save: no config path available")
 	}
 
 	// 1. 用 DefaultConfig 补全当前配置缺失的字段（零值字段用默认值填充），
@@ -359,19 +369,51 @@ func Load() (*Config, error) {
 }
 
 // LoadFromPath 从指定路径加载配置，覆盖全局 AppConfig（线程安全）
+// 目标文件不存在时，自动从模板（可执行文件同目录的 config.template.conf）创建。
 func LoadFromPath(path string) error {
 	if path == "" {
 		return nil
 	}
 	cfg := DefaultConfig()
 	loaded, err := loadFromFile(path, cfg)
-	if err != nil {
+	if err != nil && os.IsNotExist(err) {
+		// 文件不存在，尝试从模板创建
+		if err := ensureConfigFromTemplate(path); err != nil {
+			return fmt.Errorf("config file not found and template copy failed: %v", err)
+		}
+		loaded, err = loadFromFile(path, cfg)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
 	Set(loaded) // 走锁
 	configFilePathMu.Lock()
 	configFilePath = path
 	configFilePathMu.Unlock()
+	return nil
+}
+
+// ensureConfigFromTemplate 尝试从可执行文件同目录的 config.template.conf 拷贝到目标路径。
+func ensureConfigFromTemplate(targetPath string) error {
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
+		return fmt.Errorf("cannot determine executable path")
+	}
+	dir := filepath.Dir(exe)
+	tplPath := filepath.Join(dir, "config.template.conf")
+	data, err := os.ReadFile(tplPath)
+	if err != nil {
+		return fmt.Errorf("template not found: %s", tplPath)
+	}
+	// 确保目标目录存在
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return fmt.Errorf("create config dir failed: %v", err)
+	}
+	if err := os.WriteFile(targetPath, data, 0644); err != nil {
+		return fmt.Errorf("write config failed: %v", err)
+	}
 	return nil
 }
 

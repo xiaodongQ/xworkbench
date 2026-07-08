@@ -36,7 +36,7 @@ GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
 # 2. 拷贝配置文件模板、脚本和工具目录（与仓库结构保持一致）
 echo "==> 拷贝配置文件模板和脚本..."
 # 配置文件模板放 data/ 下（run.sh 默认读取 data/config.json）
-cp config.json "$OUT/data/config.json"
+cp config.template.conf "$OUT/data/config.json"
 cp scripts/run.sh "$OUT/scripts/"
 chmod +x "$OUT/scripts/run.sh"
 
