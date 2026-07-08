@@ -645,6 +645,18 @@ func GetTools() []Tool {
 				}
 			}`),
 		},
+		{
+			Name:        "send_notification",
+			Description: "弹出纯 Python 窗口通知（tkinter），带一键复制按钮。用于 AI 通知用户重要信息。",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"message": {"type": "string", "description": "通知内容"},
+					"title":   {"type": "string", "description": "通知标题，默认「工作台通知»"}
+				},
+				"required": ["message"]
+			}`),
+		},
 	}
 	// 追加 skill 插件工具（仅公开 skill）
 	for _, s := range skill.GetPublic() {
@@ -825,6 +837,8 @@ func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.Exper
 		return execGetDashboardStats(ctx, argsJSON)
 	case "export_config":
 		return execExportConfig(ctx, argsJSON)
+	case "send_notification":
+		return execSendNotification(ctx, argsJSON)
 	default:
 		return fmt.Sprintf("未知工具: %s", toolName)
 	}
@@ -2332,6 +2346,87 @@ func randomID(n int) string {
 		b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
 	}
 	return string(b)
+}
+
+func execSendNotification(ctx context.Context, argsJSON string) string {
+	var args struct {
+		Message string `json:"message"`
+		Title   string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return fmt.Sprintf("参数解析失败: %v", err)
+	}
+	if args.Message == "" {
+		return "message 不能为空"
+	}
+	title := args.Title
+	if title == "" {
+		title = "工作台通知"
+	}
+	// 使用纯 Python tkinter 实现通知窗口，不依赖系统通知机制
+	script := fmt.Sprintf(`import tkinter as tk
+
+root = tk.Tk()
+root.title(%q)
+root.attributes("-topmost", True)
+root.configure(bg="#1e1e1e")
+
+# 计算居中位置
+screen_w = root.winfo_screenwidth()
+screen_h = root.winfo_screenheight()
+win_w, win_h = 420, 200
+x = screen_w - win_w - 30
+y = screen_h - win_h - 60
+root.geometry(f"{win_w}x{win_h}+{x}+{y}")
+
+# 顶部色条
+tk.Frame(root, bg="#22d3ee", height=4).pack(fill="x")
+
+# 内容区
+content = tk.Frame(root, bg="#1e1e1e")
+content.pack(fill="both", expand=True, padx=20, pady=16)
+
+tk.Label(content, text=%q, bg="#1e1e1e", fg="#e2e8f0",
+         font=("Microsoft YaHei", 13), wraplength=370, justify="left", anchor="w").pack(fill="x")
+
+# 按钮区
+btn_frame = tk.Frame(content, bg="#1e1e1e")
+btn_frame.pack(fill="x", pady=(16, 0))
+
+def copy_and_confirm():
+    root.clipboard_clear()
+    root.clipboard_append(%q)
+    copy_btn.config(text="✓ 已复制", bg="#22c55e")
+    root.after(1500, root.destroy)
+
+copy_btn = tk.Button(btn_frame, text="复制内容", command=copy_and_confirm,
+                    bg="#334155", fg="#e2e8f0", activebackground="#475569",
+                    activeforeground="#fff", relief="flat", cursor="hand2",
+                    font=("Microsoft YaHei", 12), padx=16, pady=8)
+copy_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+def dismiss():
+    root.destroy()
+
+ok_btn = tk.Button(btn_frame, text="关闭", command=dismiss,
+                  bg="#22d3ee", fg="#000", activebackground="#06b6d4",
+                  activeforeground="#000", relief="flat", cursor="hand2",
+                  font=("Microsoft YaHei", 12, "bold"), padx=16, pady=8)
+ok_btn.pack(side="left", fill="x", expand=True)
+
+root.mainloop()
+`, title, args.Message, args.Message)
+
+cmd := exec.CommandContext(ctx, "python3", "-c", script)
+cmd.Stdout = nil
+cmd.Stderr = nil
+if err := cmd.Start(); err != nil {
+	return fmt.Sprintf("启动通知窗口失败: %v", err)
+}
+go func() {
+	cmd.Wait()
+}()
+	return fmt.Sprintf("通知已弹出: %s", args.Message)
 }
 
 // --- Re-export PtySession for use in LocalShellState (avoids import cycle) ---
