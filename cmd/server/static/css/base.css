@@ -367,6 +367,7 @@ tr:last-child td { border-bottom: none; }
 .form-group label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
 .field-hint { font-size: 11px; color: var(--text-secondary); background: var(--hover); padding: 2px 8px; border-radius: 4px; font-weight: 400; }
 .info-icon { font-size: 13px; color: var(--info, #3b82f6); cursor: help; margin-left: 2px; }
+.form-group input,
 .form-group input[type="text"],
 .form-group input[type="date"],
 .form-group input[type="number"],
@@ -379,6 +380,7 @@ tr:last-child td { border-bottom: none; }
   width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px;
   font-size: 13px; outline: none; font-family: inherit;
 }
+.form-group input:focus,
 .form-group input[type="text"]:focus,
 .form-group input[type="date"]:focus,
 .form-group input[type="number"]:focus,

@@ -7,8 +7,8 @@ cd "$(dirname "$0")/.."
 # 检测当前平台
 case "$(uname -s)" in
   Darwin*)  os=darwin ;;
-  Linux*)  os=linux ;;
-  *)       os=windows ;;
+  Linux*)   os=linux ;;
+  *)        os=windows ;;
 esac
 arch=$(uname -m)
 [[ "$arch" == "x86_64" ]] && arch=amd64
@@ -33,17 +33,24 @@ GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
   go build -ldflags "-s -w" -trimpath \
   -o "$OUT/bin/$bin_name" ./cmd/server
 
-# 2. 拷贝配置文件、脚本和数据目录（与仓库结构保持一致）
-echo "==> 拷贝配置文件和脚本..."
-cp config.json "$OUT/"
+# 2. 拷贝配置文件模板、脚本和工具目录（与仓库结构保持一致）
+echo "==> 拷贝配置文件模板和脚本..."
+# 配置文件模板放 data/ 下（run.sh 默认读取 data/config.json）
+cp config.json "$OUT/data/config.json"
 cp scripts/run.sh "$OUT/scripts/"
 chmod +x "$OUT/scripts/run.sh"
 
 # 拷贝 Windows PowerShell 脚本
 cp scripts/run_background.ps1 "$OUT/scripts/" 2>/dev/null || true
 
-# 3. 生成 README
-cat > "$OUT/README.md" << EOF
+# 3. 拷贝 tools 工具目录
+if [ -d "tools" ]; then
+  echo "==> 拷贝 tools 工具目录..."
+  cp -r tools "$OUT/"
+fi
+
+# 4. 生成 README
+cat > "$OUT/README.md" << 'READEOF'
 # xworkbench — 个人工作台
 
 > 单 Go 二进制 · 7 Tab（总览 / 任务 / 经验库 / 自动化 / 系统配置 / AI 对话 / 代理）跨平台
@@ -51,48 +58,53 @@ cat > "$OUT/README.md" << EOF
 ## 快速启动
 
 ### macOS / Linux
-\`\`\`bash
+```bash
 ./scripts/run.sh        # 启动（默认 :8902）
 ./scripts/run.sh --stop # 停止
 ./scripts/run.sh --status # 查看状态
 ./scripts/run.sh --log   # 查看日志
-\`\`\`
+```
 
 ### Windows
-\`\`\`powershell
+```powershell
 # 启动（后台运行，可关闭终端）
 powershell -ExecutionPolicy Bypass -File scripts/run_background.ps1
 powershell -ExecutionPolicy Bypass -File scripts/run_background.ps1 -Action stop  # 停止
 powershell -ExecutionPolicy Bypass -File scripts/run_background.ps1 -Action status  # 状态
-\`\`\`
+```
 
 然后浏览器打开 http://localhost:8902
 
 ## 目录结构
 
-\`\`\`
+```
 .
 ├── bin/                # 程序目录
-│   └── $bin_name
-├── data/               # 数据目录（运行时创建数据库）
+│   └── BINPLACEHOLDER
+├── data/               # 数据目录
+│   ├── config.json     # 配置文件（首次启动自动读取模板）
+│   └── xworkbench.db   # 数据库（首次启动自动创建）
 ├── scripts/            # 脚本目录
 │   ├── run.sh          # macOS/Linux 启动脚本
 │   └── run_background.ps1  # Windows 后台运行脚本
-├── config.json         # 配置文件
+├── tools/              # 工具目录（健康检查/通知等）
 └── README.md
-\`\`\`
+```
 
 ## 配置
 
-编辑 \`config.json\` 修改监听端口、API Key 等。默认端口 \`8902\`。
+编辑 `data/config.json` 修改监听端口、API Key 等。默认端口 `8902`。
 
 ## 数据
 
-- 数据库：\`data/xworkbench.db\`（首次启动自动创建）
-- 日志：\`data/logs/\`
-EOF
+- 数据库：`data/xworkbench.db`（首次启动自动创建）
+- 日志：`data/logs/`
+READEOF
 
-# 4. 打包（对 xworkbench_日期 目录打包）
+# 修正 README 中的二进制文件名
+sed -i "s|BINPLACEHOLDER|${bin_name}|g" "$OUT/README.md"
+
+# 5. 打包（对 xworkbench_日期 目录打包）
 echo "==> 打包..."
 dist_dir="$(dirname "$OUT")"
 pkg_file="${pkg_dir}-${os}-${arch}.$([ "$os" == "windows" ] && echo "zip" || echo "tar.gz")"
