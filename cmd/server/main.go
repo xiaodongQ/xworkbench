@@ -2800,6 +2800,7 @@ func main() {
 
 	// 支持 -config 指定配置文件路径
 	cfgPath := flag.String("config", "", "path to config.json")
+	addrFlag := flag.String("addr", "", "listen address (e.g. :8902)")
 	flag.Parse()
 	if *cfgPath != "" {
 		if err := config.LoadFromPath(*cfgPath); err != nil {
@@ -2923,7 +2924,10 @@ func main() {
 	// 任务 claim >10min 未完成 → 强制释放回 pending 池（防心跳还在但任务托死）
 	startAgentHeartbeatChecker(agentRepo, taskRepo, eventRepo, h, 30*time.Second, 10*time.Minute)
 
-	addr := os.Getenv("ADDR")
+	addr := *addrFlag
+	if addr == "" {
+		addr = os.Getenv("ADDR")
+	}
 	if addr == "" {
 		addr = ":8902"
 	}

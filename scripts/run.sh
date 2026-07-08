@@ -275,7 +275,7 @@ start() {
     mkdir -p "$(dirname "$DB_PATH")"
     echo "  启动 xworkbench (PowerShell background)..."
     local start_time=$(date +%s)
-    powershell -NoProfile -ExecutionPolicy Bypass -File "${PROJECT_ROOT}/scripts/run_background.ps1" -Action start
+    ADDR="$ADDR" powershell -NoProfile -ExecutionPolicy Bypass -File "${PROJECT_ROOT}/scripts/run_background.ps1" -Action start
 
     local started=0
     local actual_pid=""

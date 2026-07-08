@@ -53,11 +53,9 @@ function Start-Server {
     Write-Host "  Log:    $LOG_FILE"
     Write-Host "  Port:   $ADDR"
 
-    # Use Start-Process with -NoNewWindow for background run
-    # -Wait: wait for process to exit (we don't want this for background)
-    # -PassThru: get process object
+    # 通过 -addr 命令行参数传递端口（不依赖环境变量，行为更明确）
     $proc = Start-Process -FilePath $BIN `
-        -ArgumentList "-config", "`"$CONFIG_PATH`"" `
+        -ArgumentList "-config", "`"$CONFIG_PATH`"", "-addr", $ADDR `
         -NoNewWindow `
         -PassThru `
         -RedirectStandardOutput $LOG_FILE `
