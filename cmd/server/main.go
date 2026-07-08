@@ -12,6 +12,7 @@ import (
 	"os"
 	osexec "os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -1526,6 +1527,12 @@ func (s *APIServer) handleLinkOpen(w http.ResponseWriter, r *http.Request) {
 	}
 
 	url := req.URL
+	// 展开 ~ 为用户 home 目录
+	if strings.HasPrefix(url, "~") {
+		if usr, err2 := user.Current(); err2 == nil {
+			url = filepath.Join(usr.HomeDir, url[1:])
+		}
+	}
 	var err error
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

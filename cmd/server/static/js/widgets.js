@@ -20,8 +20,8 @@ async function reorderAndSave(type, idsInNewOrder) {
 
 // openLink 打开链接：HTTP 用浏览器，本地路径/file:// 用系统原生工具
 async function openLink(url) {
-  // 判断是否本地路径（绝对路径、~、file://）
-  const isLocal = /^(file:\/\/|\/[^/]|~|\\)/.test(url);
+  // 判断是否本地路径：Unix绝对路径、~、file://、Windows盘符、UNC路径
+  const isLocal = /^(file:\/\/|\/[^/]|~|\\|[a-zA-Z]:[\\/]|[\\\/]{2})/.test(url);
   if (!isLocal) {
     window.open(url, '_blank');
     return;
