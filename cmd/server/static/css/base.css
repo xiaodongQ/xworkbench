@@ -530,10 +530,10 @@ tr:last-child td { border-bottom: none; }
 /* terminal div 可聚焦 */
 #shell-terminal, #rpty-container { outline: none; cursor: text; overflow-x: auto; }
 #shell-terminal:focus-visible, #rpty-container:focus-visible { outline: none; }
-/* 边界指示线（fixed 在视口，不被裁剪）- 显示终端实际列数边界 */
+/* 边界指示线（absolute 相对 .terminal-wrap，撑满终端起始到结束高度 - 切到其他 Tab 自动隐藏） */
 #rpty-boundary {
   display: none;
-  position: fixed;
+  position: absolute;
   top: 0;
   bottom: 0;
   width: 2px;
@@ -544,7 +544,7 @@ tr:last-child td { border-bottom: none; }
     rgba(239, 68, 68, 0.5) 80%,
     rgba(239, 68, 68, 0.9) 100%);
   pointer-events: none;
-  z-index: 9999;
+  z-index: 10;
   /* 发光效果 */
   box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.4);
 }
@@ -638,6 +638,19 @@ tr:last-child td { border-bottom: none; }
 }
 .todo-note { cursor: pointer; opacity: 0.5; font-size: 11px; }
 .todo-note:hover { opacity: 1; }
+
+/* todo modal 子项行：覆盖 .form-group input 的 width:100%（避免 checkbox 被拉大挤压 input）
+   选择器限定到 #todo-modal-children 范围内，不影响其他 form-group input */
+#todo-modal-children .todo-child-done {
+  width: auto;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+}
+#todo-modal-children .todo-child-row {
+  flex: 1;
+  box-sizing: border-box;
+}
 
 /* 鼠标跟随 tooltip */
 .mouse-tooltip {

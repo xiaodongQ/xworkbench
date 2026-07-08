@@ -261,11 +261,11 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 	logger.Infof("rpty: using PTY size %dx%d tab_id=%q", cols, rows, tabID)
 
 	// 请求 PTY（使用前端指定的尺寸）
-	// ECHO=0：服务器不回显输入字符，前端 xterm.js 通过 setLocalEchoHandler
-	// 显示本地 ghost echo（打字时立即显示，输入行处理完毕后自动消失）。
-	// 这样既避免双字符（服务器+xterm.js 各回显一次），又保证打字立即可见。
+	// ECHO=0：关闭内核级 TTY 回显（避免与 readline/前端 echo 形成三重回显）。
+	// 配合下方 shell 命令对 bash 加 --noediting（禁用 readline 自带回显），
+	// 确保只有前端 onData 一条回显路径，每键只显示 1 个字符。
 	modes := ssh.TerminalModes{
-		ssh.ECHO:          0, // 关闭服务器回显，前端负责本地 echo
+		ssh.ECHO:          0, // 关闭内核 TTY 回显；bash 用 --noediting 禁用 readline 自带回显；前端 onData 负责本地 echo
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 	}
@@ -312,13 +312,22 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 	// 构建 cd 到 remote_path 的启动命令
 	// 显式设置 COLUMNS/LINES 环境变量，确保 bash 使用正确的终端宽度
 	// 使用 $SHELL 或 fallback 到 bash，避免 exec 失败导致连接断开
-	shellCmd := fmt.Sprintf(`COLUMNS=%d LINES=%d SHELL=${SHELL:-/bin/bash} && exec ${SHELL} -l`, cols, rows)
+	//
+	// 关于双字符显示的关键修复（2026-07-09）：
+	//   bash 启动交互模式后会启用 readline，readline 维护自己的行缓冲和显示——
+	//   即使 TTY ECHO=0，readline 仍会通过 stdout 写 ANSI 转义序列来回显字符。
+	//   结果：前端 onData 已写一次 + readline 又回显一次 = 每键 2 个字符。
+	//   解决方案：bash 加 --noediting 禁用整个 readline（仍保留所有 bash 功能，
+	//   仅失去 history 上下键/Ctrl-R/Tab 补全等 readline 增强功能）。
+	//   zsh/sh 等其他 shell 不接受 --noediting，fallback 到默认。
+	execShell := `case "$(basename "${SHELL:-/bin/bash}")" in bash) exec "${SHELL}" -l --noediting ;; *) exec "${SHELL}" -l ;; esac`
+	shellCmd := fmt.Sprintf(`COLUMNS=%d LINES=%d SHELL=${SHELL:-/bin/bash} && %s`, cols, rows, execShell)
 	if dir.RemotePath != "" {
 		// 先 cd 到目录，失败时仍保持 shell 存活（用 || true 防止 cd 失败导致 shell 退出）
-		shellCmd = fmt.Sprintf(`COLUMNS=%d LINES=%d SHELL=${SHELL:-/bin/bash} && cd "%s" 2>/dev/null || true && exec ${SHELL} -l`, cols, rows, dir.RemotePath)
+		shellCmd = fmt.Sprintf(`COLUMNS=%d LINES=%d SHELL=${SHELL:-/bin/bash} && cd "%s" 2>/dev/null || true && %s`, cols, rows, dir.RemotePath, execShell)
 	}
 	if dir.TerminalCmd != "" {
-		shellCmd = fmt.Sprintf(`COLUMNS=%d LINES=%d SHELL=${SHELL:-/bin/bash} && cd "%s" 2>/dev/null || true && %s && exec ${SHELL} -l`, cols, rows, dir.RemotePath, dir.TerminalCmd)
+		shellCmd = fmt.Sprintf(`COLUMNS=%d LINES=%d SHELL=${SHELL:-/bin/bash} && cd "%s" 2>/dev/null || true && %s && %s`, cols, rows, dir.RemotePath, dir.TerminalCmd, execShell)
 	}
 
 	if err := session.Start(shellCmd); err != nil {

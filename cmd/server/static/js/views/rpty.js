@@ -257,23 +257,27 @@ function disconnectRPTY() {
   hideRptyBoundaryLine();
 }
 
-// updateRptyBoundaryLine 在视口上显示边界红线（fixed 定位，不被裁剪）
+// updateRptyBoundaryLine 在终端容器内显示边界红线（absolute 相对 .terminal-wrap，切到其他 Tab 自动隐藏）
 // 基于终端实际列数（rptyTerm.cols）计算，而非硬编码值
 function updateRptyBoundaryLine() {
   let line = document.getElementById('rpty-boundary');
+  const container = document.getElementById('rpty-container');
+  if (!container || !rptyTerm) return;
+  const wrap = container.closest('.terminal-wrap');
+  if (!wrap) return;
   if (!line) {
     line = document.createElement('div');
     line.id = 'rpty-boundary';
-    document.body.appendChild(line);
+    wrap.appendChild(line);
   }
-  const container = document.getElementById('rpty-container');
-  if (!container || !rptyTerm) return;
-  const rect = container.getBoundingClientRect();
+  const wrapRect = wrap.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
   const dims = rptyTerm._core?._renderService?.dimensions?.css?.cell;
   const cellW = dims?.width || 8;
   // 使用终端实际列数（rptyTerm.cols），而非硬编码的 RPTY_COLS
   const actualCols = rptyTerm.cols;
-  const boundaryX = rect.left + cellW * actualCols;
+  // 边界线相对 .terminal-wrap 的 left = 容器距 wrap 左边的偏移 + cellW * 列数
+  const boundaryX = (containerRect.left - wrapRect.left) + cellW * actualCols;
   line.style.left = boundaryX + 'px';
   // 设置 data-cols 属性，用于 ::before 伪元素显示列数标签
   line.setAttribute('data-cols', actualCols);
