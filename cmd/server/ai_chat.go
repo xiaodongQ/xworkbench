@@ -305,7 +305,6 @@ func (s *APIServer) handleAIConfigTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ?provider=openai or ?provider=anthropic overrides active provider
 	providerStr := r.URL.Query().Get("provider")
 	if providerStr == "" {
 		providerStr = cfg.AIChat.ActiveProvider
@@ -335,16 +334,15 @@ func (s *APIServer) handleAIConfigTest(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := provider.Chat(ctx, []Message{{Role: "user", Content: "hi"}}, nil)
+	resp, err := provider.Chat(ctx, []Message{{Role: "user", Content: "hi"}}, nil)
 	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	writeJSON(w, map[string]string{"status": "ok"})
+	writeJSON(w, map[string]any{"status": "ok", "reply": resp})
 }
 
 // isAuthenticated checks if the request has a valid session token.
-// 同源请求（浏览器）或带有有效 Bearer token 的请求允许通过。
 func (s *APIServer) isAuthenticated(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	// 同源请求（无 Origin header，或 Origin 与请求源一致）直接放行

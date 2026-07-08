@@ -149,6 +149,7 @@
         <div id="cfg-test-tip" style="display:none;position:absolute;bottom:100%;left:0;margin-bottom:6px;background:#1e293b;color:#e2e8f0;font-size:11px;padding:6px 10px;border-radius:6px;white-space:nowrap;z-index:10;box-shadow:0 2px 8px rgba(0,0,0,0.25)"></div>
       </div>
       <div class="cfg-status" id="cfg-status"></div>
+      <div id="cfg-test-output" style="display:none;margin-top:8px;background:var(--bg-secondary,#0f172a);border:1px solid var(--border,#334155);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text,#e2e8f0);max-height:120px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.5"></div>
     </div>`;
   }
 
@@ -566,16 +567,28 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}) // 空 body，后端用已保存的 config
       });
+      const output = root.querySelector('#cfg-test-output');
+      output.style.display = 'none';
       if (r.ok) {
-        status.textContent = '✅ 连接成功'; status.style.color = '#16a34a';
+        const data = await r.json().catch(() => ({}));
+        status.textContent = '✅ 连接成功';
+        status.style.color = '#16a34a';
+        if (data.reply) {
+          output.textContent = 'AI 回复：' + data.reply;
+          output.style.display = 'block';
+        }
       } else {
         const e = await r.json().catch(() => ({}));
-        status.textContent = '❌ ' + (e.error || r.statusText); status.style.color = '#dc2626';
+        status.textContent = '❌ 连接失败';
+        status.style.color = '#dc2626';
+        output.textContent = e.error || r.statusText;
+        output.style.display = 'block';
       }
     } catch (err) {
       status.textContent = '❌ ' + err.message; status.style.color = '#dc2626';
+      if (output) { output.textContent = err.message; output.style.display = 'block'; }
     }
-    status._timer = setTimeout(() => { status.textContent = ''; }, 4000);
+    status._timer = setTimeout(() => { status.textContent = ''; if (output) output.style.display = 'none'; }, 6000);
   }
 
 
