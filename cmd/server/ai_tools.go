@@ -2364,14 +2364,15 @@ func execSendNotification(ctx context.Context, argsJSON string) string {
 		title = "工作台通知"
 	}
 	// 使用纯 Python tkinter 实现通知窗口，不依赖系统通知机制
-	script := fmt.Sprintf(`import tkinter as tk
+	// 写入临时 Python 文件，声明 UTF-8 编码，避免 shell 编码问题
+	script := fmt.Sprintf(`# -*- coding: utf-8 -*-
+import tkinter as tk
 
 root = tk.Tk()
 root.title(%q)
 root.attributes("-topmost", True)
 root.configure(bg="#1e1e1e")
 
-# 计算居中位置
 screen_w = root.winfo_screenwidth()
 screen_h = root.winfo_screenheight()
 win_w, win_h = 420, 200
@@ -2379,27 +2380,24 @@ x = screen_w - win_w - 30
 y = screen_h - win_h - 60
 root.geometry(f"{win_w}x{win_h}+{x}+{y}")
 
-# 顶部色条
 tk.Frame(root, bg="#22d3ee", height=4).pack(fill="x")
 
-# 内容区
 content = tk.Frame(root, bg="#1e1e1e")
 content.pack(fill="both", expand=True, padx=20, pady=16)
 
 tk.Label(content, text=%q, bg="#1e1e1e", fg="#e2e8f0",
          font=("Microsoft YaHei", 13), wraplength=370, justify="left", anchor="w").pack(fill="x")
 
-# 按钮区
 btn_frame = tk.Frame(content, bg="#1e1e1e")
 btn_frame.pack(fill="x", pady=(16, 0))
 
 def copy_and_confirm():
     root.clipboard_clear()
     root.clipboard_append(%q)
-    copy_btn.config(text="✓ 已复制", bg="#22c55e")
+    copy_btn.config(text="\u2713 \u5df2\u590d\u5236", bg="#22c55e")
     root.after(1500, root.destroy)
 
-copy_btn = tk.Button(btn_frame, text="复制内容", command=copy_and_confirm,
+copy_btn = tk.Button(btn_frame, text="\u590d\u5236\u5185\u5bb9", command=copy_and_confirm,
                     bg="#334155", fg="#e2e8f0", activebackground="#475569",
                     activeforeground="#fff", relief="flat", cursor="hand2",
                     font=("Microsoft YaHei", 12), padx=16, pady=8)
@@ -2408,7 +2406,7 @@ copy_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
 def dismiss():
     root.destroy()
 
-ok_btn = tk.Button(btn_frame, text="关闭", command=dismiss,
+ok_btn = tk.Button(btn_frame, text="\u5173\u95ed", command=dismiss,
                   bg="#22d3ee", fg="#000", activebackground="#06b6d4",
                   activeforeground="#000", relief="flat", cursor="hand2",
                   font=("Microsoft YaHei", 12, "bold"), padx=16, pady=8)
@@ -2417,7 +2415,19 @@ ok_btn.pack(side="left", fill="x", expand=True)
 root.mainloop()
 `, title, args.Message, args.Message)
 
-cmd := exec.CommandContext(ctx, "python3", "-c", script)
+// 写临时文件，0600 权限确保安全
+f, err := os.CreateTemp("", "notify-*.py")
+if err != nil {
+	return fmt.Sprintf("创建临时脚本失败: %v", err)
+}
+defer os.Remove(f.Name())
+defer f.Close()
+if _, err := f.WriteString(script); err != nil {
+	return fmt.Sprintf("写入脚本失败: %v", err)
+}
+f.Close()
+
+cmd := exec.CommandContext(ctx, "python3", f.Name())
 cmd.Stdout = nil
 cmd.Stderr = nil
 if err := cmd.Start(); err != nil {
