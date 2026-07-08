@@ -1252,13 +1252,24 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		}
 		// continue 触发的 execution：沿用原 exec 的 resume_uuid（session_id）。
 		// 如果原 exec 没有 resume_uuid，说明原始会话没有成功建立，无法继续。
-		resumeSessionID := orig.ResumeSessionID
-		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
+		// 同时从本次 output 中解析 session_id，覆盖写入（--resume 可能产生新的 session UUID）。
+		newSessionID := orig.ResumeSessionID
+		if extracted := extractResumeSessionID(out); extracted != "" {
+			newSessionID = extracted
+		}
+		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, newSessionID)
 		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 			"execution_id": exec.ID,
 			"done":         true,
 			"exit_code":    exitCode,
 		})
+		// 如果原 execution 属于某个计划任务，同步 session 信息：
+		// 下次计划任务自动运行时，复用同一个 session，保持和手动「继续对话」一致。
+		if orig.ScheduledTaskID != "" {
+			if task, err := s.schedDB.Get(orig.ScheduledTaskID); err == nil && task != nil {
+				_ = s.schedDB.UpdateSessionInfo(orig.ScheduledTaskID, newSessionID, task.ResumeCount)
+			}
+		}
 		logger.Infow("execution continue finished",
 			"orig_id", id, "exec_id", exec.ID, "session_id", orig.ResumeSessionID, "exit_code", exitCode,
 			"dur_ms", time.Since(exec.StartedAt).Milliseconds())
