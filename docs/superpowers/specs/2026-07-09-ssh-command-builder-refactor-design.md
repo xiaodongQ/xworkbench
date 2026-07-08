@@ -102,7 +102,8 @@ func BuildSSHCommand(dir *backend.DirShortcut, termType string) ([]string, error
 3. **解析 keyPath**
    - 调用 `executor.ResolveKeyPath(dir)`（已有，优先级 LocalKeyPath > KeyPath > `config.ssh.default_key_path` > `~/.ssh/xworkbench_id_ed25519`）
 4. **处理模板 `-i` 段**
-   - 模板中出现 `{key_path}` 但 `keyPath == ""` 或 `!fileExists(keyPath)` → 移除 `"-"`, `"i"`, `"{key_path}"` 三个占位符元素
+   - 拿到模板后扫描整个 args 切片；若发现某个连续三元组 `["-i", "{key_path}", ...]`，且 `keyPath == ""` 或 `!fileExists(keyPath)` → 从切片里删除 `"-i"` 及其后跟的 `{key_path}` 元素（无论该 `{key_path}` 占位符在哪个位置，只要跟前一个 `-i` 紧邻就移除）
+   - 反之保留三元组并在后续变量替换阶段把 `{key_path}` 替换为 `shellQuote(keyPath)`
 5. **拼装 baseArgs（兼容算法）**
    - 读 `config.SSH.CompatAlgorithms.{Kex, HostKey, Cipher}`
    - 任一非空 → 加 `-o`, `"KexAlgorithms=+x,+y"`（同 `-o` 风格，逗号 join）
@@ -143,10 +144,7 @@ shell_cmd = strings.Join(parts, " && ")
 
 ```go
 // internal/config/config.go
-
-type SSHKeyConfig struct {
-    DefaultKeyPath string `json:"default_key_path,omitempty"`
-}
+// （Config.SSH 字段类型由原 SSHKeyConfig 升级为 SSHConfig）
 
 type SSHCompatAlgorithms struct {
     Kex     []string `json:"kex,omitempty"`      // 对应 -o KexAlgorithms=+...
@@ -160,7 +158,7 @@ type SSHConfig struct {
 }
 ```
 
-> 字段名复数：config 顶层用 `default_key_path`（单数，跟现有兼容），`compat_algorithms` 嵌套对象；子字段用 `kex`/`host_key`/`cipher` 单数（每项对应 ssh `-o` 一个 flag 名）。
+> 字段命名：config 顶层 `default_key_path` 跟现有兼容；`compat_algorithms` 嵌套对象；子字段 `kex`/`host_key`/`cipher` 单数（每项对应 ssh `-o` 一个 flag 名）。`SSHKeyConfig` 旧类型在合并到 `SSHConfig` 后删除，Config struct 中 `SSH` 字段类型直接改为 `SSHConfig`。
 
 ### 4.2 默认值（保留现状）
 
