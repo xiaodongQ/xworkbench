@@ -432,7 +432,7 @@ function renderTodoItem(i) {
   }
 
   const indent = i._depth * 20;
-  let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''} ${hasChildren?'has-children':''}" ${hasChildren ? `data-parent-line-no="${i._parent_line_no}" style="padding-left:${indent}px"` : `style="padding-left:${indent}px" data-parent-line-no="${i._parent_line_no != null ? i._parent_line_no : ''}"}>
+  let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''} ${hasChildren?'has-children':''}" ${hasChildren ? `data-parent-line-no="${i._parent_line_no}" style="padding-left:${indent}px"` : `style="padding-left:${indent}px" data-parent-line-no="${i._parent_line_no != null ? i._parent_line_no : ''}"}`}>
   <span class="todo-indent"></span>
   <input type="checkbox" ${i.done?'checked':''} onchange="event.stopPropagation(); toggleTodo(${i.line_no}, this.checked)">
   <span class="todo-text" onclick="toggleTodoItem(${i.line_no})">${esc(i.text)}</span>

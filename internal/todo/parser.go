@@ -226,11 +226,11 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, e
 		return 0, fmt.Errorf("text is empty")
 	}
 
-	// 读取已有内容，确保末尾换行
+	// 读取已有内容，确保末尾换行（但空文件不额外加前导换行）
 	var content string
 	if data, err := os.ReadFile(path); err == nil {
 		content = string(data)
-		if !strings.HasSuffix(content, "\n") {
+		if content != "" && !strings.HasSuffix(content, "\n") {
 			content += "\n"
 		}
 	} else if !os.IsNotExist(err) {
@@ -257,7 +257,7 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, e
 	}
 
 	actualLines := strings.Split(strings.TrimRight(content, "\n"), "\n")
-	newLineNo := len(actualLines) + 1
+	newLineNo := len(actualLines)
 	return newLineNo, atomicWrite(path, content)
 }
 
