@@ -234,14 +234,19 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 	)
 
 	// 根据权限和 session 配置构建命令
+	// 使用 WithResume(sessionID) 而非 sessionID 参数：
+	// --resume 从上一个 checkpoint 继续（语义与 handleExecutionContinue 一致）；
+	// --session-id 是 Attach 到已有会话（不保证从上次位置继续）。
 	if skip {
-		cmd, stdin, cleanup, err = runner.BuildCommand(t.CommandType, t.Model, sessionID, t.Prompt,
+		cmd, stdin, cleanup, err = runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
+			runner.WithResume(sessionID),
 			runner.WithStdin(),
 			runner.WithActionReport(),
 			runner.WithSkipPermissions(),
 		)
 	} else {
-		cmd, stdin, cleanup, err = runner.BuildCommand(t.CommandType, t.Model, sessionID, t.Prompt,
+		cmd, stdin, cleanup, err = runner.BuildCommand(t.CommandType, t.Model, "", t.Prompt,
+			runner.WithResume(sessionID),
 			runner.WithStdin(),
 			runner.WithActionReport(),
 			runner.WithAllowedTools("Bash", "Write", "Edit", "Read", "Grep"),
