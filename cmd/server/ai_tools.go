@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +21,9 @@ import (
 	"github.com/xiaodongQ/xworkbench/internal/skill"
 	"github.com/xiaodongQ/xworkbench/internal/todo"
 )
+
+//go:embed notify.py
+var notifyScript embed.FS
 
 // serverAddr is the HTTP server listen address, set at startup.
 // Used by tools that need to call the local server's own APIs.
@@ -2363,79 +2367,34 @@ func execSendNotification(ctx context.Context, argsJSON string) string {
 	if title == "" {
 		title = "工作台通知"
 	}
-	// 使用纯 Python tkinter 实现通知窗口，不依赖系统通知机制
-	// 写入临时 Python 文件，声明 UTF-8 编码，避免 shell 编码问题
-	script := fmt.Sprintf(`# -*- coding: utf-8 -*-
-import tkinter as tk
+	// 创建临时目录，消息写入文件，脚本通过 argv 接收标题和消息路径
+	dir, err := os.MkdirTemp("", "notify-*")
+	if err != nil {
+		return fmt.Sprintf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(dir)
 
-root = tk.Tk()
-root.title(%q)
-root.attributes("-topmost", True)
-root.configure(bg="#1e1e1e")
+	msgFile := dir + "/msg.txt"
+	if err := os.WriteFile(msgFile, []byte(args.Message), 0644); err != nil {
+		return fmt.Sprintf("写入消息文件失败: %v", err)
+	}
 
-screen_w = root.winfo_screenwidth()
-screen_h = root.winfo_screenheight()
-win_w, win_h = 420, 200
-x = screen_w - win_w - 30
-y = screen_h - win_h - 60
-root.geometry(f"{win_w}x{win_h}+{x}+{y}")
+	scriptFile := dir + "/notify.py"
+	scriptContent, err := notifyScript.ReadFile("notify.py")
+	if err != nil {
+		return fmt.Sprintf("读取内置通知脚本失败: %v", err)
+	}
+	if err := os.WriteFile(scriptFile, scriptContent, 0644); err != nil {
+		return fmt.Sprintf("写入脚本文件失败: %v", err)
+	}
 
-tk.Frame(root, bg="#22d3ee", height=4).pack(fill="x")
-
-content = tk.Frame(root, bg="#1e1e1e")
-content.pack(fill="both", expand=True, padx=20, pady=16)
-
-tk.Label(content, text=%q, bg="#1e1e1e", fg="#e2e8f0",
-         font=("Microsoft YaHei", 13), wraplength=370, justify="left", anchor="w").pack(fill="x")
-
-btn_frame = tk.Frame(content, bg="#1e1e1e")
-btn_frame.pack(fill="x", pady=(16, 0))
-
-def copy_and_confirm():
-    root.clipboard_clear()
-    root.clipboard_append(%q)
-    copy_btn.config(text="\u2713 \u5df2\u590d\u5236", bg="#22c55e")
-    root.after(1500, root.destroy)
-
-copy_btn = tk.Button(btn_frame, text="\u590d\u5236\u5185\u5bb9", command=copy_and_confirm,
-                    bg="#334155", fg="#e2e8f0", activebackground="#475569",
-                    activeforeground="#fff", relief="flat", cursor="hand2",
-                    font=("Microsoft YaHei", 12), padx=16, pady=8)
-copy_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
-
-def dismiss():
-    root.destroy()
-
-ok_btn = tk.Button(btn_frame, text="\u5173\u95ed", command=dismiss,
-                  bg="#22d3ee", fg="#000", activebackground="#06b6d4",
-                  activeforeground="#000", relief="flat", cursor="hand2",
-                  font=("Microsoft YaHei", 12, "bold"), padx=16, pady=8)
-ok_btn.pack(side="left", fill="x", expand=True)
-
-root.mainloop()
-`, title, args.Message, args.Message)
-
-// 写临时文件，0600 权限确保安全
-f, err := os.CreateTemp("", "notify-*.py")
-if err != nil {
-	return fmt.Sprintf("创建临时脚本失败: %v", err)
-}
-defer os.Remove(f.Name())
-defer f.Close()
-if _, err := f.WriteString(script); err != nil {
-	return fmt.Sprintf("写入脚本失败: %v", err)
-}
-f.Close()
-
-cmd := exec.CommandContext(ctx, "python3", f.Name())
-cmd.Stdout = nil
-cmd.Stderr = nil
-if err := cmd.Start(); err != nil {
-	return fmt.Sprintf("启动通知窗口失败: %v", err)
-}
-go func() {
-	cmd.Wait()
-}()
+	cmd := exec.CommandContext(ctx, "python3", scriptFile, title, msgFile)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		return fmt.Sprintf("启动通知窗口失败: %v", err)
+	}
+	go func() { cmd.Wait() }()
 	return fmt.Sprintf("通知已弹出: %s", args.Message)
 }
 
