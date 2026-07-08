@@ -261,8 +261,11 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 	logger.Infof("rpty: using PTY size %dx%d tab_id=%q", cols, rows, tabID)
 
 	// 请求 PTY（使用前端指定的尺寸）
+	// ECHO=0：服务器不回显输入字符，前端 xterm.js 通过 setLocalEchoHandler
+	// 显示本地 ghost echo（打字时立即显示，输入行处理完毕后自动消失）。
+	// 这样既避免双字符（服务器+xterm.js 各回显一次），又保证打字立即可见。
 	modes := ssh.TerminalModes{
-		ssh.ECHO:          1, // 保留服务器 echo，但 xterm.js 也做本地 echo，双写可通过前端去重解决
+		ssh.ECHO:          0, // 关闭服务器回显，前端负责本地 echo
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 	}

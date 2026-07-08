@@ -233,8 +233,11 @@ async function connectRPTY(tabID, dirID) {
 
   // PTY 输入 → WS
   if (rptyTerm) {
+    // SSH 关闭了 ECHO（服务器不回显），前端负责本地 echo。
+    // onData 回调在数据发往 SSH 之前先写到终端（打字立即可见）。
     rptyTerm.onData(data => {
       if (rptyWs && rptyWs.readyState === WebSocket.OPEN) rptyWs.send(data);
+      rptyTerm.write(data);
     });
     rptyTerm.onResize(({ cols, rows }) => {
       if (rptyWs && rptyWs.readyState === WebSocket.OPEN) {
