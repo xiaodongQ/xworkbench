@@ -137,7 +137,7 @@ type Config struct {
 	Relay    RelayConfig    `json:"relay"`
 	Terminal TerminalConfig `json:"terminal"`
 	Models   ModelsConfig   `json:"models"`
-	SSH      SSHKeyConfig   `json:"ssh"`
+	SSH      SSHConfig      `json:"ssh"`
 
 	// AI Chat 配置（模型 API + 函数调用）
 	AIChat AIChatConfig `json:"ai_chat"`
@@ -177,9 +177,18 @@ type TerminalConfig struct {
 	Types       map[string]TerminalTypeDef `json:"types"`        // 终端类型定义
 }
 
-// SSHKeyConfig SSH 密钥相关全局配置
-type SSHKeyConfig struct {
-	DefaultKeyPath string `json:"default_key_path,omitempty"` // 全局默认私钥路径（单记录可覆盖）
+// SSHCompatAlgorithms SSH 兼容算法（按 ssh -o 选项拆成三组）。
+// 默认全开老算法（兼容老服务器），用户可在 config.json 设为空对象关闭。
+type SSHCompatAlgorithms struct {
+	Kex     []string `json:"kex,omitempty"`      // 对应 -o KexAlgorithms=+...
+	HostKey []string `json:"host_key,omitempty"` // 对应 -o HostKeyAlgorithms=+...
+	Cipher  []string `json:"cipher,omitempty"`   // 对应 -o Ciphers=+...
+}
+
+// SSHConfig SSH 密钥相关全局配置
+type SSHConfig struct {
+	DefaultKeyPath   string              `json:"default_key_path,omitempty"`
+	CompatAlgorithms SSHCompatAlgorithms `json:"compat_algorithms"`
 }
 
 // TerminalTypeDef 终端类型定义
@@ -694,6 +703,18 @@ func DefaultConfig() *Config {
 		},
 		Relay: RelayConfig{
 			APIKey: "xworkbench",
+		},
+		SSH: SSHConfig{
+			CompatAlgorithms: SSHCompatAlgorithms{
+				Kex: []string{
+					"+diffie-hellman-group1-sha1",
+					"+diffie-hellman-group-exchange-sha1",
+				},
+				HostKey: []string{"+ssh-rsa", "+ssh-dss"},
+				Cipher: []string{
+					"+3des-cbc", "+aes128-cbc", "+aes192-cbc", "+aes256-cbc",
+				},
+			},
 		},
 		AIChat: AIChatConfig{
 			ActiveProvider: "anthropic",
