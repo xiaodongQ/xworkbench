@@ -424,18 +424,21 @@ function renderTodoItem(i) {
   const hiddenByParent = i._parent_line_no != null && !_todoExpandedSet.has(i._parent_line_no);
 
   let extraHtml = '';
+  const childClickAttr = hasChildren ? `onclick="event.stopPropagation(); toggleTodoItem(${i.line_no})"` : '';
   if (i.due_date) {
-    extraHtml += `<span class="todo-due ${isOverdue ? 'overdue' : ''}" data-tooltip="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
+    extraHtml += `<span class="todo-due ${isOverdue ? 'overdue' : ''}" ${childClickAttr} title="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
   }
   if (hasChildren) {
-    extraHtml += `<span class="todo-child-count" data-tooltip="${childCount} 个子项">${childCount}</span>`;
+    extraHtml += `<span class="todo-child-count" ${childClickAttr} title="${childCount} 个子项">${childCount}</span>`;
   }
 
   const indent = i._depth * 20;
-  let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''} ${hasChildren?'has-children':''}" ${hasChildren ? `data-parent-line-no="${i._parent_line_no}" style="padding-left:${indent}px"` : `style="padding-left:${indent}px" data-parent-line-no="${i._parent_line_no != null ? i._parent_line_no : ''}"}`}>
+  const onclickAttr = hasChildren ? `onclick="event.stopPropagation(); toggleTodoItem(${i.line_no})"` : '';
+  const textOnclickAttr = hasChildren ? `onclick="toggleTodoItem(${i.line_no})"` : '';
+  let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''} ${hasChildren?'has-children':''}" ${onclickAttr} ${hasChildren ? `data-line-no="${i.line_no}" data-parent-line-no="${i._parent_line_no}" style="padding-left:${indent}px"` : `style="padding-left:${indent}px" data-parent-line-no="${i._parent_line_no != null ? i._parent_line_no : ''}"}`}>
   <span class="todo-indent"></span>
   <input type="checkbox" ${i.done?'checked':''} onchange="event.stopPropagation(); toggleTodo(${i.line_no}, this.checked)">
-  <span class="todo-text" onclick="toggleTodoItem(${i.line_no})">${esc(i.text)}</span>
+  <span class="todo-text" ${textOnclickAttr}>${esc(i.text)}</span>
   ${extraHtml}
   <span class="todo-edit" onclick="event.stopPropagation(); openTodoEditModal(${i.line_no})" title="编辑">✎</span>
   <span class="todo-del" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no})" title="删除">×</span>
@@ -475,25 +478,25 @@ function toggleTodoExpandAll() {
     const anyExpanded = _todoExpandedSet.size > 0;
     if (anyExpanded) {
         // 全部收起
-        document.querySelectorAll('.todo-item').forEach(el => { el.style.display = ''; });
-        document.querySelectorAll('.todo-item[data-parent-line-no]').forEach(el => {
-            const pln = el.dataset.parentLineNo;
-            if (pln && pln !== '') el.style.display = 'none';
-        });
         _todoExpandedSet.clear();
         const btn = document.getElementById('todo-expand-btn');
         if (btn) { btn.textContent = '▶'; btn.title = '展开所有子项'; }
     } else {
-        // 全部展开
-        document.querySelectorAll('.todo-item').forEach(el => { el.style.display = ''; });
-        document.querySelectorAll('.todo-item[data-line-no]').forEach(el => {
-            const ln = parseInt(el.dataset.lineNo);
-            if (!isNaN(ln)) _todoExpandedSet.add(ln);
-        });
+        // 全部展开：递归收集所有有子项的 line_no
+        const collectParents = (items) => {
+            for (const item of items) {
+                if (item.children && item.children.length > 0) {
+                    _todoExpandedSet.add(item.line_no);
+                    collectParents(item.children);
+                }
+            }
+        };
+        collectParents(window._todoTreeData || []);
         const btn = document.getElementById('todo-expand-btn');
         if (btn) { btn.textContent = '▼'; btn.title = '收起所有子项'; }
     }
     saveTodoExpandedSet();
+    loadTodo(); // 重新渲染
 }
 
 async function loadTodo() {
@@ -799,6 +802,8 @@ if (typeof window !== "undefined") {
     document.addEventListener('mouseover', function(e) {
         const target = e.target.closest('[data-tooltip]');
         if (!target) return;
+        // 跳过 sidebar（api.js 有专门的 sidebar tooltip 系统）
+        if (target.closest('.sidebar')) return;
         if (!tooltip) {
             tooltip = document.createElement('div');
             tooltip.className = 'mouse-tooltip';
@@ -815,6 +820,8 @@ if (typeof window !== "undefined") {
     document.addEventListener('mouseout', function(e) {
         const target = e.target.closest('[data-tooltip]');
         if (!target) return;
+        // 如果鼠标移动到了 tooltip 自身，不要隐藏（避免移动到 tooltip 时闪烁）
+        if (e.relatedTarget === tooltip) return;
         if (tooltip) tooltip.style.display = 'none';
     });
 })();

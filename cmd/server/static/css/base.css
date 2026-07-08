@@ -355,6 +355,8 @@ tr:last-child td { border-bottom: none; }
   display: flex; align-items: center; justify-content: center;
   z-index: 1000; animation: fadeIn 150ms ease-out;
 }
+/* 执行详情弹窗:通常在 run-task-modal 之上打开,需更高 z-index 才能盖住 */
+#exec-detail-modal { z-index: 1100; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .modal {
   background: #fff; border-radius: 16px; padding: 28px;

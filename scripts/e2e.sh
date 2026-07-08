@@ -469,6 +469,56 @@ print(sum(1 for e in d if e.get('scheduled_task_id') in ids and e.get('exit_code
   ok "concurrent-scheduled case ✅"
 }
 
+case_tooltip_theme() {
+  info "[tooltip-theme] 验证亮色/暗色主题下 tooltip 样式正确"
+
+  local css
+  css=$(curl -s "${BASE_URL}/static/css/base.css")
+
+  # 亮色主题: tooltip 背景应为浅色(白/浅灰),文字应为深色
+  # 检查 custom-tooltip (sidebar tooltip)
+  local light_tip
+  light_tip=$(echo "$css" | grep 'data-theme.*light.*custom-tooltip' | head -1)
+  if echo "$light_tip" | grep -qE '(white|#fff|#f8fafc|#faf9f5)'; then
+    ok "亮色主题 custom-tooltip 背景为浅色"
+  else
+    err "亮色主题 custom-tooltip 背景应为浅色,实际: $light_tip"
+    return 1
+  fi
+
+  # 检查 mouse-tooltip (鼠标跟随 tooltip)
+  local light_mouse_tip
+  light_mouse_tip=$(echo "$css" | grep -A1 'data-theme.*light.*mouse-tooltip' | grep 'background' | head -1)
+  if echo "$light_mouse_tip" | grep -qE '(white|#fff|#f8fafc|#faf9f5)'; then
+    ok "亮色主题 mouse-tooltip 背景为浅色"
+  else
+    err "亮色主题 mouse-tooltip 背景应为浅色,实际: $light_mouse_tip"
+    return 1
+  fi
+
+  # 暗色主题: tooltip 背景应为深色,文字应为浅色
+  local dark_tip
+  dark_tip=$(echo "$css" | grep 'data-theme.*dark.*custom-tooltip' | grep -v 'tt-head' | head -1)
+  if echo "$dark_tip" | grep -qE 'background:.*#[0-4][0-9]'; then
+    ok "暗色主题 custom-tooltip 背景为深色"
+  else
+    err "暗色主题 custom-tooltip 背景应为深色,实际: $dark_tip"
+    return 1
+  fi
+
+  # 亮色主题导航项 hover 文字应有足够对比度
+  local nav_text_sec
+  nav_text_sec=$(echo "$css" | grep -E '^\s*--text-secondary:' | head -1)
+  if echo "$nav_text_sec" | grep -qE ': #[3-9a-f]{6}'; then
+    ok "亮色主题导航文字颜色足够深: $nav_text_sec"
+  else
+    err "亮色主题导航文字颜色过浅,对比度不足: $nav_text_sec"
+    return 1
+  fi
+
+  ok "tooltip-theme case ✅"
+}
+
 case_teardown() {
   info "[teardown] 强清残留进程和临时文件"
   lsof -ti :19000-19999 2>/dev/null | xargs -r kill -9 2>/dev/null
@@ -513,6 +563,7 @@ case "$TARGET" in
     run_case case_eval
     run_case case_remote_claim
     run_case case_concurrent_scheduled
+    run_case case_tooltip_theme
     ;;
   basic)   run_case case_basic ;;
   delete)  run_case case_delete ;;
@@ -521,6 +572,7 @@ case "$TARGET" in
   prompt)  run_case case_prompt_inject ;;
   remote)  run_case case_remote_claim ;;
   conc)    run_case case_concurrent_scheduled ;;
+  tooltip) run_case case_tooltip_theme ;;
   fast)
     # 已在入口前处理(start_server 跳过)。这里只跑 case。
     run_case case_basic
@@ -528,11 +580,12 @@ case "$TARGET" in
     run_case case_toggle
     run_case case_prompt_inject
     run_case case_eval
+    run_case case_tooltip_theme
     ;;
   teardown) case_teardown; exit 0 ;;
   *)
     err "未知 case: $TARGET"
-    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|conc|teardown]"
+    echo "用法: $0 [all|basic|delete|toggle|eval|prompt|remote|conc|tooltip|teardown]"
     exit 2
     ;;
 esac
