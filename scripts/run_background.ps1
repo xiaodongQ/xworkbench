@@ -16,7 +16,7 @@ $LOG_FILE = Join-Path $LOG_DIR "xworkbench.log"
 $PID_FILE = Join-Path $PROJECT_ROOT "data\xworkbench.pid"
 $ADDR = if ($env:ADDR) { $env:ADDR } else { ":8902" }
 $DB_PATH = if ($env:DB_PATH) { $env:DB_PATH } else { Join-Path $PROJECT_ROOT "data\xworkbench.db" }
-$CONFIG_PATH = if ($env:CONFIG_PATH) { $env:CONFIG_PATH } else { Join-Path $PROJECT_ROOT "config.json" }
+$CONFIG_PATH = if ($env:CONFIG_PATH) { $env:CONFIG_PATH } else { Join-Path $PROJECT_ROOT "data\config.json" }
 
 function Get-XworkbenchPid {
     $port = $ADDR -replace '^:', ''

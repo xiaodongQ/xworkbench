@@ -348,7 +348,14 @@ func Load() (*Config, error) {
 	if path == "" {
 		return cfg, nil
 	}
-	return loadFromFile(path, cfg)
+	loaded, err := loadFromFile(path, cfg)
+	if err != nil {
+		return loaded, err
+	}
+	configFilePathMu.Lock()
+	configFilePath = path
+	configFilePathMu.Unlock()
+	return loaded, nil
 }
 
 // LoadFromPath 从指定路径加载配置，覆盖全局 AppConfig（线程安全）

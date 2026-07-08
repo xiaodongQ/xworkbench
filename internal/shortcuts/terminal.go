@@ -91,16 +91,27 @@ func buildRemoteArgs(termType string, dir *backend.DirShortcut, keyPath string) 
 	}
 	termDef, ok := cfg.Terminal.Types[strings.ToLower(termType)]
 
+	// 构建 baseArgs：兼容老版本 SSH 服务器（diffie-hellman-group1-sha1 / ssh-rsa / 3des-cbc 等）
+	baseArgs := []string{
+		"-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1",
+		"-o", "HostKeyAlgorithms=+ssh-rsa,ssh-dss",
+		"-o", "Ciphers=+3des-cbc,aes128-cbc,aes192-cbc,aes256-cbc",
+	}
+
 	var template []string
 	if ok && len(termDef.RemoteArgs) > 0 {
-		template = termDef.RemoteArgs
+		template = append([]string{"ssh"}, baseArgs...)
+		template = append(template, termDef.RemoteArgs...)
 	} else {
-		// 兜底：泛用 ssh 命令
-		// 只有密钥文件存在时才传 -i 参数，避免 "Identity file not accessible" 警告
+		// 兜底：泛用 ssh 命令，只有密钥文件存在时才传 -i
 		if keyPath != "" && fileExists(keyPath) {
-			template = []string{"ssh", "-i", "{key_path}", "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}"}
+			template = []string{"ssh"}
+			template = append(template, baseArgs...)
+			template = append(template, "-i", "{key_path}", "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}")
 		} else {
-			template = []string{"ssh", "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}"}
+			template = []string{"ssh"}
+			template = append(template, baseArgs...)
+			template = append(template, "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}")
 		}
 	}
 

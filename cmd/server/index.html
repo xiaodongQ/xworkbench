@@ -17,15 +17,15 @@
   (function () {
     var uaDataPlat = navigator.userAgentData && navigator.userAgentData.platform;
     if (uaDataPlat) {
-      if (uaDataPlat === 'Windows') document.body.classList.add('windows');
+      if (uaDataPlat === 'Windows') document.documentElement.classList.add('windows');
       return;
     }
     if (navigator.platform) {
-      if (/^win/i.test(navigator.platform)) document.body.classList.add('windows');
+      if (/^win/i.test(navigator.platform)) document.documentElement.classList.add('windows');
       return;
     }
     if (/Windows/i.test(navigator.userAgent || '')) {
-      document.body.classList.add('windows');
+      document.documentElement.classList.add('windows');
     }
   })();
 </script>
