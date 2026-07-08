@@ -1519,7 +1519,7 @@ func execAddTodo(ctx context.Context, argsJSON string) string {
 	if path == "" {
 		return "⚠️ Todo 路径未配置（todo_md_path）"
 	}
-	if err := todo.AddAndWrite(path, args.Text, args.DueDate, tagsList, args.Note); err != nil {
+	if _, err := todo.AddAndWrite(path, args.Text, args.DueDate, tagsList, args.Note); err != nil {
 		return fmt.Sprintf("添加失败: %v", err)
 	}
 	return fmt.Sprintf("✅ 已添加: %s", args.Text)

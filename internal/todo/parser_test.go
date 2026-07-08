@@ -252,7 +252,7 @@ func TestAddAndWrite(t *testing.T) {
 	if err := os.WriteFile(p, []byte("# h\n- [ ] a\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := AddAndWrite(p, "new item", "", nil, ""); err != nil {
+	if _, err := AddAndWrite(p, "new item", "", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(p)
@@ -261,7 +261,7 @@ func TestAddAndWrite(t *testing.T) {
 		t.Errorf("got:  %q\nwant: %q", string(data), want)
 	}
 	// 空文本应报错
-	if err := AddAndWrite(p, "  ", "", nil, ""); err == nil {
+	if _, err := AddAndWrite(p, "  ", "", nil, ""); err == nil {
 		t.Error("expected error for empty text")
 	}
 }
@@ -272,7 +272,7 @@ func TestAddAndWrite_WithMetadata(t *testing.T) {
 	if err := os.WriteFile(p, []byte("# h\n- [ ] a\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := AddAndWrite(p, "购物", "2026-07-08", []string{"personal", "shopping"}, "记得带环保袋\n别忘卡"); err != nil {
+	if _, err := AddAndWrite(p, "购物", "2026-07-08", []string{"personal", "shopping"}, "记得带环保袋\n别忘卡"); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(p)
@@ -381,7 +381,7 @@ func TestAddChildAndWrite(t *testing.T) {
 	if err := os.WriteFile(p, []byte("- [ ] P\n\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := AddChildAndWrite(p, 1, "child1", ""); err != nil {
+	if err := AddChildAndWrite(p, 1, "child1", "", false); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(p)
@@ -398,7 +398,7 @@ func TestAddChildAndWrite(t *testing.T) {
 
 	// Case 2: add second child to same parent (lineNo=1 still works after file changed)
 	// parent line_no=1, child1 is now line_no=2
-	if err := AddChildAndWrite(p, 1, "child2", ""); err != nil {
+	if err := AddChildAndWrite(p, 1, "child2", "", false); err != nil {
 		t.Fatal(err)
 	}
 	data, _ = os.ReadFile(p)
@@ -423,7 +423,7 @@ func TestAddChildAndWrite(t *testing.T) {
 	tree2, _ := ReadAndParse(p2)
 	flat2 := Flatten(tree2)
 	// flat2[1] is child1 with line_no=2
-	if err := AddChildAndWrite(p2, flat2[1].LineNo, "child1a", ""); err != nil {
+	if err := AddChildAndWrite(p2, flat2[1].LineNo, "child1a", "", false); err != nil {
 		t.Fatal(err)
 	}
 	data2, _ := os.ReadFile(p2)
@@ -438,7 +438,66 @@ func TestAddChildAndWrite(t *testing.T) {
 	}
 
 	// Case 4: invalid parent line_no
-	if err := AddChildAndWrite(p, 99, "orphan", ""); err == nil {
+	if err := AddChildAndWrite(p, 99, "orphan", "", false); err == nil {
 		t.Error("expected error for invalid parent line_no")
+	}
+}
+
+func TestDeleteAndWriteWithChildren(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "todo.md")
+	// 父项 + 2个子项（含孙子项） + 另一个父项
+	content := `- [ ] 父任务
+  - [ ] 子任务1
+    - [ ] 孙子任务
+  - [x] 子任务2
+- [ ] 另一个任务
+`
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// 删除"父任务"（line_no=1），应级联删除所有子项
+	if err := DeleteAndWrite(p, 1); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(p)
+	// 只剩"另一个任务"
+	if !strings.Contains(string(data), "另一个任务") {
+		t.Errorf("expected '另一个任务' to remain, got: %q", data)
+	}
+	// 子任务/孙子任务不应存在
+	if strings.Contains(string(data), "子任务1") {
+		t.Errorf("child '子任务1' should be deleted")
+	}
+	if strings.Contains(string(data), "孙子任务") {
+		t.Errorf("grandchild '孙子任务' should be deleted")
+	}
+}
+
+func TestDeleteAndWriteChildOnly(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "todo.md")
+	content := `- [ ] 父任务
+  - [ ] 子任务1
+  - [ ] 子任务2
+`
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// 只删除"子任务1"（line_no=2），不碰父任务和其他
+	if err := DeleteAndWrite(p, 2); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(p)
+	// 父任务和子任务2应保留
+	if !strings.Contains(string(data), "父任务") {
+		t.Errorf("'父任务' should remain")
+	}
+	if !strings.Contains(string(data), "子任务2") {
+		t.Errorf("'子任务2' should remain")
+	}
+	// 子任务1已删除
+	if strings.Contains(string(data), "子任务1") {
+		t.Errorf("'子任务1' should be deleted")
 	}
 }

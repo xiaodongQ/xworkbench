@@ -219,11 +219,11 @@ func ToggleAndWrite(path string, items []Item) error {
 }
 
 // AddAndWrite 在文件末尾追加一项（含 due_date / tags / note 元数据）。
-// 文件不存在时直接创建。
-func AddAndWrite(path, text, dueDate string, tags []string, note string) error {
+// 文件不存在时直接创建。返回新行的 line_no（按项计，1-based）。
+func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return fmt.Errorf("text is empty")
+		return 0, fmt.Errorf("text is empty")
 	}
 
 	// 读取已有内容，确保末尾换行
@@ -234,7 +234,7 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) error {
 			content += "\n"
 		}
 	} else if !os.IsNotExist(err) {
-		return err
+		return 0, err
 	}
 
 	// 用 Item + itemToLine 生成主行，保留 metadata
@@ -256,13 +256,17 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) error {
 		}
 	}
 
-	return atomicWrite(path, content)
+	actualLines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	newLineNo := len(actualLines) + 1
+	return newLineNo, atomicWrite(path, content)
 }
 
-// AddChildAndWrite 在指定父行后追加一个子项（缩进 +2 空格）。
+// AddChildAndWrite 在指定父行后追加一个子项。
+// parentLineNo 是 Parse/Flatten 返回的 line_no（1-based）。
+// indent 继承父行缩进 + 2 空格（支持嵌套）；done 控制勾选状态。
 // parentLineNo 是 Parse/Flatten 返回的 line_no（按项计，跳过空行），
 // 需要扫描文件找到对应的实际行号后再插入。
-func AddChildAndWrite(path string, parentLineNo int, text, dueDate string) error {
+func AddChildAndWrite(path string, parentLineNo int, text, dueDate string, done bool) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return fmt.Errorf("text is empty")
@@ -273,58 +277,108 @@ func AddChildAndWrite(path string, parentLineNo int, text, dueDate string) error
 	}
 	lines := strings.Split(string(data), "\n")
 
-	// 找到 parentLineNo 对应的实际文件行（跳过空行和非项行）
-	itemCount := 0
-	var actualLineIdx int = -1
-	for i, line := range lines {
-		if itemRe.MatchString(line) {
-			itemCount++
-			if itemCount == parentLineNo {
-				actualLineIdx = i
-				break
-			}
-		}
-	}
-	if actualLineIdx < 0 {
+	// parentLineNo 是 1-based，转 0-based
+	parentIdx := parentLineNo - 1
+	if parentIdx < 0 || parentIdx >= len(lines) {
 		return fmt.Errorf("parent line_no %d not found in file", parentLineNo)
+	}
+
+	// 提取父行缩进
+	parentMatch := itemRe.FindStringSubmatch(lines[parentIdx])
+	parentIndent := ""
+	if len(parentMatch) >= 2 {
+		parentIndent = parentMatch[1]
+	}
+	childIndent := parentIndent + "  "
+
+	// 扫描后续行，找到插入位置：更深缩进 item/孙项、note 行跳过，遇到同级/更浅/空行停止
+	insertIdx := parentIdx + 1
+	for insertIdx < len(lines) {
+		line := lines[insertIdx]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			break
+		}
+		if !itemRe.MatchString(line) {
+			insertIdx++
+			continue
+		}
+		subMatch := itemRe.FindStringSubmatch(line)
+		if len(subMatch) < 2 {
+			insertIdx++
+			continue
+		}
+		subIndent := subMatch[1]
+		if len(subIndent) > len(parentIndent) {
+			insertIdx++
+			continue
+		}
+		break
 	}
 
 	item := &Item{
 		Text:    text,
 		DueDate: dueDate,
-		Indent:  "  ", // 子项固定 +2 空格缩进
+		Done:    done,
+		Indent:  childIndent,
 	}
 	newLine := itemToLine(item)
-	// 插入到父行之后（actualLineIdx 是 0-based，+1 变成 1-based 的 parentLineNo）
-	// 注意：必须用 full slice 语法 [:n:n] 强制分配新数组，避免 append(before,...)
-	// 复用了 lines 的底层数组导致 after 被覆盖。
-	before := lines[:actualLineIdx+1:actualLineIdx+1]
-	after := lines[actualLineIdx+1:]
+	before := lines[:insertIdx:insertIdx]
+	after := lines[insertIdx:]
 	newLines := append(before, newLine)
-	// 跳过 after 开头的空行（避免末尾空行导致项重复）
-	i := 0
-	for i < len(after) && strings.TrimSpace(after[i]) == "" {
-		i++
-	}
-	newLines = append(newLines, after[i:]...)
+	newLines = append(newLines, after...)
 	return atomicWrite(path, strings.Join(newLines, "\n"))
 }
 
-// DeleteAndWrite 删除指定行号的项（按 1-based line_no）。
-// 直接按行号切除并写回，note 行不会被误删（note 是单独的 `>` 行，不在 item 行号范围内）。
+// DeleteAndWrite 删除指定行号 item 及其所有子项（缩进更深）和关联 note 行。
 func DeleteAndWrite(path string, lineNo int) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 	lines := strings.Split(string(data), "\n")
-	if lineNo < 1 || lineNo > len(lines) {
+	idx := lineNo - 1 // 转 0-based
+	if idx < 0 || idx >= len(lines) {
 		return fmt.Errorf("line_no %d out of range", lineNo)
 	}
-	// 跳过 lineNo-1 那行，其他保持
-	kept := make([]string, 0, len(lines)-1)
-	kept = append(kept, lines[:lineNo-1]...)
-	kept = append(kept, lines[lineNo:]...)
+
+	// 取父行缩进宽度
+	parentMatch := itemRe.FindStringSubmatch(lines[idx])
+	parentIndentLen := 0
+	if len(parentMatch) >= 2 {
+		parentIndentLen = len(parentMatch[1])
+	}
+
+	// 从 parentIdx+1 向下扫描：更深缩进的 item 行 + 关联 note 行 删除，遇到同级/更浅/空行停止
+	endIdx := idx + 1
+	for endIdx < len(lines) {
+		line := lines[endIdx]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			break
+		}
+		if !itemRe.MatchString(line) {
+			if strings.HasPrefix(line, "  > ") && len(line)-len(strings.TrimLeft(line, " ")) > parentIndentLen {
+				endIdx++
+				continue
+			}
+			break
+		}
+		subMatch := itemRe.FindStringSubmatch(line)
+		if len(subMatch) < 2 {
+			break
+		}
+		subIndentLen := len(subMatch[1])
+		if subIndentLen > parentIndentLen {
+			endIdx++
+			continue
+		}
+		break
+	}
+
+	kept := make([]string, 0, len(lines)-endIdx+idx)
+	kept = append(kept, lines[:idx]...)
+	kept = append(kept, lines[endIdx:]...)
 	return atomicWrite(path, strings.Join(kept, "\n"))
 }
 

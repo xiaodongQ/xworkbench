@@ -2439,11 +2439,12 @@ func (s *APIServer) handleTodoAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	if err := todo.AddAndWrite(path, req.Text, req.DueDate, req.Tags, req.Note); err != nil {
+	lineNo, err := todo.AddAndWrite(path, req.Text, req.DueDate, req.Tags, req.Note)
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, map[string]string{"text": req.Text, "status": "added"})
+	writeJSON(w, map[string]any{"text": req.Text, "status": "added", "line_no": lineNo})
 }
 
 func (s *APIServer) handleTodoDelete(w http.ResponseWriter, r *http.Request) {
@@ -2479,6 +2480,7 @@ func (s *APIServer) handleTodoAddChild(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text    string `json:"text"`
 		DueDate string `json:"due_date,omitempty"`
+		Done    bool   `json:"done"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -2488,7 +2490,7 @@ func (s *APIServer) handleTodoAddChild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	if err := todo.AddChildAndWrite(path, parentLineNo, req.Text, req.DueDate); err != nil {
+	if err := todo.AddChildAndWrite(path, parentLineNo, req.Text, req.DueDate, req.Done); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
