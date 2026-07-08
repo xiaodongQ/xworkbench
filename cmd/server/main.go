@@ -1516,7 +1516,7 @@ func (s *APIServer) handleWebLinkDelete(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
 }
 
-// handleLinkOpen 用系统原生工具打开 URL 或本地路径（支持 file:// 和绝对路径）。
+// handleLinkOpen 用系统原生工具打开 URL 或本地路径（支持 file://、Unix 绝对路径、~、Windows 盘符、UNC 路径）。
 func (s *APIServer) handleLinkOpen(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL string `json:"url"`
@@ -1527,12 +1527,23 @@ func (s *APIServer) handleLinkOpen(w http.ResponseWriter, r *http.Request) {
 	}
 
 	url := req.URL
+	isLocal := false
+
 	// 展开 ~ 为用户 home 目录
 	if strings.HasPrefix(url, "~") {
 		if usr, err2 := user.Current(); err2 == nil {
 			url = filepath.Join(usr.HomeDir, url[1:])
+			isLocal = true
 		}
+	} else if isFileURL(url) || isLocalPath(url) {
+		isLocal = true
 	}
+
+	// 将本地路径转换为 file:// URL
+	if isLocal && !isFileURL(url) {
+		url = pathToFileURL(url)
+	}
+
 	var err error
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -1552,7 +1563,6 @@ func (s *APIServer) handleLinkOpen(w http.ResponseWriter, r *http.Request) {
 		// linux: xdg-open 为主，fallback 为 gio open
 		opened = tryOpen("xdg-open", url)
 		if !opened && err != nil {
-			// gio open 通常在 GNOME 桌面环境可用
 			opened = tryOpen("gio", "open", url)
 		}
 	}
@@ -1562,6 +1572,57 @@ func (s *APIServer) handleLinkOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"status": "opened"})
+}
+
+// isFileURL 判断是否为 file:// URL
+func isFileURL(url string) bool {
+	return strings.HasPrefix(url, "file://")
+}
+
+// isLocalPath 判断字符串是否为本地路径（Unix 绝对路径、Windows 盘符、UNC 路径）
+func isLocalPath(path string) bool {
+	// Unix 绝对路径
+	if strings.HasPrefix(path, "/") {
+		return true
+	}
+	// Windows 盘符（如 C:\ 或 C:/）
+	if matchWindowsDrive(path) {
+		return true
+	}
+	// UNC 路径（\\ 开头）
+	if strings.HasPrefix(path, "\\\\") {
+		return true
+	}
+	return false
+}
+
+// matchWindowsDrive 检测字符串是否以 Windows 盘符开头（如 C:\, D:/）
+func matchWindowsDrive(path string) bool {
+	if len(path) < 2 {
+		return false
+	}
+	c := path[0]
+	if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+		return false
+	}
+	return path[1] == ':' && (path[2] == '\\' || path[2] == '/')
+}
+
+// pathToFileURL 将本地路径转换为 proper file:// URL
+func pathToFileURL(path string) string {
+	// Windows: C:\path\to\file → file:///C:/path/to/file
+	if matchWindowsDrive(path) {
+		drive := strings.ToLower(string(path[0]))
+		rest := path[3:] // 去掉 "C:\\"
+		rest = strings.ReplaceAll(rest, "\\", "/")
+		return "file:///" + drive + ":/" + rest
+	}
+	// UNC 路径：\\server\share → file:////server/share
+	if strings.HasPrefix(path, "\\\\") {
+		return "file://" + strings.ReplaceAll(path, "\\", "/")
+	}
+	// Unix 绝对路径：/home/user/file → file:///home/user/file
+	return "file:///" + path
 }
 
 // --- Dir Shortcuts ---
