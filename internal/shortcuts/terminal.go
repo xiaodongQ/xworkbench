@@ -129,7 +129,7 @@ func buildRemoteArgs(termType string, dir *backend.DirShortcut, keyPath string) 
 }
 
 // fileExists 检查文件是否存在
-func fileExists(path string) bool {
+var fileExists = func(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }

@@ -7,19 +7,23 @@ import (
 
 // TestDetermineAICmd_SessionParams verifies determineAICmd passes session/resume flags.
 func TestDetermineAICmd_SessionParams(t *testing.T) {
+	validUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validUUID2 := "660e8400-e29b-41d4-a716-446655440001"
 	tests := []struct {
-		name       string
-		cliType    string
-		sessionID  string
-		resumeUUID string
+		name        string
+		cliType     string
+		sessionID   string
+		resumeUUID  string
 		wantContain string
 	}{
 		{"claude no session", "claude", "", "", "claude"},
-		{"claude with session_id", "claude", "my-session-123", "", "--session-id my-session-123"},
-		{"claude with resume_uuid", "claude", "", "resume-abc", "--resume resume-abc"},
-		{"claude with both", "claude", "my-session-123", "resume-abc", "--session-id my-session-123"},
-		{"cbc with session_id", "cbc", "cbc-session", "", "--session-id cbc-session"},
-		{"codex no session", "codex", "", "", "codex"},
+		{"claude with session_id (valid UUID)", "claude", validUUID, "", "--resume " + validUUID},
+		{"claude with resume_uuid", "claude", "", validUUID, "--resume " + validUUID},
+		// both: sessionID and resumeUUID both use --resume
+		{"claude with both (both valid UUIDs)", "claude", validUUID, validUUID2, "--resume " + validUUID},
+		{"cbc with session_id (valid UUID)", "cbc", validUUID, "", "--resume " + validUUID},
+		// codex falls through to default claude
+		{"codex no session", "codex", "", "", "claude"},
 		{"shell no session", "shell", "", "", "sh"},
 	}
 
@@ -33,8 +37,11 @@ func TestDetermineAICmd_SessionParams(t *testing.T) {
 	}
 }
 
-// TestEnrichCmd verifies enrichCmd adds flags correctly.
+// TestEnrichCmd verifies enrichCmd adds --resume flags correctly.
+// sessionID (scheduler last_session_id) and resumeUUID both use --resume flag.
 func TestEnrichCmd(t *testing.T) {
+	validUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validUUID2 := "660e8400-e29b-41d4-a716-446655440001"
 	tests := []struct {
 		name       string
 		cmd        string
@@ -43,9 +50,10 @@ func TestEnrichCmd(t *testing.T) {
 		want       string
 	}{
 		{"empty both", "claude", "", "", "claude"},
-		{"session only", "claude", "sid", "", "claude --session-id sid"},
-		{"resume only", "claude", "", "rid", "claude --resume rid"},
-		{"both", "claude", "sid", "rid", "claude --session-id sid --resume rid"},
+		{"session only", "claude", validUUID, "", "claude --resume " + validUUID},
+		{"resume only", "claude", "", validUUID, "claude --resume " + validUUID},
+		// both: both get --resume (sessionID = last_session_id, resumeUUID = explicit resume)
+		{"both", "claude", validUUID, validUUID2, "claude --resume " + validUUID + " --resume " + validUUID2},
 	}
 
 	for _, tt := range tests {

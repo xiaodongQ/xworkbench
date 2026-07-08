@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
@@ -128,10 +129,25 @@ chmod 600 ~/.ssh/authorized_keys
 
 // BuildSSHConfigFromDirShortcut 从 DirShortcut 构建 SSHConfig。
 func BuildSSHConfigFromDirShortcut(dir *backend.DirShortcut) SSHConfig {
+	// 解析端口，默认 22
+	port := 22
+	if dir.RemotePort != "" {
+		if p, err := strconv.Atoi(dir.RemotePort); err == nil && p > 0 {
+			port = p
+		}
+	}
+
+	// AuthMethod 默认 "password"
+	authMethod := dir.AuthMethod
+	if authMethod == "" {
+		authMethod = "password"
+	}
+
 	return SSHConfig{
 		Host:         dir.RemoteHost,
+		Port:         port,
 		User:         dir.RemoteUser,
-		AuthMethod:   dir.AuthMethod,
+		AuthMethod:   authMethod,
 		Password:     dir.RemotePassword,
 		KeyPath:      ResolveKeyPath(dir),
 		KeyPassword:  dir.KeyPassword,

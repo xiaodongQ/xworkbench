@@ -13,6 +13,11 @@ func TestBuildRemoteArgs(t *testing.T) {
 	restore := config.TestSnapshotAndRestore()
 	defer restore()
 
+	// Mock fileExists: 所有 keyPath 都认为文件存在，确保 -i 参数被加入
+	origFileExists := fileExists
+	fileExists = func(path string) bool { return true }
+	defer func() { fileExists = origFileExists }()
+
 	tests := []struct {
 		name        string
 		termType    string
@@ -118,6 +123,10 @@ func TestBuildRemoteArgs(t *testing.T) {
 func TestBuildRemoteArgs_ShellCmd(t *testing.T) {
 	restore := config.TestSnapshotAndRestore()
 	defer restore()
+
+	origFileExists := fileExists
+	fileExists = func(path string) bool { return true }
+	defer func() { fileExists = origFileExists }()
 
 	dir := &backend.DirShortcut{
 		RemoteUser:  "ubuntu",
