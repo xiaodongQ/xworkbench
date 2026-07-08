@@ -70,92 +70,7 @@ func DefaultTerminal() string {
 	return cfg.DefaultTerminal
 }
 
-// buildRemoteArgs 根据终端类型和 DirShortcut 构建远程唤起的完整 args。
-// 优先使用 config 中预置的 RemoteArgs 模板；未知终端类型用泛用 ssh 兜底。
-// 变量替换：{user}、{host}、{key_path}、{shell_cmd}。
-// shell_cmd 规则：cd 到 remote_path（如有）+ TerminalCmd（如有） + exec $SHELL -l。
-func buildRemoteArgs(termType string, dir *backend.DirShortcut, keyPath string) []string {
-	// 构建 ssh target
-	sshTarget := dir.RemoteHost
-	if dir.RemoteUser != "" {
-		sshTarget = dir.RemoteUser + "@" + dir.RemoteHost
-	}
-
-	// 构建 shell_cmd
-	shellCmd := buildShellCmd(dir)
-
-	// 查配置中的 RemoteArgs 模板
-	cfg := config.Get()
-	if cfg == nil {
-		cfg = config.DefaultConfig()
-	}
-	termDef, ok := cfg.Terminal.Types[strings.ToLower(termType)]
-
-	// 构建 baseArgs：兼容老版本 SSH 服务器（diffie-hellman-group1-sha1 / ssh-rsa / 3des-cbc 等）
-	baseArgs := []string{
-		"-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1",
-		"-o", "HostKeyAlgorithms=+ssh-rsa,ssh-dss",
-		"-o", "Ciphers=+3des-cbc,aes128-cbc,aes192-cbc,aes256-cbc",
-	}
-
-	var template []string
-	if ok && len(termDef.RemoteArgs) > 0 {
-		template = append([]string{"ssh"}, baseArgs...)
-		template = append(template, termDef.RemoteArgs...)
-	} else {
-		// 兜底：泛用 ssh 命令，只有密钥文件存在时才传 -i
-		if keyPath != "" && fileExists(keyPath) {
-			template = []string{"ssh"}
-			template = append(template, baseArgs...)
-			template = append(template, "-i", "{key_path}", "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}")
-		} else {
-			template = []string{"ssh"}
-			template = append(template, baseArgs...)
-			template = append(template, "{user}@{host}", "-t", "--", "sh", "-c", "{shell_cmd}")
-		}
-	}
-
-	// 变量替换
-	result := make([]string, 0, len(template))
-	for _, arg := range template {
-		arg = strings.ReplaceAll(arg, "{key_path}", shellQuote(keyPath))
-		arg = strings.ReplaceAll(arg, "{user}@{host}", sshTarget)
-		arg = strings.ReplaceAll(arg, "{host}", dir.RemoteHost)
-		arg = strings.ReplaceAll(arg, "{user}", dir.RemoteUser)
-		arg = strings.ReplaceAll(arg, "{shell_cmd}", shellQuote(shellCmd))
-		result = append(result, arg)
-	}
-	return result
-}
-
-// fileExists 检查文件是否存在
-var fileExists = func(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-// buildShellCmd 构建远端执行的 shell 命令。
-// 规则：cd remote_path（如有） → TerminalCmd（如有） → exec $SHELL -l。
-func buildShellCmd(dir *backend.DirShortcut) string {
-	parts := []string{}
-	if dir.RemotePath != "" {
-		parts = append(parts, "cd '"+dir.RemotePath+"'")
-	}
-	if dir.TerminalCmd != "" {
-		parts = append(parts, dir.TerminalCmd)
-	}
-	parts = append(parts, "exec $SHELL -l")
-	return strings.Join(parts, " && ")
-}
-
-// shellQuote 给字符串加单引号并转义内部单引号（简单实现，用于命令行参数）。
-func shellQuote(s string) string {
-	if s == "" {
-		return ""
-	}
-	// 将 ' 替换为 '\''（单引号-反斜单引号-单引号-单引号）
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
+// buildRemoteArgs 已迁移到 internal/executor/ssh_command_builder.go 的 BuildSSHCommand。
 
 // OpenRemoteDirShortcut 用配置的终端软件打开远程 SSH 连接。
 // 支持 wezterm 等终端，连接后 cd 到 remote_path（默认主目录）。
@@ -175,9 +90,6 @@ func openRemoteDirShortcutImpl(ctx context.Context, dir *backend.DirShortcut, te
 		return fmt.Errorf("not a remote shortcut: type=%s", dir.Type)
 	}
 
-	// 解析密钥路径（优先级：LocalKeyPath > KeyPath > 全局默认 > 兜底）
-	keyPath := executor.ResolveKeyPath(dir)
-
 	// 可选：确保密钥免密已配置（首次使用时）
 	if ensureKeyAuth {
 		_, err := executor.EnsureKeyAuthAvailable(ctx, dir)
@@ -189,12 +101,12 @@ func openRemoteDirShortcutImpl(ctx context.Context, dir *backend.DirShortcut, te
 
 	logger.Logger.Infow("[OpenRemoteDirShortcut] opening",
 		"termType", termType, "bin", binPath,
-		"remotePath", dir.RemotePath, "keyPath", keyPath)
+		"remotePath", dir.RemotePath)
 
-	// 用 buildRemoteArgs 获取完整 args 列表
-	args := buildRemoteArgs(termType, dir, keyPath)
-	if len(args) == 0 {
-		return fmt.Errorf("build remote args failed: empty result")
+	// 用 BuildSSHCommand 获取完整 args 列表
+	args, err := executor.BuildSSHCommand(dir, termType)
+	if err != nil {
+		return fmt.Errorf("build ssh command: %w", err)
 	}
 
 	return execRemoteTerminal(termType, binPath, args)
