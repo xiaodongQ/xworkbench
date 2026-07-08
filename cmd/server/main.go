@@ -1265,7 +1265,8 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		})
 		// 如果原 execution 属于某个计划任务，同步 session 信息：
 		// 下次计划任务自动运行时，复用同一个 session，保持和手动「继续对话」一致。
-		if orig.ScheduledTaskID != "" {
+		// 仅在新 session 有效时更新（resume 失败时不覆盖已有 session）。
+		if orig.ScheduledTaskID != "" && newSessionID != "" {
 			if task, err := s.schedDB.Get(orig.ScheduledTaskID); err == nil && task != nil {
 				_ = s.schedDB.UpdateSessionInfo(orig.ScheduledTaskID, newSessionID, task.ResumeCount)
 			}
