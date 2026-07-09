@@ -698,6 +698,9 @@ async function viewExecutionDetail(id) {
       ' exit_code=' + exitDisplay + ' · ' + new Date(exec.started_at).toLocaleString() + ' · 耗时 ' + dur +
       crumb;
 
+    // 手动触发 tooltip 绑定（确保 innerHTML 创建的新元素能正确响应 hover）
+    if (typeof bindGeneralTooltips === 'function') bindGeneralTooltips();
+
     const isEvalNow = _evaluatingIds.has(id);
     const evalBtn = document.getElementById('exec-detail-eval-btn');
     const evalSel = document.getElementById('eval-model-select');
