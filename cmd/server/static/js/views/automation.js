@@ -634,8 +634,6 @@ let currentExecId = null;
 
 async function viewExecutionDetail(id) {
   currentExecId = id;
-  modalOpen = true; // 禁止后台按钮 tooltip
-  hideFastTip(null); // 隐藏当前可能显示的后台 tooltip
   // 清除继续对话反馈条带，切换执行时不应带过去
   document.getElementById('continue-feedback-strip')?.remove();
   // 立刻重置继续对话按钮状态,避免上一次 viewExecutionDetail 留下的
@@ -765,7 +763,6 @@ async function viewExecutionDetail(id) {
 
 function closeExecDetailModal() {
   document.getElementById('exec-detail-modal').classList.add('hidden');
-  modalOpen = false; // 恢复后台按钮 tooltip
   currentExecId = null;
 }
 
