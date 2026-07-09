@@ -462,6 +462,7 @@ func migrateDirShortcutsColumns(db *sql.DB) error {
 		{"key_path", "key_path TEXT"},
 		{"local_key_path", "local_key_path TEXT"},
 		{"terminal_cmd", "terminal_cmd TEXT"},
+		{"use_legacy_algorithms", "use_legacy_algorithms INTEGER DEFAULT 0"},
 		{"created_at", "created_at DATETIME"},
 		{"last_accessed_at", "last_accessed_at DATETIME"},
 	}
@@ -1648,10 +1649,10 @@ func (r *DirShortcutRepo) Create(d *DirShortcut) error {
 	if d.Type == "" {
 		d.Type = DirShortcutTypeLocal
 	}
-	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,terminal_cmd,created_at)
-		    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,terminal_cmd,use_legacy_algorithms,created_at)
+		    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, d.ID, d.Name, d.Path, d.SortOrder, d.Type, d.RemoteHost, d.RemoteUser, d.RemotePath,
-		d.RemotePassword, d.AuthMethod, d.KeyPath, d.TerminalCmd, d.CreatedAt)
+		d.RemotePassword, d.AuthMethod, d.KeyPath, d.LocalKeyPath, d.KeyPassword, d.TerminalCmd, d.UseLegacyAlgorithms, d.CreatedAt)
 	if err != nil {
 		logger.Logger.Errorw("dir_shortcuts create failed", "id", d.ID, "name", d.Name, "path", d.Path, "error", err.Error())
 		return err
@@ -1692,6 +1693,8 @@ func (r *DirShortcutRepo) Update(d *DirShortcut) error {
 	args = append(args, d.KeyPath)
 	set = append(set, "terminal_cmd=?")
 	args = append(args, d.TerminalCmd)
+	set = append(set, "use_legacy_algorithms=?")
+	args = append(args, d.UseLegacyAlgorithms)
 	if len(set) == 0 {
 		return nil
 	}
@@ -1730,7 +1733,7 @@ func (r *DirShortcutRepo) Touch(id string) error {
 }
 
 func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
-	rows, err := r.db.Query(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,terminal_cmd,created_at,last_accessed_at FROM dir_shortcuts ORDER BY sort_order ASC, created_at DESC`)
+	rows, err := r.db.Query(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,terminal_cmd,use_legacy_algorithms,created_at,last_accessed_at FROM dir_shortcuts ORDER BY sort_order ASC, created_at DESC`)
 	if err != nil {
 		logger.Logger.Errorw("dir_shortcuts list query failed", "error", err.Error())
 		return nil, err
@@ -1741,7 +1744,7 @@ func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
 		var d DirShortcut
 		var lastAcc sql.NullTime
 		var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, localKeyPath, keyPassword, terminalCmd sql.NullString
-		if err := rows.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &localKeyPath, &keyPassword, &terminalCmd, &d.CreatedAt, &lastAcc); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &localKeyPath, &keyPassword, &terminalCmd, &d.UseLegacyAlgorithms, &d.CreatedAt, &lastAcc); err != nil {
 			return nil, err
 		}
 		if d.Type == "" {

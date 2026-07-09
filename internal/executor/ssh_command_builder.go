@@ -36,7 +36,10 @@ func BuildSSHCommand(dir *backend.DirShortcut, termType string) ([]string, error
 	keyPath := ResolveKeyPath(dir)
 
 	args := []string{binary}
-	args = append(args, buildCompatArgs(cfg.SSH.CompatAlgorithms)...)
+	// 只有 UseLegacyAlgorithms=true 时才追加 legacy SSH 算法
+	if dir.UseLegacyAlgorithms {
+		args = append(args, buildCompatArgs(cfg.SSH.CompatAlgorithms)...)
+	}
 	args = append(args, template...)
 
 	// 条件移除 -i {key_path} 段
@@ -92,48 +95,19 @@ func resolveSSHBinary(termDef config.TerminalTypeDef) (binary string, template [
 
 // buildCompatArgs 根据 CompatAlgorithms 拼出 -o 选项。
 // 任一字段为空数组则不输出对应 -o。
-// 注意：配置值中的 "+" 前缀表示"追加到系统默认列表"，但老算法可能已从系统默认中移除，
-// 导致 "Unsupported KEX algorithm" 错误。因此只保留有效的算法（无前缀），由 SSH 客户端
-// 自行决定 fallback 到其他支持的算法。
+// 注意：配置值中的 "+" 前缀表示"追加到系统默认列表"，SSH 客户端会忽略不支持的算法。
 func buildCompatArgs(algos config.SSHCompatAlgorithms) []string {
 	var args []string
-	strippedKex := stripLeadingPlus(algos.Kex)
-	if len(strippedKex) > 0 {
-		args = append(args, "-o", "KexAlgorithms="+strings.Join(strippedKex, ","))
+	if len(algos.Kex) > 0 {
+		args = append(args, "-o", "KexAlgorithms="+strings.Join(algos.Kex, ","))
 	}
-	strippedHostKey := stripLeadingPlus(algos.HostKey)
-	if len(strippedHostKey) > 0 {
-		args = append(args, "-o", "HostKeyAlgorithms="+strings.Join(strippedHostKey, ","))
+	if len(algos.HostKey) > 0 {
+		args = append(args, "-o", "HostKeyAlgorithms="+strings.Join(algos.HostKey, ","))
 	}
-	strippedCipher := stripLeadingPlus(algos.Cipher)
-	if len(strippedCipher) > 0 {
-		args = append(args, "-o", "Ciphers="+strings.Join(strippedCipher, ","))
+	if len(algos.Cipher) > 0 {
+		args = append(args, "-o", "Ciphers="+strings.Join(algos.Cipher, ","))
 	}
 	return args
-}
-
-// stripLeadingPlus 去掉数组每个元素开头的 "+" 前缀（追加到默认列表的语法）。
-// "+algo" → "algo"。如果原本没前缀则不变。
-func stripLeadingPlus(algos []string) []string {
-	if len(algos) == 0 {
-		return algos
-	}
-	result := make([]string, len(algos))
-	for i, a := range algos {
-		if len(a) > 0 && a[0] == '+' {
-			result[i] = a[1:]
-		} else {
-			result[i] = a
-		}
-	}
-	// 过滤掉空字符串（原始值只有 "+" 的情况）
-	filtered := result[:0]
-	for _, a := range result {
-		if a != "" {
-			filtered = append(filtered, a)
-		}
-	}
-	return filtered
 }
 
 // dropKeyFlagIfMissing 若 keyPath 为空或文件不存在，从 args 中移除
