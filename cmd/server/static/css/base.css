@@ -77,7 +77,7 @@ body {
   min-height: 100vh;
 }
 /* Windows 字体放大 */
-html.windows { zoom: 1.1; }
+html.windows { zoom: 1.11; }
 
 /* ===== 布局 ===== */
 .sidebar {
