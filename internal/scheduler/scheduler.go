@@ -291,7 +291,15 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 			timeout = 10 * 60 // 10 分钟
 		}
 	}
-	logger.Logger.Infow("scheduler: task execution started", "task", t.Name, "exec_id", exec.ID, "timeout_sec", timeout)
+	logger.Logger.Infow("scheduler: task execution started",
+		"task", t.Name, "exec_id", exec.ID, "timeout_sec", timeout,
+		"command_type", t.CommandType,
+		"is_ai", isAI,
+		"last_session_id", t.LastSessionID,
+		"resume_count", t.ResumeCount,
+		"max_resume", maxResume,
+		"resume_session_id", sessionID,
+		"will_resume", sessionID != "")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()

@@ -182,7 +182,7 @@ func TestBuildSSHCommand_CompatAlgorithmsPartial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !containsSeq(args, []string{"-o", "KexAlgorithms=+diffie-hellman-group1-sha1"}) {
+	if !containsSeq(args, []string{"-o", "KexAlgorithms=diffie-hellman-group1-sha1"}) {
 		t.Errorf("expected KexAlgorithms -o, args=%v", args)
 	}
 	for _, a := range args {

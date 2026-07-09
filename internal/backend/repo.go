@@ -1920,12 +1920,12 @@ func (r *ScheduledTaskRepo) Delete(id string) error {
 
 func (r *ScheduledTaskRepo) Get(id string) (*ScheduledTask, error) {
 	var t ScheduledTask
-	var model, prompt, workdir, lastStatus, lastExecID sql.NullString
+	var model, prompt, workdir, lastStatus, lastExecID, lastSessionID sql.NullString
 	var lastRunAt sql.NullTime
-	var enabled int
-	err := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,created_at
+	var enabled, resumeCount int
+	err := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at
 	        FROM scheduled_tasks WHERE id=?`, id).Scan(&t.ID, &t.Name, &t.CronExpr, &t.CommandType,
-		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &t.CreatedAt)
+		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("scheduled_task %s not found", id)
 	}
@@ -1937,6 +1937,8 @@ func (r *ScheduledTaskRepo) Get(id string) (*ScheduledTask, error) {
 	t.WorkingDir = workdir.String
 	t.LastStatus = lastStatus.String
 	t.LastExecutionID = lastExecID.String
+	t.LastSessionID = lastSessionID.String
+	t.ResumeCount = resumeCount
 	t.Enabled = enabled != 0
 	if lastRunAt.Valid {
 		t.LastRunAt = &lastRunAt.Time
@@ -1954,14 +1956,14 @@ func (r *ScheduledTaskRepo) ListEnabled() ([]*ScheduledTask, error) {
 
 // FindByName 按 name 精确查找（导入去重使用）。不存在返 nil, nil。
 func (r *ScheduledTaskRepo) FindByName(name string) (*ScheduledTask, error) {
-	row := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,created_at
+	row := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at
 		FROM scheduled_tasks WHERE name=? LIMIT 1`, name)
 	var t ScheduledTask
-	var model, prompt, workdir, lastStatus, lastExecID sql.NullString
+	var model, prompt, workdir, lastStatus, lastExecID, lastSessionID sql.NullString
 	var lastRunAt sql.NullTime
-	var enabled int
+	var enabled, resumeCount int
 	if err := row.Scan(&t.ID, &t.Name, &t.CronExpr, &t.CommandType,
-		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &t.CreatedAt); err != nil {
+		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -1972,6 +1974,8 @@ func (r *ScheduledTaskRepo) FindByName(name string) (*ScheduledTask, error) {
 	t.WorkingDir = workdir.String
 	t.LastStatus = lastStatus.String
 	t.LastExecutionID = lastExecID.String
+	t.LastSessionID = lastSessionID.String
+	t.ResumeCount = resumeCount
 	t.Enabled = enabled != 0
 	if lastRunAt.Valid {
 		t.LastRunAt = &lastRunAt.Time
@@ -1980,7 +1984,7 @@ func (r *ScheduledTaskRepo) FindByName(name string) (*ScheduledTask, error) {
 }
 
 func (r *ScheduledTaskRepo) listWhere(where string) ([]*ScheduledTask, error) {
-	q := `SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,created_at
+	q := `SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at
 	        FROM scheduled_tasks ` + where + ` ORDER BY created_at DESC`
 	rows, err := r.db.Query(q)
 	if err != nil {
@@ -1990,11 +1994,11 @@ func (r *ScheduledTaskRepo) listWhere(where string) ([]*ScheduledTask, error) {
 	var out []*ScheduledTask
 	for rows.Next() {
 		var t ScheduledTask
-		var model, prompt, workdir, lastStatus, lastExecID sql.NullString
+		var model, prompt, workdir, lastStatus, lastExecID, lastSessionID sql.NullString
 		var lastRunAt sql.NullTime
-		var enabled int
+		var enabled, resumeCount int
 		if err := rows.Scan(&t.ID, &t.Name, &t.CronExpr, &t.CommandType,
-			&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &t.CreatedAt); err != nil {
+			&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		t.Model = model.String
@@ -2002,6 +2006,8 @@ func (r *ScheduledTaskRepo) listWhere(where string) ([]*ScheduledTask, error) {
 		t.WorkingDir = workdir.String
 		t.LastStatus = lastStatus.String
 		t.LastExecutionID = lastExecID.String
+		t.LastSessionID = lastSessionID.String
+		t.ResumeCount = resumeCount
 		t.Enabled = enabled != 0
 		if lastRunAt.Valid {
 			t.LastRunAt = &lastRunAt.Time

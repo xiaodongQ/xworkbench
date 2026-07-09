@@ -706,14 +706,12 @@ func DefaultConfig() *Config {
 		},
 		SSH: SSHConfig{
 			CompatAlgorithms: SSHCompatAlgorithms{
-				Kex: []string{
-					"+diffie-hellman-group1-sha1",
-					"+diffie-hellman-group-exchange-sha1",
-				},
+				// 默认启用 diffie-hellman-group1-sha1 兼容老 Linux 服务器（macOS 仍支持）
+				// 注意：配置值带 "+" 前缀表示追加到系统默认列表，buildCompatArgs 会自动去掉前缀
+				// 再传递给 SSH（避免 "+algo" 但 algo 已不在系统默认列表导致 "Unsupported KEX" 错误）
+				Kex:     []string{"+diffie-hellman-group1-sha1"},
 				HostKey: []string{"+ssh-rsa", "+ssh-dss"},
-				Cipher: []string{
-					"+3des-cbc", "+aes128-cbc", "+aes192-cbc", "+aes256-cbc",
-				},
+				Cipher:  []string{"+3des-cbc", "+aes128-cbc", "+aes192-cbc", "+aes256-cbc"},
 			},
 		},
 		AIChat: AIChatConfig{
