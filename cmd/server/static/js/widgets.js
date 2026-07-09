@@ -796,32 +796,3 @@ if (typeof window !== "undefined") {
   });
 }
 
-// ===== 鼠标跟随 Tooltip =====
-(function() {
-    let tooltip = null;
-    document.addEventListener('mouseover', function(e) {
-        const target = e.target.closest('[data-tooltip]');
-        if (!target) return;
-        // 跳过 sidebar（api.js 有专门的 sidebar tooltip 系统）
-        if (target.closest('.sidebar')) return;
-        if (!tooltip) {
-            tooltip = document.createElement('div');
-            tooltip.className = 'mouse-tooltip';
-            document.body.appendChild(tooltip);
-        }
-        tooltip.textContent = target.dataset.tooltip;
-        tooltip.style.display = 'block';
-    });
-    document.addEventListener('mousemove', function(e) {
-        if (!tooltip || tooltip.style.display === 'none') return;
-        tooltip.style.left = (e.clientX + 12) + 'px';
-        tooltip.style.top = (e.clientY + 12) + 'px';
-    });
-    document.addEventListener('mouseout', function(e) {
-        const target = e.target.closest('[data-tooltip]');
-        if (!target) return;
-        // 如果鼠标移动到了 tooltip 自身，不要隐藏（避免移动到 tooltip 时闪烁）
-        if (e.relatedTarget === tooltip) return;
-        if (tooltip) tooltip.style.display = 'none';
-    });
-})();
