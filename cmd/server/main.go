@@ -1620,6 +1620,36 @@ func matchWindowsDrive(path string) bool {
 	return path[1] == ':' && (path[2] == '\\' || path[2] == '/')
 }
 
+// normalizeLinkURL 将用户输入的 URL/路径规整为统一形式:
+//
+//   - 前后空白 trim
+//   - 已含 "://" 的 URL(http/https/ftp/file 等)原样保留(幂等)
+//   - ~ 展开为用户 home
+//   - Windows 盘符 / UNC / Unix 绝对路径 → file:// URL
+//   - 其他(相对路径)原样保留
+func normalizeLinkURL(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	// 已是带协议的 URL,原样保留(file:// 也走此分支,实现幂等)
+	if strings.Contains(s, "://") {
+		return s
+	}
+	// ~ 展开(仅去除首字符 ~,后续保留相对路径语义)
+	if strings.HasPrefix(s, "~") {
+		if usr, err := user.Current(); err == nil {
+			s = filepath.Join(usr.HomeDir, strings.TrimPrefix(s, "~"))
+		}
+	}
+	// Windows 盘符 / UNC / Unix 绝对路径 → file://
+	if matchWindowsDrive(s) || strings.HasPrefix(s, "\\\\") || strings.HasPrefix(s, "/") {
+		return pathToFileURL(s)
+	}
+	// 其他(相对路径等)原样保留
+	return s
+}
+
 // pathToFileURL 将本地路径转换为 proper file:// URL
 func pathToFileURL(path string) string {
 	// Windows: C:\path\to\file → file:///C:/path/to/file
