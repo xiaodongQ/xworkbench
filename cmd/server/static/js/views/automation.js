@@ -693,7 +693,7 @@ async function viewExecutionDetail(id) {
     document.getElementById('exec-detail-meta').innerHTML =
       '<span style="font-size:11px;font-weight:600;' + srcColor + '">' + srcText + '</span>' +
       ' <span style="margin-left:8px;color:var(--text-secondary)">|</span>' +
-      ' <span style="cursor:help" title="' + detailTip + '"><b>' + esc(nameDisplay) + '</b> ⓘ</span>' +
+      ' <span style="cursor:help" data-tooltip="' + detailTip.replace(/\n/g, '&#10;') + '"><b>' + esc(nameDisplay) + '</b> ⓘ</span>' +
       ' <span style="margin-left:8px;color:var(--text-secondary)">|</span>' +
       ' exit_code=' + exitDisplay + ' · ' + new Date(exec.started_at).toLocaleString() + ' · 耗时 ' + dur +
       crumb;
