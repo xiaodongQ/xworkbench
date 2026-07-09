@@ -152,9 +152,12 @@ func (h *RelayHandler) HandleRelayProxy(w http.ResponseWriter, r *http.Request) 
 }
 
 // HandleRelayStats returns relay statistics.
+// Query params: from, to (ISO datetime), source (e.g. "exec" or "proxy").
+// If source is empty, returns stats for all sources.
 func (h *RelayHandler) HandleRelayStats(w http.ResponseWriter, r *http.Request) {
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
+	source := r.URL.Query().Get("source")
 
 	if h.repo == nil {
 		stats := RelayStats{}
@@ -163,7 +166,7 @@ func (h *RelayHandler) HandleRelayStats(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	stats, err := h.repo.Stats(from, to)
+	stats, err := h.repo.Stats(from, to, source)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

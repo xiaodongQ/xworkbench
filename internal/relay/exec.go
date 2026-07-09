@@ -31,7 +31,7 @@ type ExecResponse struct {
 }
 
 // HandleExec 接收命令，在 Windows 上执行并返回结果。
-func HandleExec(w http.ResponseWriter, r *http.Request) {
+func (h *RelayHandler) HandleExec(w http.ResponseWriter, r *http.Request) {
 	var req ExecRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -71,7 +71,9 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 		resp.ExitCode = result.ExitCode
 	}
 
+	status := "success"
 	if err != nil || (result != nil && result.ExitCode != 0) {
+		status = "failed"
 		logger.Logger.Errorw("relay: exec done",
 			"cmd", truncateRelayCmd(cmdArgs),
 			"exit_code", resp.ExitCode,
@@ -89,6 +91,21 @@ func HandleExec(w http.ResponseWriter, r *http.Request) {
 			"stdout_bytes", len(resp.Output),
 			"stderr_bytes", len(resp.ErrorOut),
 		)
+	}
+
+	// 写 relay 日志（source=exec，供统计分栏展示）
+	if h.repo != nil {
+		logEntry := &RelayLog{
+			Source:       "exec",
+			Destination:  req.Cwd,
+			Summary:      truncateRelayCmd(cmdArgs),
+			Direction:    "local",
+			Status:       status,
+			ErrorMsg:     resp.Error,
+			RequestSize:  len(req.Command),
+			ResponseSize: len(resp.Output),
+		}
+		_ = h.repo.Log(logEntry)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

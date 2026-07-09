@@ -27,6 +27,6 @@ type RelayStats struct {
 // Repo defines the interface for relay log persistence.
 type Repo interface {
 	Log(log *RelayLog) error
-	Stats(from, to string) (*RelayStats, error)
+	Stats(from, to, source string) (*RelayStats, error)
 	InitSchema() error
 }

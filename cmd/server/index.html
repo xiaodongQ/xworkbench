@@ -684,27 +684,52 @@
         <div id="proxy-result" class="result-box"></div>
       </div>
     </div>
-    <!-- HTTP代理转发统计 -->
+    <!-- 统计信息：两栏布局 -->
     <div class="widget">
       <div class="widget-title" style="display:flex;justify-content:space-between;align-items:center">
-        <span>📊 HTTP代理转发统计</span>
+        <span>📊 统计信息</span>
         <button class="btn btn-small" onclick="loadRelayStats()">刷新</button>
       </div>
-      <div id="relay-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
-        <div style="text-align:center;padding:8px;background:var(--hover);border-radius:6px">
-          <div style="font-size:20px;font-weight:600" id="relay-total">-</div>
-          <div style="font-size:11px;color:var(--text-secondary)">总请求</div>
+      <div style="display:flex;gap:12px">
+        <!-- 左侧：命令执行 -->
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:500;margin-bottom:6px;color:var(--text-secondary)">⌨️ 命令执行</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
+            <div style="text-align:center;padding:6px;background:var(--hover);border-radius:6px">
+              <div style="font-size:18px;font-weight:600" id="exec-total">-</div>
+              <div style="font-size:10px;color:var(--text-secondary)">总次数</div>
+            </div>
+            <div style="text-align:center;padding:6px;background:var(--hover);border-radius:6px">
+              <div style="font-size:18px;font-weight:600;color:green" id="exec-success">-</div>
+              <div style="font-size:10px;color:var(--text-secondary)">成功</div>
+            </div>
+            <div style="text-align:center;padding:6px;background:var(--hover);border-radius:6px">
+              <div style="font-size:18px;font-weight:600;color:red" id="exec-failed">-</div>
+              <div style="font-size:10px;color:var(--text-secondary)">失败</div>
+            </div>
+          </div>
+          <div id="exec-histogram" style="font-size:11px;color:var(--text-secondary)"></div>
         </div>
-        <div style="text-align:center;padding:8px;background:var(--hover);border-radius:6px">
-          <div style="font-size:20px;font-weight:600;color:green" id="relay-success">-</div>
-          <div style="font-size:11px;color:var(--text-secondary)">成功</div>
-        </div>
-        <div style="text-align:center;padding:8px;background:var(--hover);border-radius:6px">
-          <div style="font-size:20px;font-weight:600;color:red" id="relay-failed">-</div>
-          <div style="font-size:11px;color:var(--text-secondary)">失败</div>
+        <!-- 右侧：HTTP代理转发 -->
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:500;margin-bottom:6px;color:var(--text-secondary)">🌐 HTTP代理转发</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
+            <div style="text-align:center;padding:6px;background:var(--hover);border-radius:6px">
+              <div style="font-size:18px;font-weight:600" id="proxy-total">-</div>
+              <div style="font-size:10px;color:var(--text-secondary)">总请求</div>
+            </div>
+            <div style="text-align:center;padding:6px;background:var(--hover);border-radius:6px">
+              <div style="font-size:18px;font-weight:600;color:green" id="proxy-success">-</div>
+              <div style="font-size:10px;color:var(--text-secondary)">成功</div>
+            </div>
+            <div style="text-align:center;padding:6px;background:var(--hover);border-radius:6px">
+              <div style="font-size:18px;font-weight:600;color:red" id="proxy-failed">-</div>
+              <div style="font-size:10px;color:var(--text-secondary)">失败</div>
+            </div>
+          </div>
+          <div id="proxy-histogram" style="font-size:11px;color:var(--text-secondary)"></div>
         </div>
       </div>
-      <div id="relay-histogram" style="font-size:12px;color:var(--text-secondary)"></div>
     </div>
 
     <!-- 远程 Agent 管理 -->

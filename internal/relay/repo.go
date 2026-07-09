@@ -50,7 +50,7 @@ func (r *SQLiteRelayRepo) Log(log *RelayLog) error {
 }
 
 // Stats returns aggregated relay statistics.
-func (r *SQLiteRelayRepo) Stats(from, to string) (*RelayStats, error) {
+func (r *SQLiteRelayRepo) Stats(from, to, source string) (*RelayStats, error) {
 	stats := &RelayStats{
 		BySource:      make(map[string]int),
 		ByDestination: make(map[string]int),
@@ -58,7 +58,11 @@ func (r *SQLiteRelayRepo) Stats(from, to string) (*RelayStats, error) {
 	}
 
 	whereClause := ""
-	args := make([]any, 0, 2)
+	args := make([]any, 0, 3)
+	if source != "" {
+		whereClause += " AND source = ?"
+		args = append(args, source)
+	}
 	if from != "" {
 		whereClause += " AND created_at >= ?"
 		args = append(args, from)
@@ -87,13 +91,13 @@ func (r *SQLiteRelayRepo) Stats(from, to string) (*RelayStats, error) {
 		return nil, fmt.Errorf("stats by source: %w", err)
 	}
 	for rows.Next() {
-		var source string
+		var src string
 		var count int
-		if err := rows.Scan(&source, &count); err != nil {
+		if err := rows.Scan(&src, &count); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		stats.BySource[source] = count
+		stats.BySource[src] = count
 	}
 	rows.Close()
 

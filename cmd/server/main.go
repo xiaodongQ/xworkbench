@@ -235,7 +235,7 @@ func (s *APIServer) routes() {
 
 	// relay 代理功能（带 API key 认证）
 	relayAuth := checkRelayAuth()
-	mux.HandleFunc("POST /api/exec", relayAuth(relay.HandleExec))
+	mux.HandleFunc("POST /api/exec", relayAuth(s.relayHandler.HandleExec))
 	mux.HandleFunc("POST /api/relay/proxy", relayAuth(s.relayHandler.HandleRelayProxy))
 	mux.HandleFunc("GET /api/relay/stats", relayAuth(s.relayHandler.HandleRelayStats))
 

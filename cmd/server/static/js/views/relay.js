@@ -69,22 +69,31 @@ async function runProxy() {
 }
 
 async function loadRelayStats() {
+  await Promise.all([
+    loadSourceStats('exec'),
+    loadSourceStats('proxy'),
+  ]);
+}
+
+async function loadSourceStats(source) {
   try {
-    const stats = await fetchJSON('/api/relay/stats');
-    document.getElementById('relay-total').textContent = stats.total_count || 0;
-    document.getElementById('relay-success').textContent = stats.success_count || 0;
-    document.getElementById('relay-failed').textContent = stats.failed_count || 0;
+    const stats = await fetchJSON('/api/relay/stats?source=' + source);
+    document.getElementById(source + '-total').textContent = stats.total_count || 0;
+    document.getElementById(source + '-success').textContent = stats.success_count || 0;
+    document.getElementById(source + '-failed').textContent = stats.failed_count || 0;
 
     const hist = stats.date_histogram || {};
     const days = Object.keys(hist).sort();
-    if (days.length > 0) {
-      document.getElementById('relay-histogram').textContent =
-        '近 ' + days.length + ' 天: ' + days.map(d => d + ': ' + hist[d]).join(', ');
-    } else {
-      document.getElementById('relay-histogram').textContent = '暂无数据';
+    const el = document.getElementById(source + '-histogram');
+    if (el) {
+      if (days.length > 0) {
+        el.textContent = '近 ' + days.length + ' 天: ' + days.map(d => d + ': ' + hist[d]).join(', ');
+      } else {
+        el.textContent = '暂无数据';
+      }
     }
   } catch (e) {
-    console.error('loadRelayStats error', e);
+    console.error('loadSourceStats(' + source + ') error', e);
   }
 }
 
