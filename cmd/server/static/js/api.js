@@ -248,6 +248,7 @@ function ensureTooltip() {
   if (_tooltipEl) return _tooltipEl;
   _tooltipEl = document.createElement('div');
   _tooltipEl.className = 'custom-tooltip';
+  _tooltipEl.style.zIndex = '1200';
   document.body.appendChild(_tooltipEl);
   return _tooltipEl;
 }
@@ -318,6 +319,8 @@ function updateToggleLabel() {
 loadSidebar();
 
 // ===== 全局快速 tooltip：替代浏览器原生 title 慢延迟 =====
+// 弹框打开时禁止后台 tooltip（由 automation.js 控制）
+let modalOpen = false;
 let _fastTipEl = null;
 function ensureFastTip() {
   if (_fastTipEl) return _fastTipEl;
@@ -329,9 +332,11 @@ function ensureFastTip() {
 function showFastTip(target) {
   const text = target.getAttribute('title');
   if (!text) return;
-  // 阻止浏览器原生 tooltip 弹(把 title 暂存,鼠标走时恢复)
+  // 阻止浏览器原生 tooltip（无论是否显示自定义 tooltip）
   if (target._origTitle === undefined) target._origTitle = text;
   target.setAttribute('title', '');
+  // 弹框打开时，只禁用"查看详情"类按钮的 tooltip，不影响其他（如列表页的命令 ⓘ）
+  if (modalOpen && text === '查看详情') return;
   const tip = ensureFastTip();
   tip.innerHTML = `<span class="tt-line">${esc(text)}</span>`;
   positionTooltip(tip, target.getBoundingClientRect());

@@ -634,6 +634,8 @@ let currentExecId = null;
 
 async function viewExecutionDetail(id) {
   currentExecId = id;
+  modalOpen = true; // 禁止后台按钮 tooltip
+  hideFastTip(null); // 隐藏当前可能显示的后台 tooltip
   // 清除继续对话反馈条带，切换执行时不应带过去
   document.getElementById('continue-feedback-strip')?.remove();
   // 立刻重置继续对话按钮状态,避免上一次 viewExecutionDetail 留下的
@@ -697,9 +699,6 @@ async function viewExecutionDetail(id) {
       ' <span style="margin-left:8px;color:var(--text-secondary)">|</span>' +
       ' exit_code=' + exitDisplay + ' · ' + new Date(exec.started_at).toLocaleString() + ' · 耗时 ' + dur +
       crumb;
-
-    // 手动触发 tooltip 绑定（确保 innerHTML 创建的新元素能正确响应 hover）
-    if (typeof bindGeneralTooltips === 'function') bindGeneralTooltips();
 
     const isEvalNow = _evaluatingIds.has(id);
     const evalBtn = document.getElementById('exec-detail-eval-btn');
@@ -766,6 +765,7 @@ async function viewExecutionDetail(id) {
 
 function closeExecDetailModal() {
   document.getElementById('exec-detail-modal').classList.add('hidden');
+  modalOpen = false; // 恢复后台按钮 tooltip
   currentExecId = null;
 }
 
