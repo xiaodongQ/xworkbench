@@ -9,11 +9,14 @@ import (
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
+	"github.com/xiaodongQ/xworkbench/internal/executor"
 	"go.uber.org/zap"
 )
 
 // TestHandleDirShortcutOpenTerminal_RemoteMultiTerminal 测试远程 shortcut 用多种终端类型唤起。
 // 验证：wezterm/wt/iterm2/gnome/xterm 均不返回错误（命令构造成功）。
+// legacy 错误串 "build remote args failed" / "empty result" 是旧 buildRemoteArgs 实现的产物，
+// 新 BuildSSHCommand 不再产出这些字符串。
 func TestHandleDirShortcutOpenTerminal_RemoteMultiTerminal(t *testing.T) {
 	if logger == nil {
 		z, _ := zap.NewProduction()
@@ -44,21 +47,17 @@ func TestHandleDirShortcutOpenTerminal_RemoteMultiTerminal(t *testing.T) {
 			req := httptest.NewRequest("POST", "/api/dir-shortcuts/"+remoteDir.ID+"/open-terminal?type="+termType, nil)
 			w := httptest.NewRecorder()
 			mux.ServeHTTP(w, req)
-			if w.Code == http.StatusInternalServerError {
-				body := w.Body.String()
-				// InternalServerError 通常是 os/exec.Start 失败（可接受，因为测试机没装对应终端）
-				// 但命令构造本身不应出错
-				if strings.Contains(body, "build remote args failed") ||
-					strings.Contains(body, "unsupported terminal type") ||
-					strings.Contains(body, "empty result") {
-					t.Errorf("handleDirShortcutOpenTerminal(%s) command build error: %s", termType, body)
-				}
+			// 验证：命令构造成功（"unsupported terminal type" 不应出现——这些都受 DefaultConfig 支持）
+			if strings.Contains(w.Body.String(), "unsupported terminal type") {
+				t.Errorf("handleDirShortcutOpenTerminal(%s) unexpected unsupported error: %s", termType, w.Body.String())
 			}
 		})
 	}
 }
 
-// TestHandleDirShortcutOpenTerminal_RemoteUnsupportedTerminal 测试不支持的终端类型走泛用 ssh 兜底。
+// TestHandleDirShortcutOpenTerminal_RemoteUnsupportedTerminal 验证未支持的 termType 现在返回 400 + "unsupported terminal type"。
+// 新 BuildSSHCommand 对未支持的 termType 直接返回 error，handler 在 main.go:1849 early-return 400。
+// 本测试锁住这个新契约不被未来回归。
 func TestHandleDirShortcutOpenTerminal_RemoteUnsupportedTerminal(t *testing.T) {
 	if logger == nil {
 		z, _ := zap.NewProduction()
@@ -83,17 +82,18 @@ func TestHandleDirShortcutOpenTerminal_RemoteUnsupportedTerminal(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/dir-shortcuts/"+remoteDir.ID+"/open-terminal?type=nonexistent_xyz_terminal", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
-	// 不支持的终端走泛用 ssh 兜底，命令构造不报错
-	if w.Code == http.StatusInternalServerError {
-		body := w.Body.String()
-		if strings.Contains(body, "build remote args failed") ||
-			strings.Contains(body, "empty result") {
-			t.Errorf("unsupported terminal should fall back to generic ssh, got error: %s", body)
-		}
+
+	// 新契约：未支持 termType 直接 400 + "unsupported terminal type"
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d, body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "unsupported terminal type") {
+		t.Errorf("expected 'unsupported terminal type' in body, got: %s", w.Body.String())
 	}
 }
 
 // TestHandleDirShortcutOpenTerminal_RemoteKeyPathPriority 测试 LocalKeyPath 优先于 KeyPath。
+// 直接调 executor.ResolveKeyPath（真实现），避免本地 helper 与真实现漂移。
 func TestHandleDirShortcutOpenTerminal_RemoteKeyPathPriority(t *testing.T) {
 	if logger == nil {
 		z, _ := zap.NewProduction()
@@ -118,8 +118,8 @@ func TestHandleDirShortcutOpenTerminal_RemoteKeyPathPriority(t *testing.T) {
 		t.Fatalf("Create remoteDir: %v", err)
 	}
 
-	// 验证 LocalKeyPath 优先
-	keyPath := resolveKeyPathForTest(remoteDir)
+	// 验证 LocalKeyPath 优先（executor.ResolveKeyPath 是真实现）
+	keyPath := executor.ResolveKeyPath(remoteDir)
 	if keyPath != "/new/path/id_ed25519" {
 		t.Errorf("LocalKeyPath should take priority over KeyPath, got %q", keyPath)
 	}
@@ -142,8 +142,8 @@ func TestHandleTerminalList_IncludesRemoteArgs(t *testing.T) {
 	}
 
 	var resp struct {
-		Supported []map[string]interface{} `json:"supported"`
-		Default   string                   `json:"default"`
+		Supported []map[string]any `json:"supported"`
+		Default   string           `json:"default"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -158,19 +158,4 @@ func TestHandleTerminalList_IncludesRemoteArgs(t *testing.T) {
 			}
 		}
 	}
-}
-
-// resolveKeyPathForTest 暴露 internal executor 的 ResolveKeyPath 逻辑用于测试。
-func resolveKeyPathForTest(dir *backend.DirShortcut) string {
-	if dir.LocalKeyPath != "" {
-		return dir.LocalKeyPath
-	}
-	if dir.KeyPath != "" {
-		return dir.KeyPath
-	}
-	cfg := config.Get()
-	if cfg != nil && cfg.SSH.DefaultKeyPath != "" {
-		return cfg.SSH.DefaultKeyPath
-	}
-	return "~/.ssh/xworkbench_id_ed25519"
 }

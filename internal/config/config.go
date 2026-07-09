@@ -478,6 +478,19 @@ func mergeConfig(dst, src *Config) {
 		dst.Relay.APIKey = "xworkbench"
 	}
 
+	// ssh：用户显式设了才覆盖
+	if src.SSH.DefaultKeyPath != "" {
+		dst.SSH.DefaultKeyPath = src.SSH.DefaultKeyPath
+	}
+	// compat_algorithms：任一字段非空视为用户显式配置；全空视为"未设"保留 dst 默认。
+	// 用户要彻底关闭兼容算法需在 config.json 写三组显式空数组：
+	//   "compat_algorithms": {"kex":[], "host_key":[], "cipher":[]}
+	if len(src.SSH.CompatAlgorithms.Kex) > 0 ||
+		len(src.SSH.CompatAlgorithms.HostKey) > 0 ||
+		len(src.SSH.CompatAlgorithms.Cipher) > 0 {
+		dst.SSH.CompatAlgorithms = src.SSH.CompatAlgorithms
+	}
+
 	// models
 	for cliType, srcGroup := range src.Models {
 		dstGroup := dst.Models[cliType]
@@ -706,10 +719,10 @@ func DefaultConfig() *Config {
 		},
 		SSH: SSHConfig{
 			CompatAlgorithms: SSHCompatAlgorithms{
-				// 默认启用 diffie-hellman-group1-sha1 兼容老 Linux 服务器（macOS 仍支持）
-				// 注意：配置值带 "+" 前缀表示追加到系统默认列表，buildCompatArgs 会自动去掉前缀
-				// 再传递给 SSH（避免 "+algo" 但 algo 已不在系统默认列表导致 "Unsupported KEX" 错误）
-				Kex:     []string{"+diffie-hellman-group1-sha1"},
+				// 默认启用 diffie-hellman-group1-sha1 + diffie-hellman-group-exchange-sha1 兼容老 Linux 服务器
+				// 保留 "+" 前缀：按 SSH 原生语法，"+algo" 表示"追加到系统默认列表"，由 OpenSSH 客户端处理追加语义
+				//（SSH 客户端会自动忽略系统默认里已不存在的算法，无需在 builder 侧预处理）
+				Kex:     []string{"+diffie-hellman-group1-sha1", "+diffie-hellman-group-exchange-sha1"},
 				HostKey: []string{"+ssh-rsa", "+ssh-dss"},
 				Cipher:  []string{"+3des-cbc", "+aes128-cbc", "+aes192-cbc", "+aes256-cbc"},
 			},
