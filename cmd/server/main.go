@@ -1485,7 +1485,7 @@ func (s *APIServer) handleWebLinkCreate(w http.ResponseWriter, r *http.Request) 
 	link := &backend.WebLink{
 		ID:        uuid.New().String(),
 		Name:      req.Name,
-		URL:       req.URL,
+		URL:       normalizeLinkURL(req.URL),
 		IconURL:   req.IconURL,
 		SortOrder: req.SortOrder,
 		CreatedAt: time.Now(),
@@ -1510,7 +1510,7 @@ func (s *APIServer) handleWebLinkUpdate(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	link := &backend.WebLink{ID: id, Name: req.Name, URL: req.URL, IconURL: req.IconURL, SortOrder: req.SortOrder}
+	link := &backend.WebLink{ID: id, Name: req.Name, URL: normalizeLinkURL(req.URL), IconURL: req.IconURL, SortOrder: req.SortOrder}
 	if err := s.linkDB.Update(link); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1538,23 +1538,7 @@ func (s *APIServer) handleLinkOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	url := req.URL
-	isLocal := false
-
-	// 展开 ~ 为用户 home 目录
-	if strings.HasPrefix(url, "~") {
-		if usr, err2 := user.Current(); err2 == nil {
-			url = filepath.Join(usr.HomeDir, url[1:])
-			isLocal = true
-		}
-	} else if isFileURL(url) || isLocalPath(url) {
-		isLocal = true
-	}
-
-	// 将本地路径转换为 file:// URL
-	if isLocal && !isFileURL(url) {
-		url = pathToFileURL(url)
-	}
+	url := normalizeLinkURL(req.URL)
 
 	var err error
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1584,28 +1568,6 @@ func (s *APIServer) handleLinkOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"status": "opened"})
-}
-
-// isFileURL 判断是否为 file:// URL
-func isFileURL(url string) bool {
-	return strings.HasPrefix(url, "file://")
-}
-
-// isLocalPath 判断字符串是否为本地路径（Unix 绝对路径、Windows 盘符、UNC 路径）
-func isLocalPath(path string) bool {
-	// Unix 绝对路径
-	if strings.HasPrefix(path, "/") {
-		return true
-	}
-	// Windows 盘符（如 C:\ 或 C:/）
-	if matchWindowsDrive(path) {
-		return true
-	}
-	// UNC 路径（\\ 开头）
-	if strings.HasPrefix(path, "\\\\") {
-		return true
-	}
-	return false
 }
 
 // matchWindowsDrive 检测字符串是否以 Windows 盘符开头（如 C:\, D:/）
@@ -1652,19 +1614,18 @@ func normalizeLinkURL(raw string) string {
 
 // pathToFileURL 将本地路径转换为 proper file:// URL
 func pathToFileURL(path string) string {
-	// Windows: C:\path\to\file → file:///C:/path/to/file
+	// Windows: C:\path\to\file → file:///C:/path/to/file (preserve case)
 	if matchWindowsDrive(path) {
-		drive := strings.ToLower(string(path[0]))
-		rest := path[3:] // 去掉 "C:\\"
-		rest = strings.ReplaceAll(rest, "\\", "/")
+		drive := string(path[0])
+		rest := strings.ReplaceAll(path[3:], "\\", "/") // 去掉 "C:\"
 		return "file:///" + drive + ":/" + rest
 	}
-	// UNC 路径：\\server\share → file:////server/share
+	// UNC：\\server\share → file:////server/share
 	if strings.HasPrefix(path, "\\\\") {
 		return "file://" + strings.ReplaceAll(path, "\\", "/")
 	}
-	// Unix 绝对路径：/home/user/file → file:///home/user/file
-	return "file:///" + path
+	// Unix 绝对路径:/home/user/file → file:///home/user/file (RFC 8089, 3 斜杠)
+	return "file:///" + strings.TrimPrefix(path, "/")
 }
 
 // --- Dir Shortcuts ---
