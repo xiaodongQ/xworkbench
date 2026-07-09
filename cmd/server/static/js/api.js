@@ -257,6 +257,8 @@ function showTooltip(target) {
   // 兜底：HTML 字面 "\n"（反斜杠+n）→ 真换行
   text = text.replace(/\\n/g, '\n');
   const tip = ensureTooltip();
+  // 继承触发元素的类（如 tooltip-narrow），便于 CSS 控制宽度等样式
+  tip.className = 'custom-tooltip' + (target.className ? ' ' + target.className : '');
   // 按真换行拆行
   const lines = text.split('\n');
   tip.innerHTML = lines.map((l, i) =>

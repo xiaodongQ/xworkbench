@@ -147,6 +147,8 @@ body.windows { zoom: 1.15; }
   transition: opacity 0.1s ease-out, transform 0.1s ease-out;
 }
 .custom-tooltip.show { opacity: 1; transform: translateY(-50%) translateX(0); }
+/* 输出 stdout ⓘ 的 tooltip 宽度较窄 */
+.custom-tooltip.tooltip-narrow { max-width: 280px; }
 .custom-tooltip .tt-line { display: block; word-break: break-word; overflow-wrap: break-word; }
 .custom-tooltip .tt-head { font-weight: 600; color: #60a5fa; margin-bottom: 4px; }
 [data-theme="dark"] .custom-tooltip { background: #475569; color: #f1f5f9; }
