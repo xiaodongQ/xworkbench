@@ -33,7 +33,10 @@ func BuildSSHCommand(dir *backend.DirShortcut, termType string) ([]string, error
 		return nil, err
 	}
 
-	keyPath := ResolveKeyPath(dir)
+	var keyPath string
+	if dir.AuthMethod == "key" {
+		keyPath = ResolveKeyPath(dir)
+	}
 
 	args := []string{binary}
 	// 只有 UseLegacyAlgorithms=true 时才追加 legacy SSH 算法
