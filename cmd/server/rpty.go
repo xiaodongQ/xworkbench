@@ -314,13 +314,14 @@ func (s *APIServer) handleRemotePty(w http.ResponseWriter, r *http.Request) {
 	// 使用 $SHELL 或 fallback 到 bash，避免 exec 失败导致连接断开
 	//
 	// 关于双字符显示的关键修复（2026-07-09）：
-	//   bash 启动交互模式后会启用 readline，readline 维护自己的行缓冲和显示——
-	//   即使 TTY ECHO=0，readline 仍会通过 stdout 写 ANSI 转义序列来回显字符。
-	//   结果：前端 onData 已写一次 + readline 又回显一次 = 每键 2 个字符。
-	//   解决方案：bash 加 --noediting 禁用整个 readline（仍保留所有 bash 功能，
-	//   仅失去 history 上下键/Ctrl-R/Tab 补全等 readline 增强功能）。
-	//   zsh/sh 等其他 shell 不接受 --noediting，fallback 到默认。
-	execShell := `case "$(basename "${SHELL:-/bin/bash}")" in bash) exec "${SHELL}" -l --noediting ;; *) exec "${SHELL}" -l ;; esac`
+	//   bash/zsh 交互模式下都启用行编辑器（readline / zle），
+	//   即使 TTY ECHO=0，行编辑器仍通过 stdout 回显字符。
+	//   结果：前端 onData 已写一次 + 行编辑器又回显一次 = 每键 2 个字符。
+	//   解决方案：
+	//     bash → --noediting 禁用 readline
+	//     zsh  → +o zle --no-rcs 禁用 zle（+o zle 关 zle，--no-rcs 防 .zshrc 重启）
+	//   其他 shell fallback 到默认（保留全功能但可能双字符）。
+	execShell := `case "$(basename "${SHELL:-/bin/bash}")" in bash) exec "${SHELL}" -l --noediting ;; zsh) exec "${SHELL}" -l +o zle --no-rcs ;; *) exec "${SHELL}" -l ;; esac`
 	shellCmd := fmt.Sprintf(`COLUMNS=%d LINES=%d SHELL=${SHELL:-/bin/bash} && %s`, cols, rows, execShell)
 	if dir.RemotePath != "" {
 		// 先 cd 到目录，失败时仍保持 shell 存活（用 || true 防止 cd 失败导致 shell 退出）
