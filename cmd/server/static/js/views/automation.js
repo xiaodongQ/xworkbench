@@ -567,7 +567,7 @@ async function loadRecentExecutions() {
         <span style="flex-shrink:0;width:20px;text-align:center" title="${srcText}">${groupIcon}</span>
         <span style="flex-shrink:0;width:54px;font-size:10px;font-weight:600;color:${cliColor};text-align:left">${cliLabel}</span>
         <span style="color:var(--text-secondary);font-family:monospace;flex-shrink:0;width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dt}</span>
-        <span style="flex:1;min-width:0;font-size:11px;padding-left:72px;margin-left:-72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${groupTitle}${title}</span>${cmdTip ? `<span class="tooltip-narrow" data-tooltip="命令: ${cmdTip}" style="margin-left:4px;font-size:11px;color:#60a5fa;flex-shrink:0">ⓘ</span>` : ''}
+        <span style="flex:1;min-width:0;font-size:11px;padding-left:72px;margin-left:-72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${groupTitle}${title}</span>${cmdTip ? `<span title="命令: ${cmdTip}" style="margin-left:4px;font-size:11px;color:#60a5fa;flex-shrink:0">ⓘ</span>` : ''}
         <span style="font-size:11px;color:${statusColor};flex-shrink:0" title="${statusTitle}">${statusIcon}</span>
         ${evalBadge}
         <button class="btn btn-small" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
