@@ -378,17 +378,11 @@ func determineAICmd(cliType, ctxDir, sessionID, resumeUUID string) string {
 	}
 }
 
-// enrichCmd 给命令加 --resume 参数（sessionID/resumeUUID 之一非空才加）。
-// sessionID 和 resumeUUID 都用 --resume 传递（sessionID = scheduler 的 last_session_id）。
+// enrichCmd 给命令加 --resume 参数。
+// 只有 resumeUUID 非空时才加 --resume（sessionID 在 PTY 场景是 tab ID，不是 AI session）。
 func enrichCmd(cmd string, sessionID, resumeUUID string) string {
-	if sessionID == "" && resumeUUID == "" {
+	if resumeUUID == "" {
 		return cmd
 	}
-	if sessionID != "" {
-		cmd += " --resume " + sessionID
-	}
-	if resumeUUID != "" {
-		cmd += " --resume " + resumeUUID
-	}
-	return cmd
+	return cmd + " --resume " + resumeUUID
 }
