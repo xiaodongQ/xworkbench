@@ -237,9 +237,11 @@ async function connectRPTY(tabID, dirID) {
     // 使用 attachCustomKeyEventHandler 拦截 Backspace/Delete，发送正确的转义序列。
     rptyTerm.attachCustomKeyEventHandler(e => {
       if (e.type !== 'keydown') return true;
-      // Backspace (Mac: Delete 键, Windows: Backspace 键) -> 发送 \x08 (BS)
+      // Backspace (Mac: Delete 键, Windows: Backspace 键) -> 发送 \x7f (DEL, Unix PTY erase 字符)
+      // 本地用 ESC[D 左移光标 + 空格覆盖 + ESC[D 再左移
       if (e.keyCode === 8 || e.key === 'Backspace') {
-        if (rptyWs && rptyWs.readyState === WebSocket.OPEN) rptyWs.send('\x08');
+        if (rptyWs && rptyWs.readyState === WebSocket.OPEN) rptyWs.send('\x7f');
+        rptyTerm.write('\x1b[D \x1b[D');
         return false;
       }
       // Delete 键 (Mac 无此键, Windows 小键盘 Delete) -> 发送 \x1b[3~ 或 \x08
