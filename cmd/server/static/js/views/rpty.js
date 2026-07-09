@@ -234,8 +234,24 @@ async function connectRPTY(tabID, dirID) {
   // PTY 输入 → WS
   if (rptyTerm) {
     // SSH 关闭了 ECHO（服务器不回显），前端负责本地 echo。
-    // onData 回调在数据发往 SSH 之前先写到终端（打字立即可见）。
+    // 使用 attachCustomKeyEventHandler 拦截 Backspace/Delete，发送正确的转义序列。
+    rptyTerm.attachCustomKeyEventHandler(e => {
+      if (e.type !== 'keydown') return true;
+      // Backspace (Mac: Delete 键, Windows: Backspace 键) -> 发送 \x08 (BS)
+      if (e.keyCode === 8 || e.key === 'Backspace') {
+        if (rptyWs && rptyWs.readyState === WebSocket.OPEN) rptyWs.send('\x08');
+        return false;
+      }
+      // Delete 键 (Mac 无此键, Windows 小键盘 Delete) -> 发送 \x1b[3~ 或 \x08
+      if (e.keyCode === 46 || e.key === 'Delete') {
+        if (rptyWs && rptyWs.readyState === WebSocket.OPEN) rptyWs.send('\x1b[3~');
+        return false;
+      }
+      return true;
+    });
+
     rptyTerm.onData(data => {
+      // 正常字符：直接发送
       if (rptyWs && rptyWs.readyState === WebSocket.OPEN) rptyWs.send(data);
       rptyTerm.write(data);
     });
