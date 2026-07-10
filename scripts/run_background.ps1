@@ -53,10 +53,14 @@ function Start-Server {
     Write-Host "  Log:    $LOG_FILE"
     Write-Host "  Port:   $ADDR"
 
-    # 通过 -addr 命令行参数传递端口（不依赖环境变量，行为更明确）
+    # Use Start-Process WITHOUT -NoNewWindow so the process detaches
+    # from the current terminal session. With -NoNewWindow, the process
+    # is a child of the PowerShell session and dies when the terminal closes.
+    # -WindowStyle Hidden: hide the window (no console flash)
+    # -PassThru: get process object
     $proc = Start-Process -FilePath $BIN `
-        -ArgumentList "-config", "`"$CONFIG_PATH`"", "-addr", $ADDR `
-        -NoNewWindow `
+        -ArgumentList "-config", "`"$CONFIG_PATH`"" `
+        -WindowStyle Hidden `
         -PassThru `
         -RedirectStandardOutput $LOG_FILE `
         -RedirectStandardError "$LOG_DIR\xworkbench.err.log"
