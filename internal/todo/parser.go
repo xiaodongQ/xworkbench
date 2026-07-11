@@ -241,48 +241,221 @@ func ToggleAndWrite(path string, items []Item) error {
 	return atomicWrite(path, strings.Join(lines, "\n"))
 }
 
-// AddAndWrite 在文件末尾追加一项（含 due_date / tags / note 元数据）。
-// 文件不存在时直接创建。返回新行的 line_no（按项计，1-based）。
+// AddAndWrite 在活跃区末尾追加一项（含 due_date / tags / note 元数据）。
+// 如果文件存在分隔线，新项插入到分隔线之前（活跃区末尾）。
+// 文件不存在时直接创建。返回新行的 line_no（1-based）。
+// 新项会插入到对应月份的 ### YYYY年MM月 标题下，如果标题不存在则创建。
 func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return 0, fmt.Errorf("text is empty")
 	}
 
-	// 读取已有内容，确保末尾换行（但空文件不额外加前导换行）
-	var content string
-	if data, err := os.ReadFile(path); err == nil {
-		content = string(data)
-		if content != "" && !strings.HasSuffix(content, "\n") {
-			content += "\n"
-		}
-	} else if !os.IsNotExist(err) {
-		return 0, err
-	}
-
 	// 用 Item + itemToLine 生成主行，保留 metadata；Created 自动填当天日期
+	created := time.Now().Format("2006-01-02")
 	item := &Item{
 		Text:    text,
 		DueDate: dueDate,
 		Tags:    tags,
-		Created: time.Now().Format("2006-01-02"),
+		Created: created,
 	}
-	content += itemToLine(item) + "\n"
+	newItemLine := itemToLine(item)
 
-	// 追加 note（缩进 2 空格 + `> ...`）
+	// 构建新项内容（含 note 行）
+	var newContent strings.Builder
+	newContent.WriteString(newItemLine)
 	if note != "" {
 		for _, line := range strings.Split(strings.TrimRight(note, "\n"), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
 			}
-			content += "  > " + line + "\n"
+			newContent.WriteString("\n  > " + line)
+		}
+	}
+	newContent.WriteString("\n")
+
+	// 读取现有文件
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 文件不存在，直接创建（带活跃区标题）
+			monthHeading := "### " + monthLabel(created) + "\n\n"
+			return 1, atomicWrite(path, monthHeading+newContent.String())
+		}
+		return 0, err
+	}
+	content := string(data)
+
+	// 定位分隔线位置
+	lines := strings.Split(content, "\n")
+	separatorIdx := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "---" {
+			separatorIdx = i
+			break
 		}
 	}
 
-	actualLines := strings.Split(strings.TrimRight(content, "\n"), "\n")
-	newLineNo := len(actualLines)
-	return newLineNo, atomicWrite(path, content)
+	// 目标月份标题
+	targetMonthKey := monthKey(created)
+	targetMonthLabel := monthLabel(created)
+
+	var result string
+	newLineNo := 0
+
+	if separatorIdx == -1 {
+		// 无分隔线，检查是否需要添加月份标题
+		result = strings.TrimRight(content, "\n")
+		if result != "" && !strings.HasSuffix(result, "\n") {
+			result += "\n"
+		}
+
+		// 在内容中查找已有的月份标题
+		insertIdx := len(lines)
+		foundMonthIdx := -1
+		for i := 0; i < len(lines); i++ {
+			if strings.HasPrefix(strings.TrimSpace(lines[i]), "### ") {
+				key := monthKeyFromLabel(strings.TrimSpace(lines[i])[4:])
+				if key == targetMonthKey {
+					foundMonthIdx = i
+					break
+				}
+				// 找到比目标月份大的第一个标题，插入位置在其前面
+				if key > targetMonthKey {
+					insertIdx = i
+					break
+				}
+				insertIdx = i + 1
+			}
+		}
+
+		if foundMonthIdx >= 0 {
+			// 月份标题已存在，插入到该标题之后
+			insertIdx = foundMonthIdx + 1
+			// 跳过空行
+			for insertIdx < len(lines) && strings.TrimSpace(lines[insertIdx]) == "" {
+				insertIdx++
+			}
+		} else {
+			// 需要插入新的月份标题
+			before := lines[:insertIdx]
+			after := lines[insertIdx:]
+			result = strings.Join(before, "\n")
+			if result != "" && !strings.HasSuffix(result, "\n") {
+				result += "\n"
+			}
+			result += "### " + targetMonthLabel + "\n\n"
+			result += newContent.String()
+			if len(after) > 0 {
+				result += strings.Join(after, "\n")
+			}
+			newLineNo = insertIdx + 2 // 标题行 + 空行 + 1
+			return newLineNo, atomicWrite(path, result)
+		}
+
+		// 插入到已有月份标题之后
+		before := lines[:insertIdx]
+		after := lines[insertIdx:]
+		result = strings.Join(before, "\n")
+		if result != "" && !strings.HasSuffix(result, "\n") {
+			result += "\n"
+		}
+		result += newContent.String()
+		if len(after) > 0 {
+			result += strings.Join(after, "\n")
+		}
+		newLineNo = insertIdx + 1
+	} else {
+		// 有分隔线，在活跃区查找或创建月份标题
+		activeLines := lines[:separatorIdx]
+
+		// 查找目标月份标题的位置
+		insertIdx := 0
+		foundMonthIdx := -1
+		for i := 0; i < len(activeLines); i++ {
+			if strings.HasPrefix(strings.TrimSpace(activeLines[i]), "### ") {
+				key := monthKeyFromLabel(strings.TrimSpace(activeLines[i])[4:])
+				if key == targetMonthKey {
+					foundMonthIdx = i
+					break
+				}
+				if key > targetMonthKey {
+					insertIdx = i
+					break
+				}
+				insertIdx = i + 1
+			}
+		}
+
+		if foundMonthIdx >= 0 {
+			// 月份标题已存在，插入到该标题之后
+			insertIdx = foundMonthIdx + 1
+			for insertIdx < len(activeLines) && strings.TrimSpace(activeLines[insertIdx]) == "" {
+				insertIdx++
+			}
+		} else {
+			// 需要插入新的月份标题在 insertIdx 位置
+			before := activeLines[:insertIdx]
+			after := activeLines[insertIdx:]
+
+			// 构建结果：标题前部分 + 新月份标题 + 新项 + 标题后部分 + 分隔线 + 归档区
+			for i := 0; i < len(before); i++ {
+				result += before[i] + "\n"
+			}
+			// 清理末尾空行
+			for len(result) > 0 && result[len(result)-1] == '\n' && (len(result) < 2 || result[len(result)-2] == '\n') {
+				result = strings.TrimRight(result, "\n")
+			}
+			if result != "" && !strings.HasSuffix(result, "\n\n") {
+				if strings.HasSuffix(result, "\n") {
+					result += "\n"
+				} else {
+					result += "\n\n"
+				}
+			}
+			result += "### " + targetMonthLabel + "\n\n"
+			result += newContent.String()
+			newLineNo = len(before) + 3 // 标题行 + 空行 + 第一项
+
+			if len(after) > 0 {
+				result += strings.Join(after, "\n") + "\n"
+			}
+			result += "---\n"
+			for i := separatorIdx + 1; i < len(lines); i++ {
+				result += lines[i] + "\n"
+			}
+			return newLineNo, atomicWrite(path, result)
+		}
+
+		// 插入到已有月份标题之后
+		for i := 0; i < insertIdx; i++ {
+			result += activeLines[i] + "\n"
+		}
+		result += newContent.String()
+		newLineNo = insertIdx + 1
+		if len(activeLines) > insertIdx {
+			for i := insertIdx; i < len(activeLines); i++ {
+				result += activeLines[i] + "\n"
+			}
+		}
+		result += "---\n"
+		for i := separatorIdx + 1; i < len(lines); i++ {
+			result += lines[i] + "\n"
+		}
+	}
+
+	return newLineNo, atomicWrite(path, result)
+}
+
+// monthKeyFromLabel 从 "YYYY年MM月" 格式提取 YYYYMM 排序键
+func monthKeyFromLabel(label string) string {
+	// "2026年07月" -> "202607"
+	year := strings.TrimSuffix(label, "年")
+	month := strings.TrimPrefix(strings.TrimPrefix(label, year+"年"), year+"年")
+	month = strings.TrimPrefix(month, year)
+	month = strings.TrimPrefix(month, "年")
+	return strings.ReplaceAll(year+month, " ", "")
 }
 
 // AddChildAndWrite 在指定父行后追加一个子项。
@@ -315,14 +488,24 @@ func AddChildAndWrite(path string, parentLineNo int, text, dueDate string, done 
 	}
 	childIndent := parentIndent + "  "
 
-	// 扫描后续行，找到插入位置：更深缩进 item/孙项、note 行跳过，遇到同级/更浅/空行停止
+	// 扫描后续行，找到插入位置：更深缩进 item/孙项、note 行跳过，
+	// 遇到分隔线/归档区标题/同级或更浅的 item 停止；空行本身不停止（跳过）
 	insertIdx := parentIdx + 1
 	for insertIdx < len(lines) {
 		line := lines[insertIdx]
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
+
+		// 遇到分隔线或归档区标题则停止（活跃区边界）
+		if trimmed == "---" || strings.HasPrefix(trimmed, "## 📦") {
 			break
 		}
+
+		// 空行不停止，跳过继续看下一行
+		if trimmed == "" {
+			insertIdx++
+			continue
+		}
+
 		if !itemRe.MatchString(line) {
 			insertIdx++
 			continue
@@ -595,7 +778,7 @@ func WriteSections(path string, active, archived []*Item) error {
 
 	for _, key := range sortedKeys {
 		items := activeGroups[key]
-		sb.WriteString("### " + monthLabel(items[0].Created) + "\n")
+		sb.WriteString("### " + monthLabel(items[0].Created) + "\n\n")
 		for _, item := range items {
 			for _, line := range itemLines(item) {
 				sb.WriteString(line + "\n")
@@ -604,8 +787,8 @@ func WriteSections(path string, active, archived []*Item) error {
 		sb.WriteString("\n")
 	}
 
-	// 写分隔线和归档区
-	sb.WriteString("---\n\n")
+	// 写分隔线（前后各一个空行）和归档区
+	sb.WriteString("\n---\n\n")
 	sb.WriteString("## 📦 已归档\n\n")
 
 	// 写归档区分组
@@ -703,14 +886,19 @@ func ArchiveItem(path string, lineNo int) error {
 		break
 	}
 
-	// 提取要归档的行，加上 archived:标签
+	// 提取要归档的行，给顶级项（缩进为空）加 archived: 标签，子项保持原样
 	today := time.Now().Format("2006-01-02")
 	var movedLinesUpdated []string
 	for _, line := range lines[startIdx:endIdx] {
 		m2 := itemRe.FindStringSubmatch(line)
 		if m2 != nil && !archivedRe.MatchString(line) {
-			updatedLine := m2[1] + "- [" + m2[2] + "] " + m2[3] + " archived:" + today
-			movedLinesUpdated = append(movedLinesUpdated, updatedLine)
+			if m2[1] == "" {
+				// 顶级项加 archived 标签
+				updatedLine := m2[1] + "- [" + m2[2] + "] " + m2[3] + " archived:" + today
+				movedLinesUpdated = append(movedLinesUpdated, updatedLine)
+			} else {
+				movedLinesUpdated = append(movedLinesUpdated, line)
+			}
 		} else {
 			movedLinesUpdated = append(movedLinesUpdated, line)
 		}
@@ -758,8 +946,19 @@ func ArchiveItem(path string, lineNo int) error {
 		}
 	}
 
-	// 3. 写入归档项（按月份分组）
-	sb.WriteString("### " + monthLabel(today) + "\n")
+	// 3. 写入归档项（按月份分组，检查归档区里月份标题是否已存在）
+	hasMonthTitle := false
+	targetMonthLabel := monthLabel(today)
+	// 归档区从 separatorIdx+1 开始
+	for i := separatorIdx + 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == targetMonthLabel {
+			hasMonthTitle = true
+			break
+		}
+	}
+	if !hasMonthTitle {
+		sb.WriteString("### " + targetMonthLabel + "\n\n")
+	}
 	for _, line := range movedLinesUpdated {
 		sb.WriteString(line + "\n")
 	}
@@ -880,37 +1079,37 @@ func UnarchiveItem(path string, lineNo int) error {
 
 	// 4. 如果归档区还有其他内容（月份分组标题和其他项），保留
 	var remainingArchivedLines []string
-	inArchivedSection := false
+	var monthHeadings []string // 收集用到的月份标题
 	for i := endIdx; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
 		if trimmed == "" {
 			continue
 		}
-		// 跳过月份标题，但保留其后面的内容
+		// 跳过 ## 标题行（## 📦 已归档），保留 ### 月份标题
 		if strings.HasPrefix(trimmed, "###") {
-			if len(remainingArchivedLines) > 0 || inArchivedSection {
-				remainingArchivedLines = append(remainingArchivedLines, lines[i])
-			}
-			inArchivedSection = true
+			monthHeadings = append(monthHeadings, lines[i])
 			continue
 		}
 		if strings.HasPrefix(trimmed, "##") {
 			continue
 		}
 		remainingArchivedLines = append(remainingArchivedLines, lines[i])
-		inArchivedSection = true
 	}
 	if len(remainingArchivedLines) > 0 {
 		sb.WriteString("\n---\n\n## 📦 已归档\n\n")
-		// 重新按月份分组
+		// 重新按月份分组，写入月份标题和对应项
 		archivedItems := parseItemsWithSkip(strings.Join(remainingArchivedLines, "\n"), 0)
 		groups := groupByMonthPtrs(archivedItems, "archived")
 		for _, group := range groups {
-			sb.WriteString("### " + monthLabel(group[0].Archived) + "\n")
+			monthLabelStr := monthLabel(group[0].Archived)
+			sb.WriteString("### " + monthLabelStr + "\n\n")
 			for _, item := range group {
 				sb.WriteString(itemToLine(item) + "\n")
 			}
 		}
+	} else if len(monthHeadings) > 0 {
+		// 没有剩余项，但有月份标题（不应该发生），写入分隔线和归档标题即可
+		sb.WriteString("\n---\n\n## 📦 已归档\n\n")
 	}
 
 	return atomicWrite(path, sb.String())

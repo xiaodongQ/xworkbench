@@ -411,21 +411,71 @@ function sortTree(items) {
     });
 }
 
+// 按 due_date 排序（跨月份统一排序）：过期优先，其次按日期顺序
+function sortByDueDate(items) {
+    const today = new Date().toISOString().split('T')[0];
+    return [...items].sort((a, b) => {
+        // 跳过子项，子项跟随父项排序
+        if (a._depth > 0 && b._depth > 0) return 0;
+        if (a._depth > 0) return -1;
+        if (b._depth > 0) return 1;
+        const aOverdue = a.due_date && !a.done && a.due_date < today;
+        const bOverdue = b.due_date && !b.done && b.due_date < today;
+        if (aOverdue && !bOverdue) return -1;
+        if (!aOverdue && bOverdue) return 1;
+        if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
+        if (a.due_date && !b.due_date) return -1;
+        if (!a.due_date && b.due_date) return 1;
+        return 0;
+    });
+}
+
+// 对树结构按 due_date 排序（顶级项按 due_date 排序，子项保持顺序跟随父项）
+function sortTreeWithDueDate(items) {
+    const today = new Date().toISOString().split('T')[0];
+    return [...items].sort((a, b) => {
+        const aOverdue = a.due_date && !a.done && a.due_date < today;
+        const bOverdue = b.due_date && !b.done && b.due_date < today;
+        if (aOverdue && !bOverdue) return -1;
+        if (!aOverdue && bOverdue) return 1;
+        if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
+        if (a.due_date && !b.due_date) return -1;
+        if (!a.due_date && b.due_date) return 1;
+        return (a.line_no || 0) - (b.line_no || 0);
+    }).map(item => {
+        if (item.children && item.children.length > 0) {
+            return Object.assign({}, item, { children: sortTreeWithDueDate(item.children) });
+        }
+        return item;
+    });
+}
+
 // 扁平化树：打平为单层列表，附加 _depth、_child_count、_parent_line_no，删除 children
-function flattenItems(items, depth, parentLineNo) {
+// 子项继承父项的 created 和 archived，确保按月份分组时子项跟父项在一起
+function flattenItems(items, depth, parentInfo) {
     if (depth === undefined) depth = 0;
+    parentInfo = parentInfo || { parentLineNo: undefined, created: '', archived: '' };
     let result = [];
     for (const item of items) {
         const childCount = item.children ? item.children.length : 0;
+        // 子项没有日期时继承父项的
+        const created = item.created || parentInfo.created || '';
+        const archived = item.archived || parentInfo.archived || '';
         const flat = Object.assign({}, item, {
             _depth: depth,
             _child_count: childCount,
-            _parent_line_no: parentLineNo !== undefined ? parentLineNo : null,
+            _parent_line_no: parentInfo.parentLineNo !== undefined ? parentInfo.parentLineNo : null,
+            created: created,
+            archived: archived,
         });
         delete flat.children;
         result.push(flat);
         if (item.children) {
-            result = result.concat(flattenItems(item.children, depth + 1, item.line_no));
+            result = result.concat(flattenItems(item.children, depth + 1, {
+                parentLineNo: item.line_no,
+                created: created,
+                archived: archived,
+            }));
         }
     }
     return result;
@@ -500,6 +550,7 @@ function renderTodoItem(i) {
 }
 
 // 渲染单个归档 item（简化版，无展开/收起，无编辑）
+// 仅顶级项显示删除按钮
 function renderArchivedItem(i) {
   const dueLabel = i.due_date ? i.due_date.slice(5) : '';
   const indent = (i._depth || 0) * 20;
@@ -507,21 +558,23 @@ function renderArchivedItem(i) {
   if (i.due_date) {
     extraHtml += `<span class="todo-due" title="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
   }
+  const isTopLevel = !i._parent_line_no;
+  const actionsHtml = isTopLevel
+    ? `<span class="todo-del" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no})" title="删除">×</span>`
+    : '';
   let html = `<div class="todo-item done" style="padding-left:${indent}px" data-line-no="${i.line_no}" data-parent-line-no="${i._parent_line_no != null ? i._parent_line_no : ''}">
   <span class="todo-indent"></span>
   <input type="checkbox" checked disabled>
   <span class="todo-text">${esc(i.text)}</span>
   ${extraHtml}
-  <span class="todo-unarchive" onclick="event.stopPropagation(); unarchiveTodoItem(${i.line_no})" title="恢复">↩</span>
-  <span class="todo-del" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no})" title="删除">×</span>
+  ${actionsHtml}
 </div>`;
   return html;
 }
 
-// 渲染月份分组
+// 渲染月份分组（前端不显示月份标签，md 文件里已有 ### YYYY年MM月 分组）
 function renderMonthGroup(label, items, isArchived) {
-  let html = `<div class="todo-month-group">
-    <div class="todo-month-label" style="color:var(--text-secondary);font-size:11px;padding:4px 0 2px ${((items[0]._depth || 0) * 20) + 20}px">${label}</div>`;
+  let html = '<div class="todo-month-group">';
   for (const item of items) {
     if (isArchived) {
       html += renderArchivedItem(item);
@@ -601,9 +654,15 @@ async function loadTodo() {
   window._todoTreeData = data.items || [];
   window._todoArchivedData = data.archived_items || [];
 
-  // 过滤和排序活跃项
-  const items = flattenItems(sortTree(filterTree(window._todoTreeData)));
-  window._todoItems = items;
+  // 归档显示状态：优先使用后端配置，否则用本地状态
+  if (data.show_archived !== undefined) {
+    _todoShowArchived = data.show_archived;
+  }
+
+  // 过滤和排序活跃项：先过滤，再排序（树结构内排序），再扁平
+  const filtered = filterTree(window._todoTreeData);
+  const sorted = sortTreeWithDueDate(filtered);
+  window._todoItems = flattenItems(sorted);
 
   // 更新按钮状态
   const filterBtn = document.getElementById('todo-filter-btn');
@@ -621,12 +680,12 @@ async function loadTodo() {
     archiveBtn.style.color = _todoShowArchived ? 'var(--primary)' : 'var(--text-secondary)';
   }
 
-  if (items.length === 0) {
+  if (sorted.length === 0) {
     const hint = _todoFilter.showDone ? '' : '（全部已完成）';
     el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">' + esc(data.path) + ' 无 todo 项' + hint + '</div>';
   } else {
-    // 按月份分组渲染
-    const groups = groupByMonth(items, 'created');
+    // 按月份分组渲染（使用已扁平的 window._todoItems）
+    const groups = groupByMonth(window._todoItems, 'created');
     let html = '';
     for (const group of groups) {
       const label = getMonthLabel(group.items[0].created);
@@ -674,11 +733,6 @@ async function archiveTodoItem(lineNo) {
   loadTodo();
 }
 
-async function unarchiveTodoItem(lineNo) {
-  const r = await fetch('/api/todo/' + lineNo + '/unarchive', {method:'PUT'});
-  if (!r.ok) { const b = await r.json().catch(() => ({})); alert('恢复失败：' + (b.error || r.statusText)); return; }
-  loadTodo();
-}
 
 async function deleteTodoItem(lineNo) {
   if (!confirm('删除该待办？')) return;
@@ -743,6 +797,9 @@ function removeTodoChildRow(btn) {
   }
   row.remove();
 }
+function clearTodoDueDate() {
+  document.getElementById('todo-modal-due').value = '';
+}
 async function submitTodoModal() {
   const text = document.getElementById('todo-modal-title-input').value.trim();
   if (!text) { alert('请输入任务内容'); return; }
@@ -769,10 +826,16 @@ async function submitTodoModal() {
     }
 
     // 更新主任务
+    const editBody = { text };
+    if (dueDate) {
+      editBody.due_date = dueDate;
+    } else {
+      editBody.clear_due_date = true;
+    }
     await fetch('/api/todo/' + editLineNo + '/edit', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, due_date: dueDate })
+      body: JSON.stringify(editBody)
     });
 
     // 同步已有子项勾选状态
@@ -858,8 +921,12 @@ function findTodoItem(lineNo) {
     return search(window._todoTreeData);
 }
 async function showTodoPathModal() {
-  const d = await fetchJSON('/api/todo/path');
-  document.getElementById('todo-path-input').value = d.path || '';
+  const [pathData, configData] = await Promise.all([
+    fetchJSON('/api/todo/path'),
+    fetchJSON('/api/config')
+  ]);
+  document.getElementById('todo-path-input').value = pathData.path || '';
+  document.getElementById('todo-show-archived-cb').checked = !!configData.todo_show_archived;
   document.getElementById('todo-path-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('todo-path-input').focus(), 50);
 }
@@ -867,8 +934,14 @@ function closeTodoPathModal() { document.getElementById('todo-path-modal').class
 function submitTodoPath() {
   const path = document.getElementById('todo-path-input').value.trim();
   if (!path) { alert('路径必填'); return; }
-  fetch('/api/todo/path', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path})})
-    .then(() => { closeTodoPathModal(); loadTodo(); });
+  const showArchived = document.getElementById('todo-show-archived-cb').checked;
+  Promise.all([
+    fetch('/api/todo/path', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path})}),
+    fetch('/api/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({todo_show_archived: showArchived})})
+  ]).then(() => {
+    closeTodoPathModal();
+    loadTodo();
+  });
 }
 
 // ===== 通用拖动重排（HTML5 drag/drop） =====

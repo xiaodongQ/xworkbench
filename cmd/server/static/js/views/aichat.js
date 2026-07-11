@@ -12,9 +12,6 @@
   function getLastId() { return localStorage.getItem(LAST_KEY); }
   function setLastId(id) { localStorage.setItem(LAST_KEY, id); }
 
-  // ── PTY terminal state ─────────────────────────────────────
-  // eslint-disable-next-line no-var
-  var term = null, ptyWs = null, termReady = false;
   // eslint-disable-next-line no-var
   var currentSession = null;
 
@@ -35,7 +32,6 @@
         <main class="aichat-main">
           <div class="aichat-toolbar">
             <span class="aichat-toolbar-title">AI对话助手</span>
-            <button class="btn-icon" id="aichat-toggle-term" title="网页终端（体验功能）" aria-label="toggle terminal">⌨</button>
             <button class="btn-icon" id="aichat-open-config" title="AI对话助手配置" aria-label="open config">⚙</button>
           </div>
 
@@ -47,29 +43,6 @@
                 <button class="btn btn-secondary btn-sm" id="aichat-clear-btn">清空</button>
                 <button class="btn btn-primary" id="aichat-send-btn">发送</button>
               </div>
-            </div>
-          </div>
-
-          <div class="aichat-term-region hidden" id="aichat-term-region">
-            <div class="resize-handle-h" id="aichat-term-resizer"></div>
-            <div class="terminal-wrap" style="margin-bottom:0;border-radius:0">
-              <div class="terminal-header">
-                <div class="terminal-dot red"></div>
-                <div class="terminal-dot yellow"></div>
-                <div class="terminal-dot green"></div>
-                <div class="terminal-title" id="shell-term-title">网页终端</div>
-                <div style="margin-left:auto;display:flex;align-items:center;gap:6px;position:relative">
-                  <span style="font-size:11px;color:var(--text-secondary)">CLI:</span>
-                  <div id="cli-display" style="font-size:12px;padding:3px 8px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;min-width:80px;text-align:center">-</div>
-                  <select id="cli-selector" onchange="onCliChange(this.value)" style="position:absolute;opacity:0;width:100%;height:100%;left:0;top:0;cursor:pointer">
-                    <option value="claude">claude</option>
-                    <option value="cbc">cbc / codebuddy</option>
-                    <option value="shell">shell</option>
-                  </select>
-                </div>
-                <button class="btn-icon" id="aichat-close-term" title="关闭终端" aria-label="close terminal" style="margin-left:6px">✕</button>
-              </div>
-              <div id="shell-terminal" tabindex="0"></div>
             </div>
           </div>
         </main>
@@ -204,29 +177,7 @@
 
   // ── Events ─────────────────────────────────────────────────
   function bindEvents(root) {
-    // 1) Terminal 抽屉开关
-    const termBtn   = root.querySelector('#aichat-toggle-term');
-    const closeBtn  = root.querySelector('#aichat-close-term');
-    const termRegion = () => root.querySelector('#aichat-term-region');
-    const openTerm = () => {
-      const r = termRegion(); if (!r) return;
-      r.classList.remove('hidden');
-      termBtn?.classList.add('active');
-      ensureTerminalHeight();
-      initShellTerminal(); // 已存在的惰性初始化（幂等：if (term) return）
-    };
-    const closeTerm = () => {
-      const r = termRegion(); if (!r) return;
-      r.classList.add('hidden');
-      termBtn?.classList.remove('active');
-      // xterm + WS 实例保留（体验功能定位：复用长会话）
-    };
-    termBtn?.addEventListener('click', () => {
-      termRegion().classList.contains('hidden') ? openTerm() : closeTerm();
-    });
-    closeBtn?.addEventListener('click', closeTerm);
-
-    // 2) 配置 modal
+    // 1) 配置 modal
     const cfgBtn   = root.querySelector('#aichat-open-config');
     const cfgModal = root.querySelector('#aichat-config-modal');
     const cfgClose = root.querySelector('#aichat-config-close');
@@ -253,53 +204,6 @@
     });
     root.querySelector('#cfg-save-btn')?.addEventListener('click', () => saveConfig(root));
     root.querySelector('#cfg-test-btn')?.addEventListener('click', () => testConfig(root));
-
-    // 4) 终端抽屉高度拖拽
-    initTermResizer();
-  }
-
-  // ── Terminal 抽屉高度持久化 ─────────────────────────────────
-  const TERM_H_KEY = 'sf_aichat_term_h';
-  const TERM_H_DEFAULT = 280;
-
-  function ensureTerminalHeight() {
-    const r = document.getElementById('aichat-term-region');
-    if (!r) return;
-    const h = parseInt(localStorage.getItem(TERM_H_KEY) || TERM_H_DEFAULT, 10);
-    r.style.height = h + 'px';
-  }
-
-  function initTermResizer() {
-    const handle = document.getElementById('aichat-term-resizer');
-    const region = document.getElementById('aichat-term-region');
-    if (!handle || !region) return;
-    ensureTerminalHeight();
-    handle.addEventListener('mousedown', e => {
-      e.preventDefault();
-      document.body.style.cursor = 'row-resize';
-      const startY = e.clientY;
-      const startH = region.getBoundingClientRect().height;
-      const onMove = ev => {
-        const h = Math.max(120, Math.min(window.innerHeight - 200, startH + (startY - ev.clientY)));
-        region.style.height = h + 'px';
-        // 抽屉高度变化时同步 fit（shell-terminal 容器宽高随之变化）
-        const termContainer = document.getElementById('shell-terminal');
-        if (termContainer?._fitAddon) {
-          termContainer._fitAddon.fit();
-          if (ptyWs && ptyWs.readyState === 1) {
-            ptyWs.send('resize,' + term.cols + ',' + term.rows);
-          }
-        }
-      };
-      const onUp = () => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        document.body.style.cursor = '';
-        localStorage.setItem(TERM_H_KEY, String(Math.round(region.getBoundingClientRect().height)));
-      };
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    });
   }
 
   // ── Sessions ─────────────────────────────────────────────────
@@ -592,105 +496,6 @@
   }
 
 
-  // ── Local Shell PTY ─────────────────────────────────────────
-  function initShellTerminal() {
-    if (term) return; // already initialized
-    const termContainer = document.getElementById('shell-terminal');
-    if (!termContainer) return;
-
-    requestAnimationFrame(() => {
-      const fitAddon = new FitAddon.FitAddon();
-      term = new Terminal({
-        fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace",
-        fontSize: 13,
-        theme: { background: '#0f172a', foreground: '#e2e8f0', cursor: '#22d3ee' },
-        cursorBlink: true,
-        scrollback: 10000,
-      });
-      term.loadAddon(fitAddon);
-      term.open(termContainer);
-      termContainer._fitAddon = fitAddon; // 供抽屉拖动时引用
-      fitAddon.fit();
-
-      const sessId = getLastId() || ('sess_' + Date.now());
-      const wsUrl = 'ws://' + window.location.host + '/api/pty?session_id=' + encodeURIComponent(sessId);
-
-      ptyWs = new WebSocket(wsUrl);
-      ptyWs.binaryType = 'arraybuffer';
-
-      ptyWs.onopen = () => {
-        termReady = true;
-        term.writeln('\x1b[32m[xworkbench] 网页终端已连接\x1b[0m\r\n');
-        if (typeof loadCliSetting === 'function') loadCliSetting();
-        // 连接建立后立即发送正确尺寸给后端
-        ptyWs.send('resize,' + term.cols + ',' + term.rows);
-      };
-      ptyWs.onmessage = (e) => {
-        if (!termReady) return;
-        if (e.data instanceof ArrayBuffer) {
-          term.write(new Uint8Array(e.data));
-        } else {
-          try {
-            const msg = JSON.parse(e.data);
-            if (msg.type === 'auth_required') {
-              term.writeln('\r\n\x1b[33m[xworkbench] 需要授权: ' + (msg.extra || '') + '\x1b[0m\r\n');
-            }
-          } catch {
-            term.write(e.data);
-          }
-        }
-      };
-      ptyWs.onclose = () => {
-        term.writeln('\r\n\x1b[33m[连接已关闭]\x1b[0m');
-        termReady = false;
-      };
-      ptyWs.onerror = () => {
-        term.writeln('\r\n\x1b[31m[WebSocket 错误]\x1b[0m');
-      };
-
-      term.onData(data => {
-        if (ptyWs && ptyWs.readyState === 1) ptyWs.send(data);
-      });
-      term.onResize(() => {
-        if (ptyWs && ptyWs.readyState === 1) {
-          ptyWs.send('resize,' + term.cols + ',' + term.rows);
-        }
-      });
-
-      // ResizeObserver 监听容器变化，动态 fit 并通知后端
-      const resizeObserver = new ResizeObserver(() => {
-        fitAddon.fit();
-        if (ptyWs && ptyWs.readyState === 1) {
-          ptyWs.send('resize,' + term.cols + ',' + term.rows);
-        }
-      });
-      resizeObserver.observe(termContainer);
-    });
-  }
-
-  // loadCliSetting: fetch current aichat_default_cli from config and update selector/display
-  window.loadCliSetting = async function() {
-    try {
-      const r = await fetch('/api/config');
-      const d = await r.json();
-      const cli = d.aichat_default_cli || 'claude';
-      const sel = document.getElementById('cli-selector');
-      const disp = document.getElementById('cli-display');
-      if (sel) sel.value = cli;
-      if (disp) disp.textContent = cli;
-    } catch {}
-  };
-
-  window.onCliChange = async function(value) {
-    const disp = document.getElementById('cli-display');
-    if (disp) disp.textContent = value;
-    try {
-      await fetch('/api/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aichat_default_cli: value })
-      });
-    } catch {}
-  };
+  // （终端功能已移至 Web 终端 Tab）
 
 })();

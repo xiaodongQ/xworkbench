@@ -288,6 +288,57 @@ func TestAddAndWrite_WithMetadata(t *testing.T) {
 	}
 }
 
+func TestAddAndWrite_WithArchive(t *testing.T) {
+	// 验证新项插入到活跃区（分隔线之前），而不是归档区
+	content := `# Todo
+- [ ] 活跃任务
+
+---
+
+## 📦 已归档
+- [x] 归档任务 archived:2026-07-01
+`
+	dir := t.TempDir()
+	p := filepath.Join(dir, "todo.md")
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	lineNo, err := AddAndWrite(p, "新任务", "", nil, "")
+	if err != nil {
+		t.Fatalf("AddAndWrite error: %v", err)
+	}
+
+	data, _ := os.ReadFile(p)
+	sections, err := ParseSections(string(data))
+	if err != nil {
+		t.Fatalf("ParseSections error: %v", err)
+	}
+
+	// 新任务应该在活跃区，不在归档区
+	if len(sections.ActiveItems) != 2 {
+		t.Errorf("ActiveItems = %d, want 2", len(sections.ActiveItems))
+	}
+	if len(sections.ArchivedItems) != 1 {
+		t.Errorf("ArchivedItems = %d, want 1", len(sections.ArchivedItems))
+	}
+	// 新任务的 line_no 应该在活跃区（分隔线之前，即第3行）
+	if lineNo != 3 {
+		t.Errorf("new item lineNo = %d, want 3 (before separator)", lineNo)
+	}
+	// 验证新任务文本
+	found := false
+	for _, item := range sections.ActiveItems {
+		if item.Text == "新任务" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("new item should be in active section")
+	}
+}
+
 func TestItemToLine_PreservesMetadata(t *testing.T) {
 	tests := []struct {
 		name string

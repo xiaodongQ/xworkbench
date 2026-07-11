@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# xw-sshpass 构建脚本
+# xw-ssh-mcp-server 构建脚本
 # 用法：
 #   ./build.sh              # 构建当前平台
 #   ./build.sh -a           # 构建全平台（darwin/linux/windows amd64）
@@ -9,11 +9,11 @@
 # 依赖：Go，CGO_ENABLED=0（纯 Go，无 C 依赖）
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TMP_DIR="${SCRIPT_DIR}/win-sshpass_tmp-source"
-REPO="git@github.com:xiaodongQ/win-sshpass.git"
+TMP_DIR="${SCRIPT_DIR}/ssh-mcp-server_tmp-source"
+REPO="git@github.com:xiaodongQ/ssh-mcp-server.git"
 
 do_clone() {
-    echo "==> 拉取 win-sshpass latest"
+    echo "==> 拉取 ssh-mcp-server latest"
     if [ -d "$TMP_DIR" ]; then
         echo "  已存在，可手动 rm -rf ${TMP_DIR} 重新拉取"
     else
@@ -37,16 +37,16 @@ detect_platform() {
     [ "$goos" = "windows" ] && ext=".exe"
 }
 
-# 单平台构建函数（do_build 和 do_build_all 共用）
+# 单平台构建函数
 xw_build_one() {
     local goos=$1 goarch=$2 suffix=$3
-    local output="xw-sshpass-${goos}-${goarch}${suffix}"
+    local output="xw-ssh-mcp-server-${goos}-${goarch}${suffix}"
     printf "  %-12s %-8s ... " "$goos" "$goarch"
     (cd "${TMP_DIR}" && CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build \
         -ldflags="-s -w" \
         -trimpath \
         -o "${SCRIPT_DIR}/${output}" \
-        ./cmd/sshpass) 2>&1
+        ./cmd/server) 2>&1
     if [ $? -eq 0 ]; then
         local size=$(ls -lh "${SCRIPT_DIR}/${output}" | awk '{print $5}')
         echo "[OK] $size"
@@ -59,7 +59,7 @@ xw_build_one() {
 do_build() {
     detect_platform
     echo "=============================================="
-    echo "xw-sshpass 构建"
+    echo "xw-ssh-mcp-server 构建"
     echo "  平台: ${goos}/${goarch}"
     echo "  输出目录: ${SCRIPT_DIR}"
     echo "  CGO: disabled（纯 Go）"
@@ -80,19 +80,19 @@ do_build() {
 
     echo
     echo "==> 设置执行权限"
-    chmod +x "${SCRIPT_DIR}"/xw-sshpass-${goos}-${goarch}${ext}
+    chmod +x "${SCRIPT_DIR}"/xw-ssh-mcp-server-${goos}-${goarch}${ext}
 
     echo
     echo "=============================================="
     echo "构建完成："
-    ls -lh "${SCRIPT_DIR}"/xw-sshpass-* | awk '{print "  " $9 "  " $5}'
+    ls -lh "${SCRIPT_DIR}"/xw-ssh-mcp-server-* | awk '{print "  " $9 "  " $5}'
     echo "=============================================="
 }
 
 do_build_all() {
     echo "=============================================="
-    echo "xw-sshpass 全平台构建"
-    echo "  win-sshpass: latest"
+    echo "xw-ssh-mcp-server 全平台构建"
+    echo "  ssh-mcp-server: latest"
     echo "  输出目录: ${SCRIPT_DIR}"
     echo "  CGO: disabled（纯 Go）"
     echo "=============================================="
@@ -117,12 +117,12 @@ do_build_all() {
 
     echo
     echo "==> 设置执行权限"
-    chmod +x "${SCRIPT_DIR}"/xw-sshpass-*
+    chmod +x "${SCRIPT_DIR}"/xw-ssh-mcp-server-*
 
     echo
     echo "=============================================="
     echo "构建完成："
-    ls -lh "${SCRIPT_DIR}"/xw-sshpass-* | awk '{print "  " $9 "  " $5}'
+    ls -lh "${SCRIPT_DIR}"/xw-ssh-mcp-server-* | awk '{print "  " $9 "  " $5}'
     echo "=============================================="
 }
 

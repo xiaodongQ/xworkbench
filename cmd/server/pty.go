@@ -10,13 +10,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"unicode"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
+	"github.com/xiaodongQ/xworkbench/internal/backend"
 	"github.com/xiaodongQ/xworkbench/internal/config"
+	"github.com/xiaodongQ/xworkbench/internal/executor"
 )
 
 var upgrader = websocket.Upgrader{
@@ -156,12 +159,22 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 	logger.Infof("pty: ws upgraded tab_id=%q", tabID)
 
-	cliType := ""
-	if cfg := config.Get(); cfg != nil {
-		cliType = cfg.AichatDefaultCLI
+	// dir_id 非空 → 远程 SSH via xw-sshpass + creack/pty
+	dirID := r.URL.Query().Get("dir_id")
+	if dirID != "" {
+		s.handlePtyRemote(w, r, conn, tabID, dirID)
+		return
 	}
+
+	// cli_type query 参数优先，否则读配置
+	cliType := r.URL.Query().Get("cli_type")
 	if cliType == "" {
-		cliType = "claude"
+		if cfg := config.Get(); cfg != nil {
+			cliType = cfg.AichatDefaultCLI
+		}
+		if cliType == "" {
+			cliType = "claude"
+		}
 	}
 
 	ctxDir := getContextDir()
@@ -385,4 +398,237 @@ func enrichCmd(cmd string, sessionID, resumeUUID string) string {
 		return cmd
 	}
 	return cmd + " --resume " + resumeUUID
+}
+
+// handlePtyRemote 处理远程 SSH PTY：通过 xw-sshpass 子进程 + creack/pty 包装。
+// dirID 对应一个 DirShortcut，解析后构建 xw-sshpass ssh ... 命令并启动。
+func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn *websocket.Conn, tabID, dirID string) {
+	// 查找 DirShortcut
+	list, err := s.dirDB.List()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage,
+			[]byte("\r\n\x1b[31m[xworkbench] 无法读取目录配置: "+err.Error()+"\x1b[0m\r\n"))
+		return
+	}
+	var dir *backend.DirShortcut
+	for _, d := range list {
+		if d.ID == dirID {
+			dir = d
+			break
+		}
+	}
+	if dir == nil {
+		conn.WriteMessage(websocket.TextMessage,
+			[]byte("\r\n\x1b[31m[xworkbench] 未找到该目录配置\x1b[0m\r\n"))
+		return
+	}
+	if dir.Type != backend.DirShortcutTypeRemote {
+		conn.WriteMessage(websocket.TextMessage,
+			[]byte("\r\n\x1b[31m[xworkbench] 该目录不是远程类型\x1b[0m\r\n"))
+		return
+	}
+
+	// 构建 SSH 目标地址
+	port := dir.RemotePort
+	if port == "" {
+		port = "22"
+	}
+	userHost := dir.RemoteUser
+	if userHost == "" {
+		userHost = "root"
+	}
+	userHost = userHost + "@" + dir.RemoteHost
+	if port != "22" {
+		userHost = userHost + ":" + port
+	}
+
+	// 解析 xw-sshpass 路径（直接复用 terminal.go 的逻辑）
+	xwBin := resolveXwSshpassBin()
+	if xwBin == "" {
+		conn.WriteMessage(websocket.TextMessage,
+			[]byte("\r\n\x1b[31m[xworkbench] 未找到 xw-sshpass 二进制，请确认已安装\x1b[0m\r\n"))
+		return
+	}
+
+	// 构建 xw-sshpass 命令参数（直接 exec，不用 shell -c，确保 PTY 正确）
+	var xwArgs []string
+	if dir.AuthMethod == "key" {
+		// 密钥认证
+		keyPath := executor.ResolveKeyPath(dir)
+		if keyPath == "" {
+			conn.WriteMessage(websocket.TextMessage,
+				[]byte("\r\n\x1b[31m[xworkbench] 未找到 SSH 密钥文件\x1b[0m\r\n"))
+			return
+		}
+		xwArgs = []string{xwBin, "-i", keyPath, "ssh", userHost}
+	} else if dir.RemotePassword != "" {
+		// 密码认证
+		xwArgs = []string{xwBin, "-p", dir.RemotePassword, "ssh", userHost}
+	} else {
+		conn.WriteMessage(websocket.TextMessage,
+			[]byte("\r\n\x1b[31m[xworkbench] 无可用认证方式（未配置密钥也无密码）\x1b[0m\r\n"))
+		return
+	}
+
+	// 如果有 remote_path，用 -w 选项切换目录
+	if dir.RemotePath != "" {
+		// 在 ssh 之前插入 -w <path>
+		insertAt := len(xwArgs) - 1 // 在 "ssh" 之前插入
+		newArgs := make([]string, 0, len(xwArgs)+2)
+		newArgs = append(newArgs, xwArgs[:insertAt]...)
+		newArgs = append(newArgs, "-w", dir.RemotePath)
+		newArgs = append(newArgs, xwArgs[insertAt:]...)
+		xwArgs = newArgs
+	}
+
+	logger.Infof("pty: remote cmd ready tab_id=%q args=%v", tabID, xwArgs)
+
+	cmd := exec.Command(xwBin, xwArgs[1:]...)
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		logger.Errorf("pty: remote pty.Start error tab_id=%q err=%v", tabID, err)
+		conn.WriteMessage(websocket.TextMessage,
+			[]byte("\r\n\x1b[31m[xworkbench] PTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
+		return
+	}
+	pid := 0
+	if cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
+	logger.Infof("pty: remote pty started tab_id=%q pid=%d", tabID, pid)
+
+	sess := &PTYSession{ptmx: ptmx, cmd: cmd, tabID: tabID}
+	registerPTY(tabID, sess)
+
+	defer func() {
+		ptmx.Close()
+		_ = cmd.Process.Kill()
+		logger.Infof("pty: remote cleanup done tab_id=%q pid=%d", tabID, pid)
+	}()
+
+	banner := fmt.Sprintf("\x1b[36m[xworkbench] SSH 已连接: %s\x1b[0m\r\n", userHost)
+	conn.WriteMessage(websocket.TextMessage, []byte(banner))
+
+	logger.Infof("pty: remote banner sent, ptmx fd=%v tab_id=%q", ptmx.Fd(), tabID)
+
+	// 监听子进程退出
+	go func() {
+		werr := cmd.Wait()
+		exitCode := -1
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+		if werr != nil {
+			logger.Infof("pty: remote cli exited tab_id=%q pid=%d err=%v exitCode=%d",
+				tabID, pid, werr, exitCode)
+		} else {
+			logger.Infof("pty: remote cli exited tab_id=%q pid=%d exitCode=%d",
+				tabID, pid, exitCode)
+		}
+	}()
+
+	var wg sync.WaitGroup
+
+	// PTY 输出 → WebSocket + auth 检测
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var lineBuf strings.Builder
+		authNotified := false
+		buf := make([]byte, 4096)
+		totalBytes := 0
+		reads := 0
+		for {
+			n, rerr := ptmx.Read(buf)
+			reads++
+			if reads <= 3 || n > 0 {
+				logger.Infof("pty: [REMOTE] ptmx.Read tab_id=%q n=%d rerr=%v reads=%d totalBytes=%d", tabID, n, rerr, reads, totalBytes)
+			}
+			if n > 0 {
+				totalBytes += n
+				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+					logger.Errorf("pty: remote ws write error tab_id=%q err=%v", tabID, werr)
+					return
+				}
+				if !authNotified {
+					for _, b := range buf[:n] {
+						if b == '\n' || b == '\r' {
+							line := strings.TrimRight(lineBuf.String(), "\r\n")
+							if detectAuthRequired(line) {
+								sendNotify(conn, tabID, "auth_required", line)
+								authNotified = true
+							}
+							lineBuf.Reset()
+						} else if unicode.IsPrint(rune(b)) || b == '\t' {
+							lineBuf.WriteByte(b)
+						}
+					}
+				}
+			}
+			if rerr != nil {
+				if rerr == io.EOF {
+					logger.Infof("pty: remote read EOF tab_id=%q bytes=%d reads=%d", tabID, totalBytes, reads)
+				} else {
+					logger.Errorf("pty: remote read error tab_id=%q err=%v bytes=%d reads=%d",
+						tabID, rerr, totalBytes, reads)
+				}
+				break
+			}
+		}
+	}()
+
+	// WebSocket 输入 → PTY
+	inBytes, err := io.Copy(ptmx, &wsReader{conn: conn, ptmx: ptmx})
+	logger.Infof("pty: remote ws input closed tab_id=%q err=%v inBytes=%d", tabID, err, inBytes)
+
+	wg.Wait()
+	logger.Infof("pty: remote fully closed tab_id=%q", tabID)
+}
+
+// resolveXwSshpassBin 返回当前平台对应的 xw-sshpass 路径。
+// 优先从 tools/xw-sshpass/ 目录查找，找不到则尝试 PATH。
+func resolveXwSshpassBin() string {
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+	osMap := map[string]string{
+		"darwin":  "darwin",
+		"linux":   "linux",
+		"windows": "windows",
+	}
+	osStr := osMap[goos]
+	if osStr == "" {
+		return ""
+	}
+	archStr := "amd64"
+	if goarch == "arm64" {
+		archStr = "arm64"
+	}
+	binName := fmt.Sprintf("xw-sshpass-%s-%s", osStr, archStr)
+	if goos == "windows" {
+		binName += ".exe"
+	}
+
+	// 1. 从 tools/xw-sshpass/ 目录查找
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	toolsDir := filepath.Join(wd, "tools", "xw-sshpass")
+	binPath := filepath.Join(toolsDir, binName)
+	if _, err := os.Stat(binPath); err == nil {
+		return binPath
+	}
+
+	// 2. PATH 中查找
+	if bin, err := exec.LookPath(binName); err == nil {
+		return bin
+	}
+	// 3. 尝试不带平台后缀的 xw-sshpass
+	if bin, err := exec.LookPath("xw-sshpass"); err == nil {
+		return bin
+	}
+	return ""
 }

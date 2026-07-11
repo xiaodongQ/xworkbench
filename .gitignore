@@ -3,8 +3,15 @@ data/
 *.db-journal
 *.db
 bin/
+
 # xw-sshpass 预编译产物（用户本地编译，不上库）
 tools/xw-sshpass/xw-sshpass-*
+tools/xw-sshpass/win-sshpass_tmp-source
+
+# ssh-mcp-server 预编译产物（用户本地编译，不上库）
+tools/xw-ssh-mcp-server/xw-ssh-mcp-server-*
+tools/xw-ssh-mcp-server/ssh-mcp-server_tmp-source_tmp-source
+
 tmp-e2e-test/
 config.json
 .codegraph

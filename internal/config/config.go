@@ -131,6 +131,7 @@ type Config struct {
 	AichatDefaultCLI string `json:"aichat_default_cli,omitempty"` // codex/cbc/shell/claude
 	DangerouslySkipPermissions bool `json:"dangerously_skip_permissions"` // 完全放开 CLI 权限：跳过 --allowedTools、改为 --dangerously-skip-permissions；默认 false，开启后 AI 可执行任意命令
 	TodoMDPath       string `json:"todo_md_path,omitempty"`
+	TodoShowArchived bool   `json:"todo_show_archived"` // todo widget 归档区默认显示/隐藏
 	SchedulerEnabled bool   `json:"scheduler_enabled"`
 
 	// 部署级配置
@@ -379,29 +380,29 @@ func Load() (*Config, error) {
 
 // LoadFromPath 从指定路径加载配置，覆盖全局 AppConfig（线程安全）
 // 目标文件不存在时，自动从模板（可执行文件同目录的 config.template.conf）创建。
-func LoadFromPath(path string) error {
+func LoadFromPath(path string) (*Config, error) {
 	if path == "" {
-		return nil
+		return nil, fmt.Errorf("path is empty")
 	}
 	cfg := DefaultConfig()
 	loaded, err := loadFromFile(path, cfg)
 	if err != nil && os.IsNotExist(err) {
 		// 文件不存在，尝试从模板创建
 		if err := ensureConfigFromTemplate(path); err != nil {
-			return fmt.Errorf("config file not found and template copy failed: %v", err)
+			return nil, fmt.Errorf("config file not found and template copy failed: %v", err)
 		}
 		loaded, err = loadFromFile(path, cfg)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	} else if err != nil {
-		return err
+		return nil, err
 	}
 	Set(loaded) // 走锁
 	configFilePathMu.Lock()
 	configFilePath = path
 	configFilePathMu.Unlock()
-	return nil
+	return loaded, nil
 }
 
 // ensureConfigFromTemplate 尝试从可执行文件同目录的 config.template.conf 拷贝到目标路径。

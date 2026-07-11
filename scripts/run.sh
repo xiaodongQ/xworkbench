@@ -351,7 +351,7 @@ start() {
   else
     echo "${RED}✗ 启动失败${NC}"
     echo "  查看日志：${YELLOW}tail -f ${PROJECT_ROOT}/data/logs/xworkbench.log${NC}"
-    tail -10 "${PROJECT_ROOT}/data/logs/xworkbench.log"
+    #tail -10 "${PROJECT_ROOT}/data/logs/xworkbench.log"
     exit 1
   fi
 }

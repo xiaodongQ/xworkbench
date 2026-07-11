@@ -82,7 +82,7 @@ func TestMergeConfig_EvalDefault(t *testing.T) {
 		if err := os.WriteFile(path, data, 0644); err != nil {
 			t.Fatalf("write: %v", err)
 		}
-		if err := LoadFromPath(path); err != nil {
+		if _, err := LoadFromPath(path); err != nil {
 			t.Fatalf("LoadFromPath: %v", err)
 		}
 		if AppConfig == nil {

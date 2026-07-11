@@ -180,8 +180,6 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/pty", s.handlePty)
 	mux.HandleFunc("POST /api/pty/{tab_id}/submit-input", s.handlePtyInput)
-	mux.HandleFunc("GET /api/rpty", s.handleRemotePty)
-	mux.HandleFunc("POST /api/rpty/{tab_id}/submit-input", s.handleRptyInput)
 	mux.HandleFunc("GET /ws", s.handleWS)
 	// /static/* 用 embed.FS serve 拆分 CSS/JS 文件
 	mux.Handle("GET /static/", http.FileServer(http.FS(FS)))
@@ -233,7 +231,6 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/todo/path", s.handleTodoPath)
 	mux.HandleFunc("PUT /api/todo/path", s.handleTodoPathSet)
 	mux.HandleFunc("PUT /api/todo/{line_no}/archive", s.handleTodoArchive)
-	mux.HandleFunc("PUT /api/todo/{line_no}/unarchive", s.handleTodoUnarchive)
 
 	// relay 代理功能（带 API key 认证）
 	relayAuth := checkRelayAuth()
@@ -1931,6 +1928,7 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"ai_loop_enabled":    cfg.AILoopEnabled,
 		"aichat_default_cli": cfg.AichatDefaultCLI,
 		"todo_md_path":       cfg.TodoMDPath,
+		"todo_show_archived": cfg.TodoShowArchived,
 		"scheduler_enabled":  cfg.SchedulerEnabled,
 		"dangerously_skip_permissions": cfg.DangerouslySkipPermissions,
 		// 部署级配置
@@ -1962,6 +1960,7 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 		AILoopEnabled    *bool   `json:"ai_loop_enabled,omitempty"`
 		AichatDefaultCLI *string `json:"aichat_default_cli,omitempty"`
 		TodoMDPath       *string `json:"todo_md_path,omitempty"`
+		TodoShowArchived *bool   `json:"todo_show_archived,omitempty"`
 		SchedulerEnabled *bool   `json:"scheduler_enabled,omitempty"`
 		DangerouslySkipPermissions *bool `json:"dangerously_skip_permissions,omitempty"`
 		// 部署级
@@ -2020,6 +2019,9 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	if req.TodoMDPath != nil {
 		changed = true
 	}
+	if req.TodoShowArchived != nil {
+		changed = true
+	}
 	if req.AILoopEnabled != nil {
 		changed = true
 	}
@@ -2075,6 +2077,9 @@ func (s *APIServer) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 			c.TodoMDPath = *req.TodoMDPath
 		}
 		// 用户偏好（bool）
+		if req.TodoShowArchived != nil {
+			c.TodoShowArchived = *req.TodoShowArchived
+		}
 		if req.AILoopEnabled != nil {
 			c.AILoopEnabled = *req.AILoopEnabled
 		}
@@ -2380,7 +2385,8 @@ func (s *APIServer) handleTodo(w http.ResponseWriter, r *http.Request) {
 	if sections == nil {
 		sections = &todo.ParsedSections{}
 	}
-	writeJSON(w, map[string]any{"path": path, "items": sections.ActiveItems, "archived_items": sections.ArchivedItems})
+	showArchived := config.Get().TodoShowArchived
+	writeJSON(w, map[string]any{"path": path, "items": sections.ActiveItems, "archived_items": sections.ArchivedItems, "show_archived": showArchived})
 }
 
 func (s *APIServer) handleTodoToggle(w http.ResponseWriter, r *http.Request) {
@@ -2514,8 +2520,9 @@ func (s *APIServer) handleTodoEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Text    string `json:"text,omitempty"`
-		DueDate string `json:"due_date,omitempty"`
+		Text          string `json:"text,omitempty"`
+		DueDate       string `json:"due_date,omitempty"`
+		ClearDueDate  bool   `json:"clear_due_date,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -2535,7 +2542,9 @@ func (s *APIServer) handleTodoEdit(w http.ResponseWriter, r *http.Request) {
 	for i := range flat {
 		if flat[i].LineNo == lineNo {
 			flat[i].Text = req.Text
-			if req.DueDate != "" {
+			if req.ClearDueDate {
+				flat[i].DueDate = ""
+			} else if req.DueDate != "" {
 				flat[i].DueDate = req.DueDate
 			}
 			found = true
@@ -2596,25 +2605,6 @@ func (s *APIServer) handleTodoArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"line_no": lineNo, "status": "archived"})
-}
-
-func (s *APIServer) handleTodoUnarchive(w http.ResponseWriter, r *http.Request) {
-	path := todoPath()
-	if path == "" {
-		writeErr(w, http.StatusBadRequest, "todo_md_path not set")
-		return
-	}
-	lineNo := parseInt(r.PathValue("line_no"), 0)
-	logger.Infow("todo unarchive", "line_no", lineNo)
-	if lineNo <= 0 {
-		writeErr(w, http.StatusBadRequest, "invalid line_no")
-		return
-	}
-	if err := todo.UnarchiveItem(path, lineNo); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, map[string]any{"line_no": lineNo, "status": "unarchived"})
 }
 
 // Helpers
@@ -2822,24 +2812,29 @@ func main() {
 		logger.Fatalw("init schema failed", "err", err)
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		logger.Errorf("[config] load failed: %v, using defaults", err)
-		cfg = config.DefaultConfig()
-	}
-	config.Set(cfg)
-
 	// 支持 -config 指定配置文件路径
 	cfgPath := flag.String("config", "", "path to config.json")
 	addrFlag := flag.String("addr", "", "listen address (e.g. :8902)")
 	flag.Parse()
+
+	var cfg *config.Config
 	if *cfgPath != "" {
-		if err := config.LoadFromPath(*cfgPath); err != nil {
-			logger.Errorf("[config] load from %s failed: %v", *cfgPath, err)
-		} else {
-			logger.Infow("config loaded", "path", *cfgPath)
+		// 指定了配置文件路径，从该路径加载
+		var err error
+		cfg, err = config.LoadFromPath(*cfgPath)
+		if err != nil {
+			logger.Fatalw("[config] load from specified path failed, exiting", "path", *cfgPath, "err", err)
+		}
+		logger.Infow("config loaded", "path", *cfgPath)
+	} else {
+		// 未指定，使用默认路径加载
+		var loadErr error
+		cfg, loadErr = config.Load()
+		if loadErr != nil {
+			logger.Fatalw("[config] load failed (no -config specified, cannot continue with defaults)", "err", loadErr)
 		}
 	}
+	config.Set(cfg)
 
 	// 日志写入文件（包含源文件行号，时间戳用友好格式）
 	logDir := filepath.Join(filepath.Dir(dbPath), "logs")

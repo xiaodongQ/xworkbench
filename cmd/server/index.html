@@ -110,15 +110,14 @@
 
     <div class="widget" id="widget-todo">
       <div class="widget-title">
-        <span id="todo-title-group" style="display:flex;align-items:center;gap:4px">
+        <span id="todo-title-group" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
           <button id="todo-expand-btn" class="btn btn-small" onclick="toggleTodoExpandAll()" title="展开所有子项" style="font-size:14px;padding:1px 4px;color:var(--primary)">▶</button>
           <span>☑️ 待办</span>
+          <button class="btn btn-small" onclick="showTodoPathModal()" title="设置 todo.md 路径">⚙️</button>
+          <button id="todo-filter-btn" class="btn btn-small" onclick="showTodoFilterMenu()" title="点击切换到: 仅未完成">☐</button>
         </span>
         <span>
           <button class="btn btn-small" onclick="showTodoAddModal()">+ 添加</button>
-          <button class="btn btn-small" onclick="showTodoPathModal()">设置</button>
-          <button id="todo-filter-btn" class="btn btn-small" onclick="showTodoFilterMenu()" title="点击切换到: 仅未完成">☐</button>
-          <button id="todo-archive-btn" class="btn btn-small" onclick="toggleTodoArchived()" title="显示/隐藏归档" style="color:var(--text-secondary)">📦</button>
         </span>
       </div>
       <div id="todo-container" style="overflow-y:auto;flex:1;min-height:0">
@@ -498,16 +497,27 @@
 
   <!-- Web 终端 Tab -->
   <div id="page-rterm" class="hidden">
-    <h1 class="page-title">🖥️ Web 终端 <span style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px">Web 内嵌 SSH 交互式终端</span></h1>
+    <h1 class="page-title">🖥️ Web 终端 <span style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px">Web 内嵌交互式终端</span></h1>
 
     <!-- 连接控制栏 -->
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      <select id="rpty-dir-select" onchange="onRptyDirChange(this.value)"
-              style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);min-width:200px">
-        <option value="">— 选择远程目录 —</option>
+      <!-- 终端类型选择 -->
+      <select id="rterm-type-select" onchange="onRtermTypeChange(this.value)"
+              style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text)">
+        <option value="local_shell">本地 Shell</option>
+        <option value="local_claude">本地 Claude CLI</option>
+        <option value="local_cbc">本地 CBC CLI</option>
+        <option value="remote">远程 SSH</option>
       </select>
+      <!-- 远程目录选择（仅 remote 模式显示） -->
+      <div class="rterm-dir-group">
+        <select id="rpty-dir-select" onchange="onRptyDirChange(this.value)"
+                style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);min-width:200px">
+          <option value="">— 选择远程目录 —</option>
+        </select>
+      </div>
       <button class="btn btn-primary" id="rpty-connect-btn" onclick="onRptyConnect()" style="font-size:13px;padding:6px 16px">连接</button>
-      <button class="btn btn-secondary" id="rpty-disconnect-btn" onclick="disconnectRPTY()" style="font-size:13px;padding:6px 16px;display:none">断开</button>
+      <button class="btn btn-secondary" id="rpty-disconnect-btn" onclick="disconnectTerminal()" style="font-size:13px;padding:6px 16px;display:none">断开</button>
       <span id="rpty-status" class="rpty-status" style="font-size:12px;color:var(--text-secondary)">未连接</span>
     </div>
 
@@ -520,7 +530,7 @@
     </div>
 
     <!-- 终端区 -->
-    <div class="terminal-wrap rpty-mode">
+    <div class="terminal-wrap">
       <div class="terminal-header">
         <div class="terminal-dot red"></div>
         <div class="terminal-dot yellow"></div>
@@ -965,6 +975,12 @@
   <div class="modal">
     <h2>设置 todo.md 路径</h2>
     <div class="form-group"><label>路径 <span class="field-hint">本地绝对路径</span></label><input id="todo-path-input" placeholder="/Users/me/notes/todo.md"></div>
+    <div class="form-group">
+      <label style="display:flex;gap:8px;align-items:center;cursor:pointer">
+        <input type="checkbox" id="todo-show-archived-cb" style="width:auto">
+        <span>默认显示归档区</span>
+      </label>
+    </div>
     <div style="font-size:11px;color:var(--text-secondary);margin-top:8px">支持 <code>- [ ]</code> 和 <code>- [x]</code> 格式，点击勾选框会自动写回文件（先 .bak 再原子 rename）。</div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTodoPathModal()">取消</button>
@@ -983,7 +999,7 @@
       <input id="todo-modal-title-input" type="text" placeholder="任务内容" style="width:100%;box-sizing:border-box">
     </div>
     <div class="form-group">
-      <label>截止日期</label>
+      <label style="display:flex;align-items:center;gap:4px">截止日期 <button type="button" onclick="event.stopPropagation();clearTodoDueDate()" style="background:var(--hover);border:1px solid var(--border);border-radius:3px;cursor:pointer;color:var(--text-secondary);font-size:11px;padding:1px 5px" title="清空日期">× 清空</button></label>
       <input id="todo-modal-due" type="date" style="width:100%;box-sizing:border-box">
     </div>
     <div class="form-group" id="todo-modal-children-group">
@@ -1341,7 +1357,7 @@
 <script src="/static/js/views/experiences.js"></script>
 <script src="/static/js/views/automation.js"></script>
 <script src="/static/js/views/aichat.js"></script>
-<script src="/static/js/views/rpty.js"></script>
+<script src="/static/js/views/terminal.js"></script>
 <script src="/static/js/views/relay.js"></script>
 <script src="/static/js/views/agents.js"></script>
 <script src="/static/js/views/config.js"></script>

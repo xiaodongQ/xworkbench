@@ -534,44 +534,8 @@ tr:last-child td { border-bottom: none; }
 .terminal-wrap:focus-within { outline: 2px solid rgba(34, 211, 238, 0.25); outline-offset: -2px; }
 .terminal-wrap:not(:focus-within) { outline: 1px solid rgba(148, 163, 184, 0.15); }
 /* terminal div 可聚焦 */
-#shell-terminal, #rpty-container { outline: none; cursor: text; overflow-x: auto; }
-#shell-terminal:focus-visible, #rpty-container:focus-visible { outline: none; }
-/* 边界指示线（absolute 相对 .terminal-wrap，撑满终端起始到结束高度 - 切到其他 Tab 自动隐藏） */
-#rpty-boundary {
-  display: none;
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(to bottom,
-    rgba(239, 68, 68, 0.9) 0%,
-    rgba(239, 68, 68, 0.5) 20%,
-    rgba(239, 68, 68, 0.3) 50%,
-    rgba(239, 68, 68, 0.5) 80%,
-    rgba(239, 68, 68, 0.9) 100%);
-  pointer-events: none;
-  z-index: 10;
-  /* 发光效果 */
-  box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.4);
-}
-#rpty-boundary.visible {
-  display: block;
-}
-/* 边界线顶端标签 */
-#rpty-boundary::before {
-  content: attr(data-cols) '列';
-  position: absolute;
-  top: 8px;
-  left: 6px;
-  background: rgba(239, 68, 68, 0.9);
-  color: #fff;
-  font-size: 10px;
-  font-family: monospace;
-  padding: 2px 5px;
-  border-radius: 3px;
-  white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-}
+#rpty-container { outline: none; cursor: text; overflow-x: auto; }
+#rpty-container:focus-visible { outline: none; }
 .terminal-header { background: #1e293b; padding: 8px 12px; display: flex; align-items: center; gap: 8px; }
 .terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
 .terminal-dot.red { background: #ef4444; }
@@ -841,15 +805,6 @@ tr:last-child td { border-bottom: none; }
 .aichat-chat-region > .aichat-input-area .aichat-input-row {
   display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px;
 }
-
-.aichat-term-region {
-  flex: 0 0 auto; display: flex; flex-direction: column;
-  min-height: 120px; margin-top: 8px;
-  background: #0f172a; border-radius: 8px; overflow: hidden;
-}
-.aichat-term-region > .resize-handle-h { margin: -3px 0; }
-.aichat-term-region > .terminal-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.aichat-term-region > .terminal-wrap > #shell-terminal { flex: 1 1 auto; min-height: 0; padding: 8px; }
 
 .btn-icon {
   width: 28px; height: 28px;
