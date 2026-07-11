@@ -1138,3 +1138,14 @@ tr:last-child td { border-bottom: none; }
 .category-chip.cat-manage:hover {
   opacity: 1;
 }
+
+/* ===== 分类管理 Modal 的拖动重排行 ===== */
+.cat-row {
+  transition: background 0.15s ease;
+}
+.cat-row:hover {
+  background: var(--hover);
+}
+.cat-row[draggable="true"]:active {
+  cursor: grabbing;
+}

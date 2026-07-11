@@ -1168,12 +1168,19 @@ async function refreshLinkCategoryList() {
     container.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无分类</div>';
     return;
   }
+  // 拖动重排：整行 draggable；data-id 携带分类 id；onXxx 回调走通用 catRowDrag* 助手
   container.innerHTML = list.map(c => `
-    <div class="cat-row" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)">
+    <div class="cat-row" draggable="true" data-id="${esc(c.id)}"
+         ondragstart="catRowDragStart(event, 'link')"
+         ondragover="catRowDragOver(event)"
+         ondragleave="catRowDragLeave(event)"
+         ondrop="catRowDrop(event, 'link', refreshLinkCategoryList)"
+         style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border);cursor:move">
+      <span class="drag-handle" title="拖动重排"></span>
       <span>${esc(c.icon || '')}</span>
       <span style="flex:1">${esc(c.name)}</span>
       ${c.is_default ? '<span style="color:var(--text-secondary);font-size:11px">默认</span>' :
-        `<button class="btn btn-small" onclick="deleteLinkCategory('${esc(c.id)}')">删除</button>`}
+        `<button class="btn btn-small" onclick="event.stopPropagation();deleteLinkCategory('${esc(c.id)}')">删除</button>`}
     </div>
   `).join('');
 }
@@ -1355,11 +1362,17 @@ async function refreshDirCategoryList() {
     return;
   }
   container.innerHTML = list.map(c => `
-    <div class="cat-row" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)">
+    <div class="cat-row" draggable="true" data-id="${esc(c.id)}"
+         ondragstart="catRowDragStart(event, 'dir')"
+         ondragover="catRowDragOver(event)"
+         ondragleave="catRowDragLeave(event)"
+         ondrop="catRowDrop(event, 'dir', refreshDirCategoryList)"
+         style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border);cursor:move">
+      <span class="drag-handle" title="拖动重排"></span>
       <span>${esc(c.icon || '')}</span>
       <span style="flex:1">${esc(c.name)}</span>
       ${c.is_default ? '<span style="color:var(--text-secondary);font-size:11px">默认</span>' :
-        `<button class="btn btn-small" onclick="deleteDirCategory('${esc(c.id)}')">删除</button>`}
+        `<button class="btn btn-small" onclick="event.stopPropagation();deleteDirCategory('${esc(c.id)}')">删除</button>`}
     </div>
   `).join('');
 }
@@ -1403,4 +1416,60 @@ async function saveCategoryOrder(type, ids) {
     });
   }
   if (type === 'link') loadLinks(); else loadDirs();
+}
+
+// ===== 分类 Modal 拖动重排（cat-row） =====
+let _catDragSrcId = null;
+let _catDragType = null;
+
+function catRowDragStart(e, type) {
+  _catDragSrcId = e.currentTarget.dataset.id;
+  _catDragType = type;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', _catDragSrcId || '');
+  e.currentTarget.style.opacity = '0.4';
+}
+
+function catRowDragOver(e) {
+  if (!_catDragSrcId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.style.borderTop = '2px solid var(--primary)';
+}
+
+function catRowDragLeave(e) {
+  e.currentTarget.style.borderTop = '';
+}
+
+async function catRowDrop(e, type, reloadFn) {
+  e.preventDefault();
+  e.currentTarget.style.borderTop = '';
+  // 清理本 modal 内所有 cat-row 的拖拽样式
+  const modal = e.currentTarget.closest('.modal');
+  if (modal) {
+    modal.querySelectorAll('.cat-row').forEach(el => { el.style.opacity = ''; });
+  }
+  const tgtId = e.currentTarget.dataset.id;
+  if (!_catDragSrcId || _catDragSrcId === tgtId || type !== _catDragType) {
+    _catDragSrcId = null;
+    _catDragType = null;
+    return;
+  }
+  // 收集当前 modal 内所有 cat-row 的 id 顺序
+  const idsInNewOrder = modal
+    ? Array.from(modal.querySelectorAll('.cat-row[data-id]')).map(el => el.dataset.id)
+    : [];
+  const srcIdx = idsInNewOrder.indexOf(_catDragSrcId);
+  const tgtIdx = idsInNewOrder.indexOf(tgtId);
+  if (srcIdx < 0 || tgtIdx < 0) {
+    _catDragSrcId = null;
+    _catDragType = null;
+    return;
+  }
+  idsInNewOrder.splice(srcIdx, 1);
+  idsInNewOrder.splice(tgtIdx, 0, _catDragSrcId);
+  _catDragSrcId = null;
+  _catDragType = null;
+  await saveCategoryOrder(type, idsInNewOrder);
+  if (reloadFn) reloadFn();
 }
