@@ -319,6 +319,7 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, e
 	for i := separatorIdx + 1; i < len(lines); i++ {
 		result += lines[i] + "\n"
 	}
+	// 新项插入在 separatorIdx 位置（分隔线之前），返回新项的行号
 	return separatorIdx, atomicWrite(path, result)
 }
 
