@@ -151,11 +151,22 @@ type Evaluation struct {
 
 // WebLink 网页链接
 type WebLink struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	URL        string    `json:"url"`
+	IconURL    string    `json:"icon_url,omitempty"`
+	SortOrder  int       `json:"sort_order"`
+	CategoryID string    `json:"category_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// LinkCategory 链接分类
+type LinkCategory struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	URL       string    `json:"url"`
-	IconURL   string    `json:"icon_url,omitempty"`
+	Icon      string    `json:"icon,omitempty"`
 	SortOrder int       `json:"sort_order"`
+	IsDefault bool      `json:"is_default"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -168,6 +179,7 @@ const (
 
 type DirShortcut struct {
 	ID              string     `json:"id"`
+	CategoryID      string     `json:"category_id,omitempty"`
 	Name            string     `json:"name"`
 	Path            string     `json:"path"`
 	SortOrder       int        `json:"sort_order"`
@@ -186,6 +198,16 @@ type DirShortcut struct {
 	UseLegacyAlgorithms bool       `json:"use_legacy_algorithms"`       // 是否启用 legacy SSH 算法（默认 false，老服务器按需开启）
 	CreatedAt           time.Time  `json:"created_at"`
 	LastAccessedAt      *time.Time `json:"last_accessed_at,omitempty"`
+}
+
+// DirCategory 目录分类
+type DirCategory struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Icon      string    `json:"icon,omitempty"`
+	SortOrder int       `json:"sort_order"`
+	IsDefault bool      `json:"is_default"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ScheduledTask 定时任务

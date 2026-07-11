@@ -122,6 +122,14 @@ func InitSchema(db *sql.DB) error {
 		sort_order INTEGER DEFAULT 0,
 		created_at DATETIME
 	);
+	CREATE TABLE IF NOT EXISTS link_categories (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		icon TEXT,
+		sort_order INTEGER DEFAULT 0,
+		is_default INTEGER DEFAULT 0,
+		created_at DATETIME
+	);
 	CREATE TABLE IF NOT EXISTS dir_shortcuts (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -136,6 +144,14 @@ func InitSchema(db *sql.DB) error {
 		terminal_cmd TEXT,
 		created_at DATETIME,
 		last_accessed_at DATETIME
+	);
+	CREATE TABLE IF NOT EXISTS dir_categories (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		icon TEXT,
+		sort_order INTEGER DEFAULT 0,
+		is_default INTEGER DEFAULT 0,
+		created_at DATETIME
 	);
 	CREATE TABLE IF NOT EXISTS scheduled_tasks (
 		id TEXT PRIMARY KEY,
@@ -223,6 +239,15 @@ func InitSchema(db *sql.DB) error {
 		return err
 	}
 	if err := migrateDirShortcutsColumns(db); err != nil {
+		return err
+	}
+	if err := migrateWebLinksCategoryColumn(db); err != nil {
+		return err
+	}
+	if err := migrateDirShortcutsCategoryColumn(db); err != nil {
+		return err
+	}
+	if err := seedDefaultCategories(db); err != nil {
 		return err
 	}
 	if err := migrateExperiencesColumns(db); err != nil {
@@ -470,6 +495,100 @@ func migrateDirShortcutsColumns(db *sql.DB) error {
 		if err := addCol(a.n, a.d); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateWebLinksCategoryColumn(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(web_links)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	addCol := func(name, decl string) error {
+		if cols[name] {
+			return nil
+		}
+		_, err := db.Exec(`ALTER TABLE web_links ADD COLUMN ` + decl)
+		return err
+	}
+	if err := addCol("category_id", "category_id TEXT"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func migrateDirShortcutsCategoryColumn(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(dir_shortcuts)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	addCol := func(name, decl string) error {
+		if cols[name] {
+			return nil
+		}
+		_, err := db.Exec(`ALTER TABLE dir_shortcuts ADD COLUMN ` + decl)
+		return err
+	}
+	if err := addCol("category_id", "category_id TEXT"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// seedDefaultCategories 为现有数据库插入默认分类（"默认"）
+func seedDefaultCategories(db *sql.DB) error {
+	// link_categories 默认分类
+	var linkCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM link_categories WHERE is_default=1`).Scan(&linkCount); err != nil {
+		return err
+	}
+	if linkCount == 0 {
+		_, err := db.Exec(`INSERT INTO link_categories (id,name,icon,sort_order,is_default,created_at) VALUES (?,?,?,?,?,?)`,
+			"default-link", "默认", "📁", 0, 1, time.Now())
+		if err != nil {
+			return err
+		}
+	}
+	// dir_categories 默认分类
+	var dirCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM dir_categories WHERE is_default=1`).Scan(&dirCount); err != nil {
+		return err
+	}
+	if dirCount == 0 {
+		_, err := db.Exec(`INSERT INTO dir_categories (id,name,icon,sort_order,is_default,created_at) VALUES (?,?,?,?,?,?)`,
+			"default-dir", "默认", "📂", 0, 1, time.Now())
+		if err != nil {
+			return err
+		}
+	}
+	// 将未分类条目关联到默认分类
+	if _, err := db.Exec(`UPDATE web_links SET category_id='default-link' WHERE category_id IS NULL OR category_id=''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE dir_shortcuts SET category_id='default-dir' WHERE category_id IS NULL OR category_id=''`); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1540,9 +1659,13 @@ type WebLinkRepo struct{ db *sql.DB }
 func NewWebLinkRepo(db *sql.DB) *WebLinkRepo { return &WebLinkRepo{db: db} }
 
 func (r *WebLinkRepo) Create(w *WebLink) error {
-	q := `INSERT INTO web_links (id,name,url,icon_url,sort_order,created_at)
-	        VALUES (?,?,?,?,?,?)`
-	_, err := r.db.Exec(q, w.ID, w.Name, w.URL, w.IconURL, w.SortOrder, w.CreatedAt)
+	// 默认分类
+	if w.CategoryID == "" {
+		w.CategoryID = "default-link"
+	}
+	q := `INSERT INTO web_links (id,name,url,icon_url,sort_order,category_id,created_at)
+	        VALUES (?,?,?,?,?,?,?)`
+	_, err := r.db.Exec(q, w.ID, w.Name, w.URL, w.IconURL, w.SortOrder, w.CategoryID, w.CreatedAt)
 	if err != nil {
 		logger.Logger.Errorw("web_links insert failed", "id", w.ID, "error", err.Error())
 		return err
@@ -1570,6 +1693,9 @@ func (r *WebLinkRepo) Update(w *WebLink) error {
 		set = append(set, "sort_order=?")
 		args = append(args, w.SortOrder)
 	}
+	// category_id 总是更新（允许设空则设空，不设则忽略）
+	set = append(set, "category_id=?")
+	args = append(args, w.CategoryID)
 	if len(set) == 0 {
 		return nil
 	}
@@ -1605,7 +1731,7 @@ func (r *WebLinkRepo) NextSortOrder() int {
 }
 
 func (r *WebLinkRepo) List() ([]*WebLink, error) {
-	rows, err := r.db.Query(`SELECT id,name,url,icon_url,sort_order,created_at FROM web_links ORDER BY sort_order ASC, created_at DESC`)
+	rows, err := r.db.Query(`SELECT id,name,url,icon_url,sort_order,category_id,created_at FROM web_links ORDER BY sort_order ASC, created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -1614,10 +1740,12 @@ func (r *WebLinkRepo) List() ([]*WebLink, error) {
 	for rows.Next() {
 		var w WebLink
 		var icon sql.NullString
-		if err := rows.Scan(&w.ID, &w.Name, &w.URL, &icon, &w.SortOrder, &w.CreatedAt); err != nil {
+		var categoryID sql.NullString
+		if err := rows.Scan(&w.ID, &w.Name, &w.URL, &icon, &w.SortOrder, &categoryID, &w.CreatedAt); err != nil {
 			return nil, err
 		}
 		w.IconURL = icon.String
+		w.CategoryID = categoryID.String
 		out = append(out, &w)
 	}
 	return out, rows.Err()
@@ -1627,8 +1755,9 @@ func (r *WebLinkRepo) List() ([]*WebLink, error) {
 func (r *WebLinkRepo) GetByName(name string) (*WebLink, error) {
 	var w WebLink
 	var icon sql.NullString
-	err := r.db.QueryRow(`SELECT id,name,url,icon_url,sort_order,created_at FROM web_links WHERE name=? LIMIT 1`, name).
-		Scan(&w.ID, &w.Name, &w.URL, &icon, &w.SortOrder, &w.CreatedAt)
+	var categoryID sql.NullString
+	err := r.db.QueryRow(`SELECT id,name,url,icon_url,sort_order,category_id,created_at FROM web_links WHERE name=? LIMIT 1`, name).
+		Scan(&w.ID, &w.Name, &w.URL, &icon, &w.SortOrder, &categoryID, &w.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1637,6 +1766,181 @@ func (r *WebLinkRepo) GetByName(name string) (*WebLink, error) {
 	}
 	w.IconURL = icon.String
 	return &w, nil
+}
+
+// ===== LinkCategoryRepo =====
+
+type LinkCategoryRepo struct{ db *sql.DB }
+
+func NewLinkCategoryRepo(db *sql.DB) *LinkCategoryRepo { return &LinkCategoryRepo{db: db} }
+
+func (r *LinkCategoryRepo) Create(c *LinkCategory) error {
+	q := `INSERT INTO link_categories (id,name,icon,sort_order,is_default,created_at)
+	        VALUES (?,?,?,?,?,?)`
+	isDefaultInt := 0
+	if c.IsDefault {
+		isDefaultInt = 1
+	}
+	_, err := r.db.Exec(q, c.ID, c.Name, c.Icon, c.SortOrder, isDefaultInt, c.CreatedAt)
+	return err
+}
+
+func (r *LinkCategoryRepo) Update(c *LinkCategory) error {
+	set := []string{}
+	args := []any{}
+	if c.Name != "" {
+		set = append(set, "name=?")
+		args = append(args, c.Name)
+	}
+	if c.SortOrder > 0 {
+		set = append(set, "sort_order=?")
+		args = append(args, c.SortOrder)
+	}
+	// icon 可设为空，单独处理
+	set = append(set, "icon=?")
+	args = append(args, c.Icon)
+	if len(set) == 0 {
+		return nil
+	}
+	args = append(args, c.ID)
+	q := "UPDATE link_categories SET " + strings.Join(set, ",") + " WHERE id=?"
+	_, err := r.db.Exec(q, args...)
+	return err
+}
+
+func (r *LinkCategoryRepo) Delete(id string) error {
+	// 不能删除默认分类
+	var isDefault int
+	if err := r.db.QueryRow(`SELECT COALESCE(is_default,0) FROM link_categories WHERE id=?`, id).Scan(&isDefault); err != nil {
+		return err
+	}
+	if isDefault == 1 {
+		return fmt.Errorf("cannot delete default category")
+	}
+	// 将该分类下的链接设为默认分类
+	if _, err := r.db.Exec(`UPDATE web_links SET category_id='default-link' WHERE category_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec(`DELETE FROM link_categories WHERE id=?`, id); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *LinkCategoryRepo) List() ([]*LinkCategory, error) {
+	rows, err := r.db.Query(`SELECT id,name,icon,sort_order,is_default,created_at FROM link_categories ORDER BY sort_order ASC, created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*LinkCategory
+	for rows.Next() {
+		var c LinkCategory
+		var icon sql.NullString
+		var isDefault int
+		if err := rows.Scan(&c.ID, &c.Name, &icon, &c.SortOrder, &isDefault, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		c.Icon = icon.String
+		c.IsDefault = isDefault == 1
+		out = append(out, &c)
+	}
+	return out, rows.Err()
+}
+
+func (r *LinkCategoryRepo) NextSortOrder() int {
+	var maxSort sql.NullInt64
+	row := r.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) FROM link_categories`)
+	if err := row.Scan(&maxSort); err != nil {
+		return 1
+	}
+	return int(maxSort.Int64) + 1
+}
+
+// ===== DirCategoryRepo =====
+
+type DirCategoryRepo struct{ db *sql.DB }
+
+func NewDirCategoryRepo(db *sql.DB) *DirCategoryRepo { return &DirCategoryRepo{db: db} }
+
+func (r *DirCategoryRepo) Create(c *DirCategory) error {
+	q := `INSERT INTO dir_categories (id,name,icon,sort_order,is_default,created_at)
+	        VALUES (?,?,?,?,?,?)`
+	isDefaultInt := 0
+	if c.IsDefault {
+		isDefaultInt = 1
+	}
+	_, err := r.db.Exec(q, c.ID, c.Name, c.Icon, c.SortOrder, isDefaultInt, c.CreatedAt)
+	return err
+}
+
+func (r *DirCategoryRepo) Update(c *DirCategory) error {
+	set := []string{}
+	args := []any{}
+	if c.Name != "" {
+		set = append(set, "name=?")
+		args = append(args, c.Name)
+	}
+	if c.SortOrder > 0 {
+		set = append(set, "sort_order=?")
+		args = append(args, c.SortOrder)
+	}
+	set = append(set, "icon=?")
+	args = append(args, c.Icon)
+	if len(set) == 0 {
+		return nil
+	}
+	args = append(args, c.ID)
+	q := "UPDATE dir_categories SET " + strings.Join(set, ",") + " WHERE id=?"
+	_, err := r.db.Exec(q, args...)
+	return err
+}
+
+func (r *DirCategoryRepo) Delete(id string) error {
+	var isDefault int
+	if err := r.db.QueryRow(`SELECT COALESCE(is_default,0) FROM dir_categories WHERE id=?`, id).Scan(&isDefault); err != nil {
+		return err
+	}
+	if isDefault == 1 {
+		return fmt.Errorf("cannot delete default category")
+	}
+	if _, err := r.db.Exec(`UPDATE dir_shortcuts SET category_id='default-dir' WHERE category_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec(`DELETE FROM dir_categories WHERE id=?`, id); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *DirCategoryRepo) List() ([]*DirCategory, error) {
+	rows, err := r.db.Query(`SELECT id,name,icon,sort_order,is_default,created_at FROM dir_categories ORDER BY sort_order ASC, created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*DirCategory
+	for rows.Next() {
+		var c DirCategory
+		var icon sql.NullString
+		var isDefault int
+		if err := rows.Scan(&c.ID, &c.Name, &icon, &c.SortOrder, &isDefault, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		c.Icon = icon.String
+		c.IsDefault = isDefault == 1
+		out = append(out, &c)
+	}
+	return out, rows.Err()
+}
+
+func (r *DirCategoryRepo) NextSortOrder() int {
+	var maxSort sql.NullInt64
+	row := r.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) FROM dir_categories`)
+	if err := row.Scan(&maxSort); err != nil {
+		return 1
+	}
+	return int(maxSort.Int64) + 1
 }
 
 // ===== DirShortcutRepo =====
@@ -1649,10 +1953,13 @@ func (r *DirShortcutRepo) Create(d *DirShortcut) error {
 	if d.Type == "" {
 		d.Type = DirShortcutTypeLocal
 	}
-	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,use_legacy_algorithms,created_at)
-		    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	if d.CategoryID == "" {
+		d.CategoryID = "default-dir"
+	}
+	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,use_legacy_algorithms,category_id,created_at)
+		    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, d.ID, d.Name, d.Path, d.SortOrder, d.Type, d.RemoteHost, d.RemoteUser, d.RemotePath,
-		d.RemotePassword, d.AuthMethod, d.KeyPath, d.LocalKeyPath, d.KeyPassword, d.UseLegacyAlgorithms, d.CreatedAt)
+		d.RemotePassword, d.AuthMethod, d.KeyPath, d.LocalKeyPath, d.KeyPassword, d.UseLegacyAlgorithms, d.CategoryID, d.CreatedAt)
 	if err != nil {
 		logger.Logger.Errorw("dir_shortcuts create failed", "id", d.ID, "name", d.Name, "path", d.Path, "error", err.Error())
 		return err
@@ -1679,6 +1986,8 @@ func (r *DirShortcutRepo) Update(d *DirShortcut) error {
 		set = append(set, "type=?")
 		args = append(args, d.Type)
 	}
+	set = append(set, "category_id=?")
+	args = append(args, d.CategoryID)
 	set = append(set, "remote_host=?")
 	args = append(args, d.RemoteHost)
 	set = append(set, "remote_user=?")
@@ -1731,7 +2040,7 @@ func (r *DirShortcutRepo) Touch(id string) error {
 }
 
 func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
-	rows, err := r.db.Query(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,use_legacy_algorithms,created_at,last_accessed_at FROM dir_shortcuts ORDER BY sort_order ASC, created_at DESC`)
+	rows, err := r.db.Query(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,use_legacy_algorithms,category_id,created_at,last_accessed_at FROM dir_shortcuts ORDER BY sort_order ASC, created_at DESC`)
 	if err != nil {
 		logger.Logger.Errorw("dir_shortcuts list query failed", "error", err.Error())
 		return nil, err
@@ -1741,10 +2050,11 @@ func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
 	for rows.Next() {
 		var d DirShortcut
 		var lastAcc sql.NullTime
-		var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, localKeyPath, keyPassword sql.NullString
-		if err := rows.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &localKeyPath, &keyPassword, &d.UseLegacyAlgorithms, &d.CreatedAt, &lastAcc); err != nil {
+		var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, localKeyPath, keyPassword, categoryID sql.NullString
+		if err := rows.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &localKeyPath, &keyPassword, &d.UseLegacyAlgorithms, &categoryID, &d.CreatedAt, &lastAcc); err != nil {
 			return nil, err
 		}
+		d.CategoryID = categoryID.String
 		if d.Type == "" {
 			d.Type = DirShortcutTypeLocal
 		}
@@ -1783,16 +2093,17 @@ func (r *DirShortcutRepo) List() ([]*DirShortcut, error) {
 
 // GetByName 按 name 精确查找（导入去重使用）。不存在返 nil, nil。
 func (r *DirShortcutRepo) GetByName(name string) (*DirShortcut, error) {
-	row := r.db.QueryRow(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,created_at,last_accessed_at FROM dir_shortcuts WHERE name=? LIMIT 1`, name)
+	row := r.db.QueryRow(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,category_id,created_at,last_accessed_at FROM dir_shortcuts WHERE name=? LIMIT 1`, name)
 	var d DirShortcut
 	var lastAcc sql.NullTime
-	var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, localKeyPath, keyPassword sql.NullString
-	if err := row.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &localKeyPath, &keyPassword, &d.CreatedAt, &lastAcc); err != nil {
+	var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, localKeyPath, keyPassword, categoryID sql.NullString
+	if err := row.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &localKeyPath, &keyPassword, &categoryID, &d.CreatedAt, &lastAcc); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	d.CategoryID = categoryID.String
 	if d.Type == "" {
 		d.Type = DirShortcutTypeLocal
 	}
@@ -1828,16 +2139,17 @@ func (r *DirShortcutRepo) GetByName(name string) (*DirShortcut, error) {
 
 // GetByID 按 id 精确查找（agent 绑定/任务执行时使用）。不存在返 nil, nil。
 func (r *DirShortcutRepo) GetByID(id string) (*DirShortcut, error) {
-	row := r.db.QueryRow(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,created_at,last_accessed_at FROM dir_shortcuts WHERE id=? LIMIT 1`, id)
+	row := r.db.QueryRow(`SELECT id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,category_id,created_at,last_accessed_at FROM dir_shortcuts WHERE id=? LIMIT 1`, id)
 	var d DirShortcut
 	var lastAcc sql.NullTime
-	var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, localKeyPath, keyPassword sql.NullString
-	if err := row.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &localKeyPath, &keyPassword, &d.CreatedAt, &lastAcc); err != nil {
+	var remoteHost, remoteUser, remotePath, remotePassword, authMethod, keyPath, localKeyPath, keyPassword, categoryID sql.NullString
+	if err := row.Scan(&d.ID, &d.Name, &d.Path, &d.SortOrder, &d.Type, &remoteHost, &remoteUser, &remotePath, &remotePassword, &authMethod, &keyPath, &localKeyPath, &keyPassword, &categoryID, &d.CreatedAt, &lastAcc); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	d.CategoryID = categoryID.String
 	if d.Type == "" {
 		d.Type = DirShortcutTypeLocal
 	}
