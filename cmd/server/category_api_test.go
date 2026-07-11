@@ -235,3 +235,48 @@ func TestDirShortcutWithCategory(t *testing.T) {
 		t.Errorf("body should contain category_id, got %s", body2)
 	}
 }
+
+// TestCategoryIsDefaultFlag verifies that is_default=true is returned for the default category
+// even when it has no items (front-end relies on this to show default even when empty).
+func TestCategoryIsDefaultFlag(t *testing.T) {
+	srv, cleanup := setupCategoryTestServer(t)
+	defer cleanup()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/link-categories", srv.handleLinkCategories)
+	mux.HandleFunc("GET /api/dir-categories", srv.handleDirCategories)
+
+	// Link categories: default should have is_default=true even with no links
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/link-categories", nil)
+	mux.ServeHTTP(rec, req)
+	var linkCats []backend.LinkCategory
+	json.NewDecoder(rec.Body).Decode(&linkCats)
+	found := false
+	for _, c := range linkCats {
+		if c.ID == "default-link" && c.IsDefault {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("default-link category should have is_default=true, got %+v", linkCats)
+	}
+
+	// Dir categories: default should have is_default=true even with no dirs
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest("GET", "/api/dir-categories", nil)
+	mux.ServeHTTP(rec, req)
+	var dirCats []backend.DirCategory
+	json.NewDecoder(rec.Body).Decode(&dirCats)
+	found = false
+	for _, c := range dirCats {
+		if c.ID == "default-dir" && c.IsDefault {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("default-dir category should have is_default=true, got %+v", dirCats)
+	}
+}

@@ -1034,23 +1034,38 @@ let _dirActiveCategoryId = '';
 
 async function loadLinkCategories() {
   try {
-    const cats = await fetchJSON('/api/link-categories') || [];
+    const [cats, links] = await Promise.all([
+      fetchJSON('/api/link-categories'),
+      fetchJSON('/api/web-links'),
+    ]);
+    const allCats = cats || [];
+    const allLinks = links || [];
+
+    // 统计每个分类的链接数量
+    const countByCat = {};
+    for (const l of allLinks) {
+      countByCat[l.category_id || ''] = (countByCat[l.category_id || ''] || 0) + 1;
+    }
+
+    // 过滤：count=0 的非默认分类不显示（默认分类始终保留）
+    const visibleCats = allCats.filter(c => c.is_default || (countByCat[c.id] || 0) > 0);
+
     const bar = document.getElementById('link-categories-bar');
-    if (!bar) return;
+    if (!bar) return visibleCats;
     // 保存当前选择
     const activeId = _linkActiveCategoryId;
     // 第一个 chip = "全部"
     let html = `<span class="category-chip ${activeId === '' ? 'active' : ''}" data-cat-id="" onclick="selectLinkCategory('')">全部</span>`;
-    for (const c of cats) {
+    for (const c of visibleCats) {
       const icon = c.icon || '';
       html += `<span class="category-chip ${activeId === c.id ? 'active' : ''}" data-cat-id="${esc(c.id)}" onclick="selectLinkCategory('${esc(c.id)}')">${esc(icon + (icon ? ' ' : '') + c.name)}</span>`;
     }
-    // 管理按钮（如果分类 > 1 才显示）
-    if (cats.length > 1) {
+    // 管理按钮（如果有多个可见分类才显示）
+    if (visibleCats.length > 1) {
       html += `<span class="category-chip cat-manage" onclick="showLinkCategoryModal()" title="管理分类">⚙</span>`;
     }
     bar.innerHTML = html;
-    return cats;
+    return visibleCats;
   } catch (e) {
     console.error('loadLinkCategories:', e);
     return [];
@@ -1209,20 +1224,35 @@ async function deleteLinkCategory(id) {
 
 async function loadDirCategories() {
   try {
-    const cats = await fetchJSON('/api/dir-categories') || [];
+    const [cats, dirs] = await Promise.all([
+      fetchJSON('/api/dir-categories'),
+      fetchJSON('/api/dir-shortcuts'),
+    ]);
+    const allCats = cats || [];
+    const allDirs = dirs || [];
+
+    // 统计每个分类的目录数量
+    const countByCat = {};
+    for (const d of allDirs) {
+      countByCat[d.category_id || ''] = (countByCat[d.category_id || ''] || 0) + 1;
+    }
+
+    // 过滤：count=0 的非默认分类不显示（默认分类始终保留）
+    const visibleCats = allCats.filter(c => c.is_default || (countByCat[c.id] || 0) > 0);
+
     const bar = document.getElementById('dir-categories-bar');
-    if (!bar) return;
+    if (!bar) return visibleCats;
     const activeId = _dirActiveCategoryId;
     let html = `<span class="category-chip ${activeId === '' ? 'active' : ''}" data-cat-id="" onclick="selectDirCategory('')">全部</span>`;
-    for (const c of cats) {
+    for (const c of visibleCats) {
       const icon = c.icon || '';
       html += `<span class="category-chip ${activeId === c.id ? 'active' : ''}" data-cat-id="${esc(c.id)}" onclick="selectDirCategory('${esc(c.id)}')">${esc(icon + (icon ? ' ' : '') + c.name)}</span>`;
     }
-    if (cats.length > 1) {
+    if (visibleCats.length > 1) {
       html += `<span class="category-chip cat-manage" onclick="showDirCategoryModal()" title="管理分类">⚙</span>`;
     }
     bar.innerHTML = html;
-    return cats;
+    return visibleCats;
   } catch (e) {
     console.error('loadDirCategories:', e);
     return [];
