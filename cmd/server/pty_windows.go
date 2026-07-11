@@ -63,7 +63,10 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	ctxDir := getContextDir()
 	cmdStr := determineAICmd(cliType, ctxDir)
 	var cmd *exec.Cmd
-	if cmdStr == "" {
+	if cliType == "powershell" {
+		// PowerShell 直接启动（交互式），不用 cmd.exe /c 包装
+		cmd = exec.Command("powershell.exe", "-NoLogo", "-NoExit")
+	} else if cmdStr == "" {
 		cmd = exec.Command("cmd.exe")
 	} else {
 		cmd = exec.Command("cmd.exe", "/c", cmdStr)
@@ -215,6 +218,8 @@ func determineAICmd(cliType, ctxDir string) string {
 		return "cbc"
 	case "shell":
 		return ""
+	case "powershell":
+		return "powershell"
 	default:
 		return "claude"
 	}

@@ -1654,7 +1654,6 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		RemotePassword string `json:"remote_password"`
 		AuthMethod     string `json:"auth_method"`
 		KeyPath        string `json:"key_path"`
-		TerminalCmd    string `json:"terminal_cmd"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -1696,7 +1695,6 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		RemotePassword: req.RemotePassword,
 		AuthMethod:     req.AuthMethod,
 		KeyPath:        req.KeyPath,
-		TerminalCmd:    req.TerminalCmd,
 		CreatedAt:      time.Now(),
 	}
 	if err := s.dirDB.Create(d); err != nil {
@@ -1720,7 +1718,6 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 		RemotePassword string `json:"remote_password"`
 		AuthMethod     string `json:"auth_method"`
 		KeyPath        string `json:"key_path"`
-		TerminalCmd    string `json:"terminal_cmd"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -1739,7 +1736,6 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 		RemotePassword: req.RemotePassword,
 		AuthMethod:     req.AuthMethod,
 		KeyPath:        req.KeyPath,
-		TerminalCmd:    req.TerminalCmd,
 	}
 	logger.Infow("dir-shortcut update", "id", id, "name", req.Name)
 	if err := s.dirDB.Update(d); err != nil {

@@ -201,8 +201,9 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		logger.Errorf("pty: pty.Start error tab_id=%q err=%v", tabID, err)
-		conn.WriteMessage(websocket.TextMessage,
-			[]byte("\r\n\x1b[31m[xworkbench] PTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
+		msg := []byte("\r\n\x1b[31m[xworkbench] PTY 启动失败: " + err.Error() + "\x1b[0m\r\n")
+		conn.WriteMessage(websocket.TextMessage, msg)
+		conn.Close()
 		return
 	}
 	pid := 0
@@ -384,8 +385,8 @@ func determineAICmd(cliType, ctxDir, sessionID, resumeUUID string) string {
 	switch cliType {
 	case "cbc":
 		return enrichCmd("cbc", sessionID, resumeUUID)
-	case "shell":
-		return "sh"
+	case "shell", "powershell":
+		return "" // 空字符串 → caller 用 exec.Command(shell, "-i") 启动交互式 shell
 	default:
 		return enrichCmd("claude", sessionID, resumeUUID)
 	}
@@ -406,8 +407,9 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 	// 查找 DirShortcut
 	list, err := s.dirDB.List()
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage,
-			[]byte("\r\n\x1b[31m[xworkbench] 无法读取目录配置: "+err.Error()+"\x1b[0m\r\n"))
+		msg := []byte("\r\n\x1b[31m[xworkbench] 无法读取目录配置: " + err.Error() + "\x1b[0m\r\n")
+		conn.WriteMessage(websocket.TextMessage, msg)
+		conn.Close()
 		return
 	}
 	var dir *backend.DirShortcut
@@ -418,13 +420,15 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 		}
 	}
 	if dir == nil {
-		conn.WriteMessage(websocket.TextMessage,
-			[]byte("\r\n\x1b[31m[xworkbench] 未找到该目录配置\x1b[0m\r\n"))
+		msg := []byte("\r\n\x1b[31m[xworkbench] 未找到该目录配置\x1b[0m\r\n")
+		conn.WriteMessage(websocket.TextMessage, msg)
+		conn.Close()
 		return
 	}
 	if dir.Type != backend.DirShortcutTypeRemote {
-		conn.WriteMessage(websocket.TextMessage,
-			[]byte("\r\n\x1b[31m[xworkbench] 该目录不是远程类型\x1b[0m\r\n"))
+		msg := []byte("\r\n\x1b[31m[xworkbench] 该目录不是远程类型\x1b[0m\r\n")
+		conn.WriteMessage(websocket.TextMessage, msg)
+		conn.Close()
 		return
 	}
 
@@ -445,8 +449,9 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 	// 解析 xw-sshpass 路径（直接复用 terminal.go 的逻辑）
 	xwBin := resolveXwSshpassBin()
 	if xwBin == "" {
-		conn.WriteMessage(websocket.TextMessage,
-			[]byte("\r\n\x1b[31m[xworkbench] 未找到 xw-sshpass 二进制，请确认已安装\x1b[0m\r\n"))
+		msg := []byte("\r\n\x1b[31m[xworkbench] 未找到 xw-sshpass 二进制，请确认已安装\x1b[0m\r\n")
+		conn.WriteMessage(websocket.TextMessage, msg)
+		conn.Close()
 		return
 	}
 
@@ -456,8 +461,9 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 		// 密钥认证
 		keyPath := executor.ResolveKeyPath(dir)
 		if keyPath == "" {
-			conn.WriteMessage(websocket.TextMessage,
-				[]byte("\r\n\x1b[31m[xworkbench] 未找到 SSH 密钥文件\x1b[0m\r\n"))
+			msg := []byte("\r\n\x1b[31m[xworkbench] 未找到 SSH 密钥文件\x1b[0m\r\n")
+			conn.WriteMessage(websocket.TextMessage, msg)
+			conn.Close()
 			return
 		}
 		xwArgs = []string{xwBin, "-i", keyPath, "ssh", userHost}
@@ -465,8 +471,9 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 		// 密码认证
 		xwArgs = []string{xwBin, "-p", dir.RemotePassword, "ssh", userHost}
 	} else {
-		conn.WriteMessage(websocket.TextMessage,
-			[]byte("\r\n\x1b[31m[xworkbench] 无可用认证方式（未配置密钥也无密码）\x1b[0m\r\n"))
+		msg := []byte("\r\n\x1b[31m[xworkbench] 无可用认证方式（未配置密钥也无密码）\x1b[0m\r\n")
+		conn.WriteMessage(websocket.TextMessage, msg)
+		conn.Close()
 		return
 	}
 
@@ -490,8 +497,9 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		logger.Errorf("pty: remote pty.Start error tab_id=%q err=%v", tabID, err)
-		conn.WriteMessage(websocket.TextMessage,
-			[]byte("\r\n\x1b[31m[xworkbench] PTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
+		msg := []byte("\r\n\x1b[31m[xworkbench] PTY 启动失败: " + err.Error() + "\x1b[0m\r\n")
+		conn.WriteMessage(websocket.TextMessage, msg)
+		conn.Close()
 		return
 	}
 	pid := 0

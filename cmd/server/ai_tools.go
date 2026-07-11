@@ -1073,7 +1073,6 @@ func execCreateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 		RemotePath  string `json:"remote_path"`
 		AuthMethod  string `json:"auth_method"`
 		KeyPath     string `json:"key_path"`
-		TerminalCmd string `json:"terminal_cmd"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.Name == "" {
@@ -1096,7 +1095,6 @@ func execCreateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 		RemotePath:  args.RemotePath,
 		AuthMethod:  args.AuthMethod,
 		KeyPath:     args.KeyPath,
-		TerminalCmd: args.TerminalCmd,
 		SortOrder:   dirDB.NextSortOrder(),
 	}
 	if err := dirDB.Create(shortcut); err != nil {
@@ -1145,7 +1143,6 @@ func execUpdateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 		RemotePath  string `json:"remote_path"`
 		AuthMethod  string `json:"auth_method"`
 		KeyPath     string `json:"key_path"`
-		TerminalCmd string `json:"terminal_cmd"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	if args.ID == "" {
@@ -1178,9 +1175,6 @@ func execUpdateDirShortcut(ctx context.Context, dirDB *backend.DirShortcutRepo, 
 	}
 	if args.KeyPath != "" {
 		existing.KeyPath = args.KeyPath
-	}
-	if args.TerminalCmd != "" {
-		existing.TerminalCmd = args.TerminalCmd
 	}
 	if err := dirDB.Update(existing); err != nil {
 		return fmt.Sprintf("更新失败: %v", err)

@@ -289,17 +289,13 @@ func TestWriteSections(t *testing.T) {
 		if !strings.Contains(string(data), "---") {
 			t.Error("file should contain separator ---")
 		}
-		// 验证活跃区标题
-		if !strings.Contains(string(data), "## 📋 活跃中") {
-			t.Error("file should contain active section title")
+		// 验证活跃项存在
+		if !strings.Contains(string(data), "- [ ] 任务A") {
+			t.Error("file should contain active item A")
 		}
-		// 验证归档区标题
-		if !strings.Contains(string(data), "## 📦 已归档") {
-			t.Error("file should contain archived section title")
-		}
-		// 验证月份分组
-		if !strings.Contains(string(data), "### 2026年07月") {
-			t.Error("file should contain month group for July 2026")
+		// 验证归档项存在
+		if !strings.Contains(string(data), "- [x] 归档A") {
+			t.Error("file should contain archived item A")
 		}
 	})
 
@@ -319,12 +315,12 @@ func TestWriteSections(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// 有活跃项时也应该有活跃区标题和分隔线
-		if !strings.Contains(string(data), "## 📋 活跃中") {
-			t.Error("file should contain active section title")
+		// 活跃项应该存在，无分隔线
+		if !strings.Contains(string(data), "- [ ] 任务A") {
+			t.Error("file should contain active item")
 		}
-		if !strings.Contains(string(data), "---") {
-			t.Error("file should contain separator")
+		if strings.Contains(string(data), "---") {
+			t.Error("file should not contain separator when no archived items")
 		}
 	})
 }

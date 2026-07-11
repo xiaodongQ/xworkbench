@@ -137,15 +137,12 @@ var sshKeyFileExists = func(path string) bool {
 }
 
 // buildShellCmd 构建远端执行的 shell 命令。
-// 规则：cd remote_path（如有） → TerminalCmd（如有） → exec "$SHELL"。
+// 规则：cd remote_path（如有） → exec "$SHELL"。
 // 注意：不要用 exec $SHELL -l（-l 不是 exec 的参数，会导致 zsh 报错）。
 func buildShellCmd(dir *backend.DirShortcut) string {
 	parts := []string{}
 	if dir.RemotePath != "" {
 		parts = append(parts, "cd '"+dir.RemotePath+"'")
-	}
-	if dir.TerminalCmd != "" {
-		parts = append(parts, dir.TerminalCmd)
 	}
 	parts = append(parts, `exec "$SHELL"`)
 	return strings.Join(parts, " && ")

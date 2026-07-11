@@ -6,12 +6,31 @@ let term = null;         // xterm.js Terminal 实例
 let termWs = null;       // WebSocket 连接
 let termReady = false;
 let currentTabID = null;  // 当前 tab_id
+let initInProgress = false; // 防止 initTerminal 重复调用
 
 // initTerminal 初始化 xterm.js 并连接 WebSocket
 function initTerminal(type, dirID) {
+  console.log('[terminal] initTerminal called', { type, dirID, initInProgress });
   const container = document.getElementById('rpty-container');
   if (!container) return;
+  if (initInProgress) {
+    console.log('[terminal] initTerminal already in progress, skipping');
+    return;
+  }
+  // 关闭旧的 WebSocket（如果存在）
+  if (termWs) {
+    console.log('[terminal] closing existing termWs');
+    termWs.onclose = null; // 避免触发旧的 onclose
+    termWs.close();
+    termWs = null;
+  }
   if (term) { term.dispose(); term = null; }
+  termReady = false;
+  initInProgress = true;
+
+  // 控制远程目录选择框显隐（onRtermTypeChange 的显隐逻辑合并到这里，避免重复调用 disconnectTerminal）
+  const dirGroup = document.querySelector('.rterm-dir-group');
+  if (dirGroup) dirGroup.style.display = type === 'remote' ? '' : 'none';
 
   const fitAddon = new FitAddon.FitAddon();
   term = new Terminal({
@@ -29,10 +48,13 @@ function initTerminal(type, dirID) {
   currentTabID = tabID;
 
   const wsUrl = buildWsUrl(tabID, type, dirID);
+  console.log('[terminal] connecting to', wsUrl);
   termWs = new WebSocket(wsUrl);
   termWs.binaryType = 'arraybuffer';
 
   termWs.onopen = () => {
+    console.log('[terminal] ws onopen fired');
+    initInProgress = false;
     termReady = true;
     term.writeln('\x1b[32m[xworkbench] 连接就绪\x1b[0m\r\n');
     termWs.send('resize,' + term.cols + ',' + term.rows);
@@ -58,15 +80,23 @@ function initTerminal(type, dirID) {
     }
   };
 
-  termWs.onclose = () => {
-    termReady = false;
-    term.writeln('\r\n\x1b[33m[连接已关闭]\x1b[0m\r\n');
-    updateTermStatus('disconnected');
-  };
-
-  termWs.onerror = () => {
+  termWs.onerror = (e) => {
+    console.error('[terminal] ws onerror', e);
+    initInProgress = false;
     term.writeln('\r\n\x1b[31m[WebSocket 错误]\x1b[0m\r\n');
     updateTermStatus('error');
+  };
+
+  termWs.onclose = (e) => {
+    termReady = false;
+    initInProgress = false;
+    console.log('[terminal] ws onclose', e.code, e.reason);
+    if (e.reason) {
+      term.writeln('\r\n\x1b[33m[连接已关闭: ' + e.reason + ']\x1b[0m\r\n');
+    } else {
+      term.writeln('\r\n\x1b[33m[连接已关闭]\x1b[0m\r\n');
+    }
+    updateTermStatus('disconnected');
   };
 
   // PTY 自带回显，不需要前端 echo
@@ -105,7 +135,7 @@ function buildWsUrl(tabID, type, dirID) {
     return 'ws://' + host + base + '&dir_id=' + encodeURIComponent(dirID);
   }
   // 本地 shell/claude/cbc
-  const cliMap = { local_shell: 'shell', local_claude: 'claude', local_cbc: 'cbc' };
+  const cliMap = { local_shell: 'shell', local_claude: 'claude', local_cbc: 'cbc', local_powershell: 'powershell' };
   return 'ws://' + host + base + '&cli_type=' + encodeURIComponent(cliMap[type] || 'shell');
 }
 
@@ -166,7 +196,12 @@ window.onRptyConnect = function() {
 
 // disconnectTerminal 断开连接
 window.disconnectTerminal = function() {
-  if (termWs) { termWs.close(); termWs = null; }
+  initInProgress = false;
+  if (termWs) {
+    termWs.onclose = null; // 避免旧连接的 close 影响新连接
+    termWs.close();
+    termWs = null;
+  }
   termReady = false;
   updateTermStatus('disconnected');
 };
@@ -200,8 +235,6 @@ window.initRptyTabOnFirstVisit = function() {
     sel.innerHTML = '<option value="">— 选择远程目录 —</option>' +
       remote.map(d => '<option value="' + d.id + '">' + d.name + ' (' + d.remote_host + ')</option>').join('');
   }).catch(() => {});
-  // 初始化终端
+  // 初始化终端（不要在这里调用 onRtermTypeChange，它会触发 disconnectTerminal 关掉刚建的 WS）
   initTerminal('local_shell', '');
-  // 初始化目录选择器显隐（默认本地 shell，隐藏远程目录组）
-  onRtermTypeChange('local_shell');
 };

@@ -146,7 +146,6 @@ func (s *APIServer) exportDirShortcuts() []*DirShortcutExport {
 			RemotePassword: d.RemotePassword,
 			AuthMethod:     d.AuthMethod,
 			KeyPath:        d.KeyPath,
-			TerminalCmd:    d.TerminalCmd,
 		})
 	}
 	return out
@@ -844,7 +843,6 @@ type DirShortcutExport struct {
 	RemotePassword string `json:"remote_password,omitempty"`
 	AuthMethod     string `json:"auth_method,omitempty"`
 	KeyPath        string `json:"key_path,omitempty"`
-	TerminalCmd    string `json:"terminal_cmd,omitempty"`
 }
 
 // WebLinkExport 导出用简化结构（去掉了 id/created_at/sort_order 等无关字段）

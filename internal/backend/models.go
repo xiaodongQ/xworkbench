@@ -183,7 +183,6 @@ type DirShortcut struct {
 	KeyPath        string `json:"key_path,omitempty"`       // 私钥路径（AuthMethod=key 时使用；已废弃，推荐 LocalKeyPath）
 	LocalKeyPath   string `json:"local_key_path,omitempty"` // 本地私钥路径（优先于 KeyPath；不填则用全局 ssh.default_key_path）
 	// 本地终端配置
-	TerminalCmd         string     `json:"terminal_cmd,omitempty"`      // 启动终端的命令（per-shortcut 字段，存 DB）
 	UseLegacyAlgorithms bool       `json:"use_legacy_algorithms"`       // 是否启用 legacy SSH 算法（默认 false，老服务器按需开启）
 	CreatedAt           time.Time  `json:"created_at"`
 	LastAccessedAt      *time.Time `json:"last_accessed_at,omitempty"`

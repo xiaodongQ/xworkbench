@@ -126,20 +126,9 @@ func getProjectRoot() string {
 	return wd
 }
 
-// filterXwSshArgs 去掉 SSH 命令中的 PTY 分配包装（-t -- sh -c '...'）。
-// xw-sshpass 本身会处理 PTY（通过 client.Shell()），这些包装参数会导致远程收到乱套的命令字符串。
-func filterXwSshArgs(args []string) []string {
-	// args[0] = "ssh"，args[1] = user@host，后面是 -t -- sh -c '...'
-	// xw-sshpass 用 client.Shell()，不需要 PTY 包装
-	if len(args) < 2 {
-		return args
-	}
-	return []string{args[0], args[1]} // ssh, user@host
-}
-
 // OpenRemoteDirShortcut 用配置的终端软件打开远程 SSH 连接。
 // 支持 wezterm 等终端，连接后 cd 到 remote_path（默认主目录）。
-// 优先使用密钥认证：自动解析密钥路径（LocalKeyPath > KeyPath > 全局默认 > ~/.ssh/xworkbench_id_ed25519）。
+// 统一使用 xw-sshpass 处理认证（密码或密钥）。
 func OpenRemoteDirShortcut(dir *backend.DirShortcut, termType, binPath string) error {
 	return openRemoteDirShortcutImpl(context.Background(), dir, termType, binPath, false)
 }
@@ -166,34 +155,51 @@ func openRemoteDirShortcutImpl(ctx context.Context, dir *backend.DirShortcut, te
 
 	logger.Logger.Infow("[OpenRemoteDirShortcut] opening",
 		"termType", termType, "bin", binPath,
-		"remotePath", dir.RemotePath)
+		"remotePath", dir.RemotePath, "authMethod", dir.AuthMethod)
 
-	// 用 BuildSSHCommand 获取完整 args 列表
-	args, err := executor.BuildSSHCommand(dir, termType)
-	if err != nil {
-		return fmt.Errorf("build ssh command: %w", err)
+	// 统一使用 xw-sshpass 处理远程连接（支持密码和密钥认证）
+	xwBin := resolveXwSshpassBin()
+	if xwBin == "" {
+		return fmt.Errorf("xw-sshpass not found, please build it first")
 	}
 
-	// 密码方式：若 xw-sshpass 存在且有密码，则用 xw-sshpass 替换 ssh 命令
+	// 构建 ssh 命令基本参数
+	sshTarget := dir.RemoteUser
+	if sshTarget == "" {
+		sshTarget = "root"
+	}
+	if dir.RemoteHost != "" {
+		sshTarget = sshTarget + "@" + dir.RemoteHost
+	}
+
+	// 构建 xw-sshpass 参数
+	newArgs := []string{xwBin}
+
+	// 密码认证
 	if dir.AuthMethod == "password" && dir.RemotePassword != "" {
-		xwBin := resolveXwSshpassBin()
-		if xwBin != "" {
-			// xw-sshpass 本身处理 PTY，SSH 的 -t -- sh -c 包装是多余的（会导致远程收到乱套的命令字符串）。
-			// 只保留 ssh user@host，后面的 -t -- sh -c '...' 全部丢弃，
-			// xw-sshpass 会用交互式 Shell 模式（client.Shell()）来处理。
-			cleanArgs := filterXwSshArgs(args)
-			newArgs := []string{xwBin, "-p", dir.RemotePassword}
-			newArgs = append(newArgs, cleanArgs...)
-			args = newArgs
-			logger.Logger.Infow("[OpenRemoteDirShortcut] using xw-sshpass for password auth",
-				"xwBin", xwBin, "args", args)
-		} else {
-			logger.Logger.Warnw("[OpenRemoteDirShortcut] password auth but xw-sshpass not found, fallback to key auth",
-				"host", dir.RemoteHost)
+		newArgs = append(newArgs, "-p", dir.RemotePassword)
+	}
+
+	// 密钥认证
+	if dir.AuthMethod == "key" {
+		keyPath := executor.ResolveKeyPath(dir)
+		if keyPath != "" {
+			newArgs = append(newArgs, "-i", keyPath)
 		}
 	}
 
-	return execRemoteTerminal(termType, binPath, args)
+	// 远程工作目录
+	if dir.RemotePath != "" {
+		newArgs = append(newArgs, "-w", dir.RemotePath)
+	}
+
+	// 添加 ssh 命令和目标
+	newArgs = append(newArgs, "ssh", sshTarget)
+
+	logger.Logger.Infow("[OpenRemoteDirShortcut] using xw-sshpass",
+		"xwBin", xwBin, "args", newArgs)
+
+	return execRemoteTerminal(termType, binPath, newArgs)
 }
 
 // execRemoteTerminal 用终端类型的 binPath 执行远程唤起命令。

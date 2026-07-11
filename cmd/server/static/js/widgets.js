@@ -150,7 +150,6 @@ function showDirModal() {
   document.getElementById('dir-auth-method').value = 'password';
   document.getElementById('dir-remote-password').value = '';
   document.getElementById('dir-key-path').value = '';
-  document.getElementById('dir-terminal-cmd').value = '';
   document.getElementById('dir-modal').dataset.editId = '';
   document.getElementById('dir-modal').classList.remove('hidden');
   document.getElementById('dir-modal-title').textContent = '添加目录';
@@ -164,20 +163,14 @@ function onDirTypeChange() {
   const type = document.getElementById('dir-type').value;
   const remoteFields = document.getElementById('dir-remote-fields');
   const localPathGroup = document.getElementById('dir-local-path-group');
-  const termCmdGroup = document.getElementById('dir-terminal-cmd-group');
-  const termCmdInput = document.getElementById('dir-terminal-cmd');
   if (type === 'remote') {
     remoteFields.classList.remove('hidden');
     localPathGroup.classList.add('hidden');
-    termCmdInput.disabled = true;
-    termCmdInput.placeholder = '留空使用默认终端（远程目录不支持）';
     const remoteUserInput = document.getElementById('dir-remote-user');
     if (!remoteUserInput.value) remoteUserInput.value = 'root';
   } else {
     remoteFields.classList.add('hidden');
     localPathGroup.classList.remove('hidden');
-    termCmdInput.disabled = false;
-    termCmdInput.placeholder = '留空使用默认终端';
   }
 }
 function onAuthMethodChange() {
@@ -291,7 +284,6 @@ async function editDir(id) {
   document.getElementById('dir-auth-method').value = d.auth_method || 'password';
   document.getElementById('dir-remote-password').value = d.remote_password || '';
   document.getElementById('dir-key-path').value = d.key_path || '';
-  document.getElementById('dir-terminal-cmd').value = d.terminal_cmd || '';
   onDirTypeChange();
   onAuthMethodChange();
   document.getElementById('dir-modal').dataset.editId = id;
@@ -312,11 +304,10 @@ function submitDir() {
   const authMethod = document.getElementById('dir-auth-method').value;
   const remotePassword = document.getElementById('dir-remote-password').value;
   const keyPath = document.getElementById('dir-key-path').value.trim();
-  const terminalCmd = document.getElementById('dir-terminal-cmd').value.trim();
   if (!name) { alert('名称必填'); return; }
   if (type === 'local' && !path) { alert('本地目录路径必填'); return; }
   if (type === 'remote' && (!remoteHost || !remoteUser)) { alert('主机和用户名必填'); return; }
-  const payload = { name, type, path, remote_host: remoteHost, remote_port: remotePort, remote_user: remoteUser, remote_path: remotePath, auth_method: authMethod, remote_password: remotePassword, key_path: keyPath, terminal_cmd: terminalCmd };
+  const payload = { name, type, path, remote_host: remoteHost, remote_port: remotePort, remote_user: remoteUser, remote_path: remotePath, auth_method: authMethod, remote_password: remotePassword, key_path: keyPath };
   if (id) {
     fetch('/api/dir-shortcuts/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(payload)})
