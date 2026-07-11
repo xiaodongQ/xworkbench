@@ -60,10 +60,8 @@ detect_platform() {
 }
 
 build_current() {
-  echo "build_current..."
   detect_platform
   local bin_name="xworkbench-${os}-${arch}${ext}"
-  echo "bin_name: ${bin_name}"
   mkdir -p "$BIN_DIR"
 
   echo
@@ -87,6 +85,27 @@ build_current() {
     exit 1
   fi
 
+  # 检查 xw-sshpass 本平台产物，没有则自动构建
+  local xw_bin="xw-sshpass-${os}-${arch}${ext}"
+  local xw_dir="tools/xw-sshpass"
+  if [ ! -f "${xw_dir}/${xw_bin}" ]; then
+    echo
+    hr
+    printf '%b\n' "${CYAN}==> xw-sshpass 本平台产物缺失，自动构建${NC}"
+    hr
+    if [ -f "${xw_dir}/build.sh" ]; then
+      if "${xw_dir}/build.sh"; then
+        printf '%b\n' "${GREEN}✓ xw-sshpass 构建成功${NC}"
+      else
+        printf '%b\n' "${YELLOW}⚠ xw-sshpass 构建失败，跳过${NC}"
+      fi
+    else
+      printf '%b\n' "${YELLOW}⚠ xw-sshpass 构建脚本不存在，跳过${NC}"
+    fi
+  else
+    echo
+    printf '%b\n' "${GREEN}✓ xw-sshpass 已存在：${xw_dir}/${xw_bin}${NC}"
+  fi
 }
 
 build_one() {
