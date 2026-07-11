@@ -1055,10 +1055,10 @@ async function loadLinkCategories() {
     // 保存当前选择
     const activeId = _linkActiveCategoryId;
     // 第一个 chip = "全部"
-    let html = `<span class="category-chip ${activeId === '' ? 'active' : ''}" data-cat-id="" onclick="selectLinkCategory('')">全部</span>`;
+    let html = `<span class="category-chip ${activeId === '' ? 'active' : ''}" data-cat-id="" onclick="selectLinkCategory('')" oncontextmenu="onCategoryContextMenu(event, 'link', '')">全部</span>`;
     for (const c of visibleCats) {
       const icon = c.icon || '';
-      html += `<span class="category-chip ${activeId === c.id ? 'active' : ''}" data-cat-id="${esc(c.id)}" onclick="selectLinkCategory('${esc(c.id)}')">${esc(icon + (icon ? ' ' : '') + c.name)}</span>`;
+      html += `<span class="category-chip ${activeId === c.id ? 'active' : ''}" data-cat-id="${esc(c.id)}" onclick="selectLinkCategory('${esc(c.id)}')" oncontextmenu="onCategoryContextMenu(event, 'link', '${esc(c.id)}')">${esc(icon + (icon ? ' ' : '') + c.name)}</span>`;
     }
     // 管理按钮（如果有多个可见分类才显示）
     if (visibleCats.length > 1) {
@@ -1243,10 +1243,10 @@ async function loadDirCategories() {
     const bar = document.getElementById('dir-categories-bar');
     if (!bar) return visibleCats;
     const activeId = _dirActiveCategoryId;
-    let html = `<span class="category-chip ${activeId === '' ? 'active' : ''}" data-cat-id="" onclick="selectDirCategory('')">全部</span>`;
+    let html = `<span class="category-chip ${activeId === '' ? 'active' : ''}" data-cat-id="" onclick="selectDirCategory('')" oncontextmenu="onCategoryContextMenu(event, 'dir', '')">全部</span>`;
     for (const c of visibleCats) {
       const icon = c.icon || '';
-      html += `<span class="category-chip ${activeId === c.id ? 'active' : ''}" data-cat-id="${esc(c.id)}" onclick="selectDirCategory('${esc(c.id)}')">${esc(icon + (icon ? ' ' : '') + c.name)}</span>`;
+      html += `<span class="category-chip ${activeId === c.id ? 'active' : ''}" data-cat-id="${esc(c.id)}" onclick="selectDirCategory('${esc(c.id)}')" oncontextmenu="onCategoryContextMenu(event, 'dir', '${esc(c.id)}')">${esc(icon + (icon ? ' ' : '') + c.name)}</span>`;
     }
     if (visibleCats.length > 1) {
       html += `<span class="category-chip cat-manage" onclick="showDirCategoryModal()" title="管理分类">⚙</span>`;
@@ -1431,6 +1431,198 @@ async function deleteDirCategory(id) {
 function initCategoryState() {
   _linkActiveCategoryId = localStorage.getItem('sf-link-active-cat') || '';
   _dirActiveCategoryId = localStorage.getItem('sf-dir-active-cat') || '';
+}
+
+// ===== 分类 chip 右键菜单 =====
+// type: 'link' | 'dir'; catId: 目标分类 id（'' = 全部，是默认分类的特殊处理）
+async function onCategoryContextMenu(e, type, catId) {
+  e.preventDefault();
+  e.stopPropagation();
+  hideCategoryContextMenu();
+
+  // "全部" chip(id 为空)是默认分类的代理：不允许重命名/删除/合并
+  if (catId === '') return;
+
+  // 取该分类的元数据（图义、名称、是否默认）
+  const apiPath = type === 'link' ? '/api/link-categories' : '/api/dir-categories';
+  const cats = await fetchJSON(apiPath) || [];
+  const cat = cats.find(c => c.id === catId);
+  if (!cat) return;
+  const isDefault = !!cat.is_default;
+
+  // 取该分类下的条目数（用于合并提示）
+  const itemsApi = type === 'link' ? '/api/web-links' : '/api/dir-shortcuts';
+  const items = await fetchJSON(itemsApi) || [];
+  const count = items.filter(it => it.category_id === catId).length;
+
+  // 可合并的候选分类列表（排除自身与默认）
+  const candidates = cats.filter(c => c.id !== catId);
+
+  const menu = document.createElement('div');
+  menu.className = 'cat-context-menu';
+  menu.dataset.type = type;
+  menu.dataset.catId = catId;
+
+  // 名称
+  const itemName = document.createElement('div');
+  itemName.className = 'menu-item';
+  itemName.textContent = isDefault ? '默认分类（不可重命名）' : '✎ 重命名';
+  if (!isDefault) {
+    itemName.onclick = async () => { hideCategoryContextMenu(); await renameCategory(type, cat); };
+  } else {
+    itemName.style.color = 'var(--text-secondary)';
+    itemName.style.cursor = 'default';
+  }
+  menu.appendChild(itemName);
+
+  // 合并到...（需要至少有一个非自身候选）
+  const mergeWrap = document.createElement('div');
+  mergeWrap.className = 'menu-item menu-submenu';
+  mergeWrap.innerHTML = `<span>↪ 合并到… (${count})</span><span class="menu-arrow">▸</span>`;
+  if (candidates.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'menu-empty';
+    empty.textContent = '无可选目标';
+    const sub = document.createElement('div');
+    sub.className = 'menu-submenu-list';
+    sub.appendChild(empty);
+    mergeWrap.appendChild(sub);
+    mergeWrap.style.color = 'var(--text-secondary)';
+  } else {
+    const sub = document.createElement('div');
+    sub.className = 'menu-submenu-list';
+    for (const cand of candidates) {
+      const it = document.createElement('div');
+      it.className = 'menu-item';
+      it.title = cand.name;
+      it.textContent = (cand.icon ? cand.icon + ' ' : '') + cand.name;
+      it.onclick = async (ev) => { ev.stopPropagation(); hideCategoryContextMenu(); await mergeCategoryInto(type, cat, cand, count); };
+      sub.appendChild(it);
+    }
+    mergeWrap.appendChild(sub);
+  }
+  menu.appendChild(mergeWrap);
+
+  // 分隔符
+  const div = document.createElement('div');
+  div.className = 'menu-divider';
+  menu.appendChild(div);
+
+  // 删除
+  const del = document.createElement('div');
+  del.className = 'menu-item danger';
+  if (isDefault) {
+    del.textContent = '默认分类（不可删除）';
+    del.style.cursor = 'default';
+  } else {
+    del.textContent = `🗑 删除（${count} 条将归入默认）`;
+    del.onclick = async () => { hideCategoryContextMenu(); await deleteCategoryWithConfirm(type, cat, count); };
+  }
+  menu.appendChild(del);
+
+  // 定位 + 边界反转
+  positionContextMenu(menu, e.clientX, e.clientY);
+  document.body.appendChild(menu);
+  // 点击外部 / Esc 关闭
+  setTimeout(() => {
+    document.addEventListener('mousedown', hideCategoryContextMenu, { once: true });
+    document.addEventListener('keydown', escHideCategoryMenu, { once: true });
+    document.addEventListener('scroll', hideCategoryContextMenu, { once: true, capture: true });
+  }, 0);
+}
+
+function positionContextMenu(menu, x, y) {
+  // 先 append 后立即 measure 才能拿到尺寸
+  menu.style.left = '0px';
+  menu.style.top = '0px';
+  const rect = menu.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = x, top = y;
+  if (left + rect.width > vw - 8) left = Math.max(8, vw - rect.width - 8);
+  if (top + rect.height > vh - 8) top = Math.max(8, vh - rect.height - 8);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+}
+
+function escHideCategoryMenu(e) {
+  if (e.key === 'Escape') hideCategoryContextMenu();
+}
+
+function hideCategoryContextMenu() {
+  document.querySelectorAll('.cat-context-menu').forEach(el => el.remove());
+}
+
+// ===== 重命名分类 =====
+async function renameCategory(type, cat) {
+  const apiPath = type === 'link' ? '/api/link-categories' : '/api/dir-categories';
+  const newName = prompt(`重命名分类 “${cat.name}” 为：`, cat.name || '');
+  if (newName === null) return;
+  const trimmed = newName.trim();
+  if (!trimmed) { alert('分类名不能为空'); return; }
+  if (trimmed === cat.name) return;
+  const payload = { name: trimmed, icon: cat.icon || '', sort_order: cat.sort_order || 0 };
+  const resp = await fetch(`${apiPath}/${encodeURIComponent(cat.id)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => '');
+    alert('重命名失败：' + (t || resp.statusText));
+    return;
+  }
+  if (type === 'link') loadLinks(); else loadDirs();
+}
+
+// ===== 删除分类 =====
+async function deleteCategoryWithConfirm(type, cat, count) {
+  const msg = count > 0
+    ? `确定删除分类 “${cat.name}”？该分类下的 ${count} 个条目将归入默认分类。`
+    : `确定删除空分类 “${cat.name}”？`;
+  if (!confirm(msg)) return;
+  const apiPath = type === 'link' ? '/api/link-categories' : '/api/dir-categories';
+  const resp = await fetch(`${apiPath}/${encodeURIComponent(cat.id)}`, { method: 'DELETE' });
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => '');
+    alert('删除失败：' + (t || resp.statusText));
+    return;
+  }
+  // 如果当前激活分类被刪，重置为“全部”
+  if (type === 'link' && _linkActiveCategoryId === cat.id) {
+    _linkActiveCategoryId = '';
+    localStorage.setItem('sf-link-active-cat', '');
+  } else if (type === 'dir' && _dirActiveCategoryId === cat.id) {
+    _dirActiveCategoryId = '';
+    localStorage.setItem('sf-dir-active-cat', '');
+  }
+  if (type === 'link') loadLinks(); else loadDirs();
+}
+
+// ===== 合并分类到另一个 =====
+async function mergeCategoryInto(type, srcCat, tgtCat, count) {
+  if (srcCat.id === tgtCat.id) return;
+  const msg = count > 0
+    ? `将 “${srcCat.name}” 下的 ${count} 个条目全部迁移到 “${tgtCat.name}”，然后删除 “${srcCat.name}”？该操作不可逆。`
+    : `将空分类 “${srcCat.name}” 合并到 “${tgtCat.name}” 并删除 “${srcCat.name}”？`;
+  if (!confirm(msg)) return;
+  const apiPath = type === 'link' ? '/api/link-categories' : '/api/dir-categories';
+  const resp = await fetch(`${apiPath}/${encodeURIComponent(srcCat.id)}/merge`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target_id: tgtCat.id }),
+  });
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => '');
+    alert('合并失败：' + (t || resp.statusText));
+    return;
+  }
+  // 如果是当前激活分类，重置为“全部”
+  if (type === 'link' && _linkActiveCategoryId === srcCat.id) {
+    _linkActiveCategoryId = '';
+    localStorage.setItem('sf-link-active-cat', '');
+  } else if (type === 'dir' && _dirActiveCategoryId === srcCat.id) {
+    _dirActiveCategoryId = '';
+    localStorage.setItem('sf-dir-active-cat', '');
+  }
+  if (type === 'link') loadLinks(); else loadDirs();
 }
 
 

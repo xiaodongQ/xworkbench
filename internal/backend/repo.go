@@ -1827,6 +1827,33 @@ func (r *LinkCategoryRepo) Delete(id string) error {
 	return nil
 }
 
+// MergeTo 将源分类(id)下的所有链接迁移到目标分类(targetID),然后删除源分类。
+// 默认分类不可作为源。
+func (r *LinkCategoryRepo) MergeTo(id, targetID string) error {
+	if id == targetID {
+		return fmt.Errorf("source and target are the same")
+	}
+	var isDefault int
+	if err := r.db.QueryRow(`SELECT COALESCE(is_default,0) FROM link_categories WHERE id=?`, id).Scan(&isDefault); err != nil {
+		return err
+	}
+	if isDefault == 1 {
+		return fmt.Errorf("cannot merge default category")
+	}
+	// 校验目标分类存在
+	var dummy int
+	if err := r.db.QueryRow(`SELECT 1 FROM link_categories WHERE id=?`, targetID).Scan(&dummy); err != nil {
+		return fmt.Errorf("target category not found: %s", targetID)
+	}
+	if _, err := r.db.Exec(`UPDATE web_links SET category_id=? WHERE category_id=?`, targetID, id); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec(`DELETE FROM link_categories WHERE id=?`, id); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *LinkCategoryRepo) List() ([]*LinkCategory, error) {
 	rows, err := r.db.Query(`SELECT id,name,icon,sort_order,is_default,created_at FROM link_categories ORDER BY sort_order ASC, created_at ASC`)
 	if err != nil {
@@ -1905,6 +1932,31 @@ func (r *DirCategoryRepo) Delete(id string) error {
 		return fmt.Errorf("cannot delete default category")
 	}
 	if _, err := r.db.Exec(`UPDATE dir_shortcuts SET category_id='default-dir' WHERE category_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec(`DELETE FROM dir_categories WHERE id=?`, id); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MergeTo 将源分类(id)下的所有目录快捷方式迁移到 targetID,然后删除源分类。
+func (r *DirCategoryRepo) MergeTo(id, targetID string) error {
+	if id == targetID {
+		return fmt.Errorf("source and target are the same")
+	}
+	var isDefault int
+	if err := r.db.QueryRow(`SELECT COALESCE(is_default,0) FROM dir_categories WHERE id=?`, id).Scan(&isDefault); err != nil {
+		return err
+	}
+	if isDefault == 1 {
+		return fmt.Errorf("cannot merge default category")
+	}
+	var dummy int
+	if err := r.db.QueryRow(`SELECT 1 FROM dir_categories WHERE id=?`, targetID).Scan(&dummy); err != nil {
+		return fmt.Errorf("target category not found: %s", targetID)
+	}
+	if _, err := r.db.Exec(`UPDATE dir_shortcuts SET category_id=? WHERE category_id=?`, targetID, id); err != nil {
 		return err
 	}
 	if _, err := r.db.Exec(`DELETE FROM dir_categories WHERE id=?`, id); err != nil {

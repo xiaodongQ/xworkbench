@@ -201,6 +201,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/link-categories", s.handleLinkCategoryCreate)
 	mux.HandleFunc("PUT /api/link-categories/{id}", s.handleLinkCategoryUpdate)
 	mux.HandleFunc("DELETE /api/link-categories/{id}", s.handleLinkCategoryDelete)
+	mux.HandleFunc("POST /api/link-categories/{id}/merge", s.handleLinkCategoryMerge)
 
 	mux.HandleFunc("GET /api/dir-shortcuts", s.handleDirShortcuts)
 	mux.HandleFunc("POST /api/dir-shortcuts", s.handleDirShortcutCreate)
@@ -210,6 +211,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/dir-categories", s.handleDirCategoryCreate)
 	mux.HandleFunc("PUT /api/dir-categories/{id}", s.handleDirCategoryUpdate)
 	mux.HandleFunc("DELETE /api/dir-categories/{id}", s.handleDirCategoryDelete)
+	mux.HandleFunc("POST /api/dir-categories/{id}/merge", s.handleDirCategoryMerge)
 	mux.HandleFunc("PUT /api/dir-shortcuts/{id}", s.handleDirShortcutUpdate)
 	mux.HandleFunc("DELETE /api/dir-shortcuts/{id}", s.handleDirShortcutDelete)
 	mux.HandleFunc("POST /api/dir-shortcuts/{id}/open", s.handleDirShortcutOpen)
@@ -1622,6 +1624,26 @@ func (s *APIServer) handleLinkCategoryDelete(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
 }
 
+func (s *APIServer) handleLinkCategoryMerge(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		TargetID string `json:"target_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.TargetID == "" {
+		writeErr(w, http.StatusBadRequest, "target_id required")
+		return
+	}
+	if err := s.linkCatDB.MergeTo(id, req.TargetID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "target_id": req.TargetID, "status": "merged"})
+}
+
 // handleLinkOpen 用系统原生工具打开 URL 或本地路径（支持 file://、Unix 绝对路径、~、Windows 盘符、UNC 路径）。
 func (s *APIServer) handleLinkOpen(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1928,6 +1950,26 @@ func (s *APIServer) handleDirCategoryDelete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+func (s *APIServer) handleDirCategoryMerge(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		TargetID string `json:"target_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.TargetID == "" {
+		writeErr(w, http.StatusBadRequest, "target_id required")
+		return
+	}
+	if err := s.dirCatDB.MergeTo(id, req.TargetID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "target_id": req.TargetID, "status": "merged"})
 }
 
 func (s *APIServer) handleDirShortcutOpen(w http.ResponseWriter, r *http.Request) {
