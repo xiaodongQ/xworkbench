@@ -34,6 +34,8 @@ Options:
   -c, --clean 清理 bin/
   -h, --help  显示本帮助
 
+xw-sshpass 预编译二进制放 tools/，不上 git，由上线流程带入。
+
 构建参数：${LDFLAGS}
 版本：${VERSION}  构建时间：${BUILD_TIME}
 EOF
@@ -84,6 +86,7 @@ build_current() {
     printf '%b\n' "${RED}✗ 编译失败${NC}"
     exit 1
   fi
+
 }
 
 build_one() {
@@ -114,11 +117,11 @@ build_all() {
   local failed=0
 
   build_one darwin amd64 "" || failed=1
-  build_one darwin arm64 "" || failed=1
+  # build_one darwin arm64 "" || failed=1
   build_one linux amd64 "" || failed=1
-  build_one linux arm64 "" || failed=1
+  # build_one linux arm64 "" || failed=1
   build_one windows amd64 ".exe" || failed=1
-  build_one windows arm64 ".exe" || failed=1
+  # build_one windows arm64 ".exe" || failed=1
 
   local end_time=$(date +%s)
   echo
@@ -133,7 +136,6 @@ build_all() {
     exit 1
   fi
 }
-
 clean() {
   printf '%b\n' "${YELLOW}==> 清理 bin/ 目录${NC}"
   rm -rf "${BIN_DIR}"

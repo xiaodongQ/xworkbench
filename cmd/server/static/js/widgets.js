@@ -164,20 +164,36 @@ function onDirTypeChange() {
   const type = document.getElementById('dir-type').value;
   const remoteFields = document.getElementById('dir-remote-fields');
   const localPathGroup = document.getElementById('dir-local-path-group');
+  const termCmdGroup = document.getElementById('dir-terminal-cmd-group');
+  const termCmdInput = document.getElementById('dir-terminal-cmd');
   if (type === 'remote') {
     remoteFields.classList.remove('hidden');
     localPathGroup.classList.add('hidden');
+    termCmdInput.disabled = true;
+    termCmdInput.placeholder = '留空使用默认终端（远程目录不支持）';
     const remoteUserInput = document.getElementById('dir-remote-user');
     if (!remoteUserInput.value) remoteUserInput.value = 'root';
   } else {
     remoteFields.classList.add('hidden');
     localPathGroup.classList.remove('hidden');
+    termCmdInput.disabled = false;
+    termCmdInput.placeholder = '留空使用默认终端';
   }
 }
 function onAuthMethodChange() {
   const method = document.getElementById('dir-auth-method').value;
   document.getElementById('dir-password-group').classList.toggle('hidden', method === 'key');
   document.getElementById('dir-key-path-group').classList.toggle('hidden', method !== 'key');
+}
+function toggleDirPassword(btn) {
+  const input = document.getElementById('dir-remote-password');
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '🔒';
+  } else {
+    input.type = 'password';
+    btn.textContent = '👁';
+  }
 }
 function showDirSettingsModal() {
   fetchJSON('/api/config').then(data => {

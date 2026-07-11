@@ -100,12 +100,18 @@ function removeExpFromTask(id) {
   renderTaskExpChips();
 }
 
-let _taskSortField = 'created_at';
-let _taskSortDir = 'desc';
+let _taskSortField = '';     // '' = 无排序，'status'/'created_at' = 排序列
+let _taskSortDir = 'desc';  // 'asc' / 'desc'
 function setTaskSort(field) {
   if (_taskSortField === field) {
-    _taskSortDir = _taskSortDir === 'asc' ? 'desc' : 'asc';
+    // 同列点击：desc → asc → 无排序（普通状态）
+    if (_taskSortDir === 'desc') {
+      _taskSortDir = 'asc';
+    } else if (_taskSortDir === 'asc') {
+      _taskSortField = '';   // 恢复普通状态
+    }
   } else {
+    // 换列：默认 desc
     _taskSortField = field;
     _taskSortDir = 'desc';
   }
@@ -113,7 +119,7 @@ function setTaskSort(field) {
 }
 function sortIcon(field) {
   if (_taskSortField !== field) return ' ↕';
-  return _taskSortDir === 'asc' ? ' ↑' : ' ↓';
+  return _taskSortDir === 'asc' ? ' ↑' : (_taskSortField === field ? ' ↓' : ' ↕');
 }
 
 async function loadTasks() {

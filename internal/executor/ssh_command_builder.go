@@ -56,7 +56,7 @@ func BuildSSHCommand(dir *backend.DirShortcut, termType string) ([]string, error
 	}
 	result := make([]string, 0, len(args))
 	for _, arg := range args {
-		arg = strings.ReplaceAll(arg, "{key_path}", shellQuote(keyPath))
+		arg = strings.ReplaceAll(arg, "{key_path}", keyPath)
 		arg = strings.ReplaceAll(arg, "{user}@{host}", sshTarget)
 		arg = strings.ReplaceAll(arg, "{host}", dir.RemoteHost)
 		arg = strings.ReplaceAll(arg, "{user}", dir.RemoteUser)
@@ -137,7 +137,8 @@ var sshKeyFileExists = func(path string) bool {
 }
 
 // buildShellCmd 构建远端执行的 shell 命令。
-// 规则：cd remote_path（如有） → TerminalCmd（如有） → exec $SHELL -l。
+// 规则：cd remote_path（如有） → TerminalCmd（如有） → exec "$SHELL"。
+// 注意：不要用 exec $SHELL -l（-l 不是 exec 的参数，会导致 zsh 报错）。
 func buildShellCmd(dir *backend.DirShortcut) string {
 	parts := []string{}
 	if dir.RemotePath != "" {
@@ -146,7 +147,7 @@ func buildShellCmd(dir *backend.DirShortcut) string {
 	if dir.TerminalCmd != "" {
 		parts = append(parts, dir.TerminalCmd)
 	}
-	parts = append(parts, "exec $SHELL -l")
+	parts = append(parts, `exec "$SHELL"`)
 	return strings.Join(parts, " && ")
 }
 

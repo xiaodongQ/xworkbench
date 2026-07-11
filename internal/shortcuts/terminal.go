@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
@@ -72,6 +74,69 @@ func DefaultTerminal() string {
 
 // buildRemoteArgs 已迁移到 internal/executor/ssh_command_builder.go 的 BuildSSHCommand。
 
+// resolveXwSshpassBin 返回当前平台对应的 xw-sshpass 路径。
+// 优先从 tools/xw-sshpass/ 目录查找，找不到则尝试 PATH。
+func resolveXwSshpassBin() string {
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+	osMap := map[string]string{
+		"darwin":  "darwin",
+		"linux":   "linux",
+		"windows": "windows",
+	}
+	osStr := osMap[goos]
+	if osStr == "" {
+		return ""
+	}
+	archStr := "amd64"
+	if goarch == "arm64" {
+		archStr = "arm64"
+	}
+	binName := fmt.Sprintf("xw-sshpass-%s-%s", osStr, archStr)
+	if goos == "windows" {
+		binName += ".exe"
+	}
+
+	// 1. 从 tools/xw-sshpass/ 目录查找（cwd 为项目根）
+	toolsDir := filepath.Join(getProjectRoot(), "tools", "xw-sshpass")
+	binPath := filepath.Join(toolsDir, binName)
+	if _, err := os.Stat(binPath); err == nil {
+		return binPath
+	}
+
+	// 2. fallback 到 PATH
+	if bin, err := exec.LookPath(binName); err == nil {
+		return bin
+	}
+	// 3. 尝试不带平台后缀的 xw-sshpass
+	if bin, err := exec.LookPath("xw-sshpass"); err == nil {
+		return bin
+	}
+
+	return ""
+}
+
+// getProjectRoot 返回项目根目录（xworkbench 二进制所在目录，即 cwd）。
+// xworkbench 通过 scripts/run.sh 启动时，cwd 为项目根目录。
+func getProjectRoot() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return wd
+}
+
+// filterXwSshArgs 去掉 SSH 命令中的 PTY 分配包装（-t -- sh -c '...'）。
+// xw-sshpass 本身会处理 PTY（通过 client.Shell()），这些包装参数会导致远程收到乱套的命令字符串。
+func filterXwSshArgs(args []string) []string {
+	// args[0] = "ssh"，args[1] = user@host，后面是 -t -- sh -c '...'
+	// xw-sshpass 用 client.Shell()，不需要 PTY 包装
+	if len(args) < 2 {
+		return args
+	}
+	return []string{args[0], args[1]} // ssh, user@host
+}
+
 // OpenRemoteDirShortcut 用配置的终端软件打开远程 SSH 连接。
 // 支持 wezterm 等终端，连接后 cd 到 remote_path（默认主目录）。
 // 优先使用密钥认证：自动解析密钥路径（LocalKeyPath > KeyPath > 全局默认 > ~/.ssh/xworkbench_id_ed25519）。
@@ -107,6 +172,25 @@ func openRemoteDirShortcutImpl(ctx context.Context, dir *backend.DirShortcut, te
 	args, err := executor.BuildSSHCommand(dir, termType)
 	if err != nil {
 		return fmt.Errorf("build ssh command: %w", err)
+	}
+
+	// 密码方式：若 xw-sshpass 存在且有密码，则用 xw-sshpass 替换 ssh 命令
+	if dir.AuthMethod == "password" && dir.RemotePassword != "" {
+		xwBin := resolveXwSshpassBin()
+		if xwBin != "" {
+			// xw-sshpass 本身处理 PTY，SSH 的 -t -- sh -c 包装是多余的（会导致远程收到乱套的命令字符串）。
+			// 只保留 ssh user@host，后面的 -t -- sh -c '...' 全部丢弃，
+			// xw-sshpass 会用交互式 Shell 模式（client.Shell()）来处理。
+			cleanArgs := filterXwSshArgs(args)
+			newArgs := []string{xwBin, "-p", dir.RemotePassword}
+			newArgs = append(newArgs, cleanArgs...)
+			args = newArgs
+			logger.Logger.Infow("[OpenRemoteDirShortcut] using xw-sshpass for password auth",
+				"xwBin", xwBin, "args", args)
+		} else {
+			logger.Logger.Warnw("[OpenRemoteDirShortcut] password auth but xw-sshpass not found, fallback to key auth",
+				"host", dir.RemoteHost)
+		}
 	}
 
 	return execRemoteTerminal(termType, binPath, args)

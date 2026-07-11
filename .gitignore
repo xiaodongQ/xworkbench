@@ -3,6 +3,8 @@ data/
 *.db-journal
 *.db
 bin/
+# xw-sshpass 预编译产物（用户本地编译，不上库）
+tools/xw-sshpass/xw-sshpass-*
 tmp-e2e-test/
 config.json
 .codegraph
