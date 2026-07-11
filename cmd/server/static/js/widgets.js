@@ -370,11 +370,14 @@ function deleteDir(id) {
 }
 
 // ===== 待办（支持增删 + 勾选） =====
+// ===== 待办（支持增删 + 勾选 + 归档） =====
 // 展开状态：Set of parent lineNo，localStorage 持久化
 let _todoExpandedSet = new Set(JSON.parse(localStorage.getItem('todoExpandedSet') || '[]'));
 function saveTodoExpandedSet() {
     localStorage.setItem('todoExpandedSet', JSON.stringify([..._todoExpandedSet]));
 }
+// 归档区显示状态
+let _todoShowArchived = false;
 
 // 递归过滤树：父项被过滤则子项也移除
 function filterTree(items) {
@@ -428,7 +431,39 @@ function flattenItems(items, depth, parentLineNo) {
     return result;
 }
 
-// 渲染单个 todo item（扁平列表，每行独立；用 _depth 算缩进，_child_count 显示徽章）
+// 获取月份标签
+function getMonthLabel(dateStr) {
+    if (!dateStr) return '未标注日期';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '未标注日期';
+    return d.getFullYear() + '年' + String(d.getMonth() + 1).padStart(2, '0') + '月';
+}
+
+// 获取月份排序键（用于分组排序）
+function getMonthKey(dateStr) {
+    if (!dateStr) return '9999-99';
+    return dateStr.substring(0, 7); // YYYY-MM
+}
+
+// 按月份分组
+function groupByMonth(items, dateField) {
+    const groups = {};
+    for (const item of items) {
+        const dateStr = item[dateField] || '';
+        const key = getMonthKey(dateStr);
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(item);
+    }
+    // 按月份排序
+    const sortedKeys = Object.keys(groups).sort();
+    const result = [];
+    for (const key of sortedKeys) {
+        result.push({ key, items: groups[key] });
+    }
+    return result;
+}
+
+// 渲染单个活跃 todo item
 function renderTodoItem(i) {
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = i.due_date && !i.done && i.due_date < today;
@@ -436,8 +471,8 @@ function renderTodoItem(i) {
   const childCount = i._child_count || 0;
   const hasChildren = childCount > 0;
   const isExpanded = _todoExpandedSet.has(i.line_no);
-  // 初始隐藏：父项未展开时隐藏子项
-  const hiddenByParent = i._parent_line_no != null && !_todoExpandedSet.has(i._parent_line_no);
+  // 顶级已完成项显示归档按钮
+  const isTopLevelDone = i.done && (i._depth === 0);
 
   let extraHtml = '';
   const childClickAttr = hasChildren ? `onclick="event.stopPropagation(); toggleTodoItem(${i.line_no})"` : '';
@@ -447,10 +482,12 @@ function renderTodoItem(i) {
   if (i.due_date) {
     extraHtml += `<span class="todo-due ${isOverdue ? 'overdue' : ''}" ${childClickAttr} title="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
   }
+  if (isTopLevelDone) {
+    extraHtml += `<span class="todo-archive" onclick="event.stopPropagation(); archiveTodoItem(${i.line_no})" title="归档">📦</span>`;
+  }
 
   const indent = i._depth * 20;
   const onclickAttr = hasChildren ? `onclick="event.stopPropagation(); toggleTodoItem(${i.line_no})"` : '';
-  const textOnclickAttr = hasChildren ? `onclick="toggleTodoItem(${i.line_no})"` : '';
   let html = `<div class="todo-item ${i.done?'done':''} ${isOverdue?'overdue-row':''} ${hasChildren?'has-children':''}" ${onclickAttr} ${hasChildren ? `data-line-no="${i.line_no}" data-parent-line-no="${i._parent_line_no != null ? i._parent_line_no : ''}" style="padding-left:${indent}px"` : `style="padding-left:${indent}px" data-parent-line-no="${i._parent_line_no != null ? i._parent_line_no : ''}"}`}>
   <span class="todo-indent"></span>
   <input type="checkbox" ${i.done?'checked':''} onchange="event.stopPropagation(); toggleTodo(${i.line_no}, this.checked)">
@@ -462,16 +499,48 @@ function renderTodoItem(i) {
   return html;
 }
 
+// 渲染单个归档 item（简化版，无展开/收起，无编辑）
+function renderArchivedItem(i) {
+  const dueLabel = i.due_date ? i.due_date.slice(5) : '';
+  const indent = (i._depth || 0) * 20;
+  let extraHtml = '';
+  if (i.due_date) {
+    extraHtml += `<span class="todo-due" title="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
+  }
+  let html = `<div class="todo-item done" style="padding-left:${indent}px" data-line-no="${i.line_no}" data-parent-line-no="${i._parent_line_no != null ? i._parent_line_no : ''}">
+  <span class="todo-indent"></span>
+  <input type="checkbox" checked disabled>
+  <span class="todo-text">${esc(i.text)}</span>
+  ${extraHtml}
+  <span class="todo-unarchive" onclick="event.stopPropagation(); unarchiveTodoItem(${i.line_no})" title="恢复">↩</span>
+  <span class="todo-del" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no})" title="删除">×</span>
+</div>`;
+  return html;
+}
+
+// 渲染月份分组
+function renderMonthGroup(label, items, isArchived) {
+  let html = `<div class="todo-month-group">
+    <div class="todo-month-label" style="color:var(--text-secondary);font-size:11px;padding:4px 0 2px ${((items[0]._depth || 0) * 20) + 20}px">${label}</div>`;
+  for (const item of items) {
+    if (isArchived) {
+      html += renderArchivedItem(item);
+    } else {
+      html += renderTodoItem(item);
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
 // 点击父任务文字，展开/收起子项（递归）
 function toggleTodoItem(lineNo) {
     const itemEl = document.querySelector('.todo-item[data-line-no="' + lineNo + '"]');
     if (!itemEl) return;
-    // 找直接子项（_parent_line_no === lineNo）
     const childEls = document.querySelectorAll('.todo-item[data-parent-line-no="' + lineNo + '"]');
-    if (childEls.length === 0) return; // 无子项不动作
+    if (childEls.length === 0) return;
     const isExpanded = _todoExpandedSet.has(lineNo);
     if (isExpanded) {
-        // 递归隐藏子项的子项
         const hideRecursive = (parentNo) => {
             const els = document.querySelectorAll('.todo-item[data-parent-line-no="' + parentNo + '"]');
             els.forEach(el => {
@@ -493,12 +562,10 @@ function toggleTodoItem(lineNo) {
 function toggleTodoExpandAll() {
     const anyExpanded = _todoExpandedSet.size > 0;
     if (anyExpanded) {
-        // 全部收起
         _todoExpandedSet.clear();
         const btn = document.getElementById('todo-expand-btn');
         if (btn) { btn.textContent = '▶'; btn.title = '展开所有子项'; }
     } else {
-        // 全部展开：递归收集所有有子项的 line_no
         const collectParents = (items) => {
             for (const item of items) {
                 if (item.children && item.children.length > 0) {
@@ -512,17 +579,33 @@ function toggleTodoExpandAll() {
         if (btn) { btn.textContent = '▼'; btn.title = '收起所有子项'; }
     }
     saveTodoExpandedSet();
-    loadTodo(); // 重新渲染
+    loadTodo();
+}
+
+// 切换归档区显示
+function toggleTodoArchived() {
+    _todoShowArchived = !_todoShowArchived;
+    const btn = document.getElementById('todo-archive-btn');
+    if (btn) {
+        btn.style.color = _todoShowArchived ? 'var(--primary)' : 'var(--text-secondary)';
+    }
+    loadTodo();
 }
 
 async function loadTodo() {
   const data = await fetchJSON('/api/todo');
   const el = document.getElementById('todo-list');
   if (!data.path) { el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">未配置 todo.md 路径，点击"设置"</div>'; return; }
-  // 保存原始树数据供 findTodoItem 编辑弹框使用
+
+  // 保存原始树数据
   window._todoTreeData = data.items || [];
+  window._todoArchivedData = data.archived_items || [];
+
+  // 过滤和排序活跃项
   const items = flattenItems(sortTree(filterTree(window._todoTreeData)));
   window._todoItems = items;
+
+  // 更新按钮状态
   const filterBtn = document.getElementById('todo-filter-btn');
   if (filterBtn) {
     filterBtn.textContent = _todoFilter.showDone ? '◉' : '☐';
@@ -530,38 +613,73 @@ async function loadTodo() {
   }
   const expandBtn = document.getElementById('todo-expand-btn');
   if (expandBtn) {
-    if (_todoExpandedSet.size > 0) {
-        expandBtn.textContent = '▼';
-        expandBtn.title = '收起所有子项';
-    } else {
-        expandBtn.textContent = '▶';
-        expandBtn.title = '展开所有子项';
-    }
+    expandBtn.textContent = _todoExpandedSet.size > 0 ? '▼' : '▶';
+    expandBtn.title = _todoExpandedSet.size > 0 ? '收起所有子项' : '展开所有子项';
   }
+  const archiveBtn = document.getElementById('todo-archive-btn');
+  if (archiveBtn) {
+    archiveBtn.style.color = _todoShowArchived ? 'var(--primary)' : 'var(--text-secondary)';
+  }
+
   if (items.length === 0) {
     const hint = _todoFilter.showDone ? '' : '（全部已完成）';
-    el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">' + esc(data.path) + ' 无 todo 项' + hint + '</div>'; return;
+    el.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">' + esc(data.path) + ' 无 todo 项' + hint + '</div>';
+  } else {
+    // 按月份分组渲染
+    const groups = groupByMonth(items, 'created');
+    let html = '';
+    for (const group of groups) {
+      const label = getMonthLabel(group.items[0].created);
+      html += renderMonthGroup(label, group.items, false);
+    }
+    el.innerHTML = html;
   }
-  // 初始渲染时：_parent_line_no 非空且父项未展开的子项需隐藏
-  let html = '';
-  for (const item of items) {
-    const hiddenByParent = item._parent_line_no != null && !_todoExpandedSet.has(item._parent_line_no);
-    html += renderTodoItem(item);
-    // 在 renderTodoItem 里隐藏靠 CSS，简化处理：render 后统一处理
-  }
-  el.innerHTML = html;
-  // 统一处理初始隐藏
+
+  // 处理初始隐藏（子项未展开）
   el.querySelectorAll('.todo-item[data-parent-line-no]').forEach(el => {
     const pln = el.dataset.parentLineNo;
     if (pln && pln !== '' && !_todoExpandedSet.has(parseInt(pln))) {
         el.style.display = 'none';
     }
   });
+
+  // 渲染归档区
+  const archivedEl = document.getElementById('todo-archived-section');
+  if (archivedEl) {
+    if (_todoShowArchived && window._todoArchivedData.length > 0) {
+      archivedEl.style.display = 'block';
+      const archivedFlat = flattenItems(window._todoArchivedData);
+      const groups = groupByMonth(archivedFlat, 'archived');
+      let html = '';
+      for (const group of groups) {
+        const label = getMonthLabel(group.items[0].archived);
+        html += renderMonthGroup(label, group.items, true);
+      }
+      archivedEl.innerHTML = html;
+    } else {
+      archivedEl.style.display = 'none';
+      archivedEl.innerHTML = '';
+    }
+  }
 }
+
 function toggleTodo(lineNo, done) {
   fetch('/api/todo/' + lineNo, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({done})})
     .then(() => loadTodo());
 }
+
+async function archiveTodoItem(lineNo) {
+  const r = await fetch('/api/todo/' + lineNo + '/archive', {method:'PUT'});
+  if (!r.ok) { const b = await r.json().catch(() => ({})); alert('归档失败：' + (b.error || r.statusText)); return; }
+  loadTodo();
+}
+
+async function unarchiveTodoItem(lineNo) {
+  const r = await fetch('/api/todo/' + lineNo + '/unarchive', {method:'PUT'});
+  if (!r.ok) { const b = await r.json().catch(() => ({})); alert('恢复失败：' + (b.error || r.statusText)); return; }
+  loadTodo();
+}
+
 async function deleteTodoItem(lineNo) {
   if (!confirm('删除该待办？')) return;
   const r = await fetch('/api/todo/' + lineNo, {method:'DELETE'});

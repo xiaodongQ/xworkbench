@@ -232,6 +232,8 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("PUT /api/todo/{line_no}/edit", s.handleTodoEdit)
 	mux.HandleFunc("GET /api/todo/path", s.handleTodoPath)
 	mux.HandleFunc("PUT /api/todo/path", s.handleTodoPathSet)
+	mux.HandleFunc("PUT /api/todo/{line_no}/archive", s.handleTodoArchive)
+	mux.HandleFunc("PUT /api/todo/{line_no}/unarchive", s.handleTodoUnarchive)
 
 	// relay 代理功能（带 API key 认证）
 	relayAuth := checkRelayAuth()
@@ -2367,18 +2369,18 @@ func todoPath() string {
 func (s *APIServer) handleTodo(w http.ResponseWriter, r *http.Request) {
 	path := todoPath()
 	if path == "" {
-		writeJSON(w, map[string]any{"path": "", "items": []*todo.Item{}})
+		writeJSON(w, map[string]any{"path": "", "items": []*todo.Item{}, "archived_items": []*todo.Item{}})
 		return
 	}
-	items, err := todo.ReadAndParse(path)
+	sections, err := todo.ReadAndParseSections(path)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if items == nil {
-		items = []*todo.Item{}
+	if sections == nil {
+		sections = &todo.ParsedSections{}
 	}
-	writeJSON(w, map[string]any{"path": path, "items": items})
+	writeJSON(w, map[string]any{"path": path, "items": sections.ActiveItems, "archived_items": sections.ArchivedItems})
 }
 
 func (s *APIServer) handleTodoToggle(w http.ResponseWriter, r *http.Request) {
@@ -2575,6 +2577,44 @@ func (s *APIServer) handleTodoPathSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"path": req.Path})
+}
+
+func (s *APIServer) handleTodoArchive(w http.ResponseWriter, r *http.Request) {
+	path := todoPath()
+	if path == "" {
+		writeErr(w, http.StatusBadRequest, "todo_md_path not set")
+		return
+	}
+	lineNo := parseInt(r.PathValue("line_no"), 0)
+	logger.Infow("todo archive", "line_no", lineNo)
+	if lineNo <= 0 {
+		writeErr(w, http.StatusBadRequest, "invalid line_no")
+		return
+	}
+	if err := todo.ArchiveItem(path, lineNo); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"line_no": lineNo, "status": "archived"})
+}
+
+func (s *APIServer) handleTodoUnarchive(w http.ResponseWriter, r *http.Request) {
+	path := todoPath()
+	if path == "" {
+		writeErr(w, http.StatusBadRequest, "todo_md_path not set")
+		return
+	}
+	lineNo := parseInt(r.PathValue("line_no"), 0)
+	logger.Infow("todo unarchive", "line_no", lineNo)
+	if lineNo <= 0 {
+		writeErr(w, http.StatusBadRequest, "invalid line_no")
+		return
+	}
+	if err := todo.UnarchiveItem(path, lineNo); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"line_no": lineNo, "status": "unarchived"})
 }
 
 // Helpers

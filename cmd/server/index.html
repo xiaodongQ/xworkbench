@@ -118,10 +118,12 @@
           <button class="btn btn-small" onclick="showTodoAddModal()">+ 添加</button>
           <button class="btn btn-small" onclick="showTodoPathModal()">设置</button>
           <button id="todo-filter-btn" class="btn btn-small" onclick="showTodoFilterMenu()" title="点击切换到: 仅未完成">☐</button>
+          <button id="todo-archive-btn" class="btn btn-small" onclick="toggleTodoArchived()" title="显示/隐藏归档" style="color:var(--text-secondary)">📦</button>
         </span>
       </div>
       <div id="todo-container" style="overflow-y:auto;flex:1;min-height:0">
         <div id="todo-list"><div style="color:var(--text-secondary);font-size:12px;padding:4px">未配置 todo.md 路径</div></div>
+        <div id="todo-archived-section" style="display:none;border-top:1px dashed var(--border-color);margin-top:8px;padding-top:8px"></div>
       </div>
       <!-- 高度拖拽把手（底部） -->
       <div class="resize-handle-h resize-handle-widget" id="resize-handle-todo" title="拖拽调高"></div>

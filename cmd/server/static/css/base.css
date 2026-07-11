@@ -1090,4 +1090,23 @@ tr:last-child td { border-bottom: none; }
   border-radius: 3px;
   margin-left: 4px;
 }
+.todo-archive, .todo-unarchive {
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.todo-item:hover .todo-archive,
+.todo-item:hover .todo-unarchive {
+  opacity: 1;
+}
+.todo-archive:hover { color: var(--primary); }
+.todo-unarchive:hover { color: var(--success); }
+.todo-month-group {
+  margin-bottom: 4px;
+}
+.todo-month-label {
+  user-select: none;
+}
 

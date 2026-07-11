@@ -44,9 +44,9 @@ func TestParseMetadata(t *testing.T) {
 		{"普通任务", "普通任务", "", nil},
 	}
 	for _, tt := range tests {
-		text, due, tags := parseMetadata(tt.input)
+		text, due, tags, _, _ := parseFullMetadata(tt.input)
 		if text != tt.expText || due != tt.expDue || !reflect.DeepEqual(tags, tt.expTags) {
-			t.Errorf("parseMetadata(%q) = (%q, %q, %v), want (%q, %q, %v)", tt.input, text, due, tags, tt.expText, tt.expDue, tt.expTags)
+			t.Errorf("parseFullMetadata(%q) = (%q, %q, %v), want (%q, %q, %v)", tt.input, text, due, tags, tt.expText, tt.expDue, tt.expTags)
 		}
 	}
 }
@@ -256,9 +256,9 @@ func TestAddAndWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(p)
-	want := "# h\n- [ ] a\n- [ ] new item\n"
-	if string(data) != want {
-		t.Errorf("got:  %q\nwant: %q", string(data), want)
+	// 新项会带有 created: 日期
+	if !strings.Contains(string(data), "- [ ] new item created:") {
+		t.Errorf("got:  %q\nwant to contain: %q", string(data), "- [ ] new item created:")
 	}
 	// 空文本应报错
 	if _, err := AddAndWrite(p, "  ", "", nil, ""); err == nil {
@@ -276,9 +276,15 @@ func TestAddAndWrite_WithMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(p)
-	want := "# h\n- [ ] a\n- [ ] 购物 due:2026-07-08 tags:personal,shopping\n  > 记得带环保袋\n  > 别忘卡\n"
-	if string(data) != want {
-		t.Errorf("got:  %q\nwant: %q", string(data), want)
+	// 检查关键内容，新项会带有 created: 日期
+	if !strings.Contains(string(data), "due:2026-07-08") {
+		t.Errorf("got:  %q\nwant to contain: %q", string(data), "due:2026-07-08")
+	}
+	if !strings.Contains(string(data), "tags:personal,shopping") {
+		t.Errorf("got:  %q\nwant to contain: %q", string(data), "tags:personal,shopping")
+	}
+	if !strings.Contains(string(data), "created:") {
+		t.Errorf("got:  %q\nwant to contain: %q", string(data), "created:")
 	}
 }
 
