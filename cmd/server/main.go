@@ -59,6 +59,8 @@ type APIServer struct {
 	execDB       *backend.ExecutionRepo
 	linkDB       *backend.WebLinkRepo
 	dirDB        *backend.DirShortcutRepo
+	linkCatDB    *backend.LinkCategoryRepo
+	dirCatDB     *backend.DirCategoryRepo
 	schedDB      *backend.ScheduledTaskRepo
 	evalDB       *backend.EvaluationRepo
 	agentDB      *backend.AgentRepo
@@ -83,6 +85,7 @@ type APIServer struct {
 func NewAPIServer(
 	db *backend.TaskRepo, expDB *backend.ExperienceRepo, execDB *backend.ExecutionRepo,
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
+	linkCatDB *backend.LinkCategoryRepo, dirCatDB *backend.DirCategoryRepo,
 	schedDB *backend.ScheduledTaskRepo,
 	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
 	eventDB *backend.TaskEventRepo,
@@ -93,7 +96,8 @@ func NewAPIServer(
 ) *APIServer {
 	s := &APIServer{
 		db: db, expDB: expDB, execDB: execDB,
-		linkDB: linkDB, dirDB: dirDB, schedDB: schedDB, evalDB: evalDB,
+		linkDB: linkDB, dirDB: dirDB, linkCatDB: linkCatDB, dirCatDB: dirCatDB,
+		schedDB: schedDB, evalDB: evalDB,
 		agentDB: agentDB, eventDB: eventDB,
 		cmtDB: cmtDB, execCmtDB: execCmtDB,
 		sch: sch, hub: h,
@@ -192,8 +196,20 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("DELETE /api/web-links/{id}", s.handleWebLinkDelete)
 	mux.HandleFunc("POST /api/links/open", s.handleLinkOpen)
 
+	// 链接分类
+	mux.HandleFunc("GET /api/link-categories", s.handleLinkCategories)
+	mux.HandleFunc("POST /api/link-categories", s.handleLinkCategoryCreate)
+	mux.HandleFunc("PUT /api/link-categories/{id}", s.handleLinkCategoryUpdate)
+	mux.HandleFunc("DELETE /api/link-categories/{id}", s.handleLinkCategoryDelete)
+
 	mux.HandleFunc("GET /api/dir-shortcuts", s.handleDirShortcuts)
 	mux.HandleFunc("POST /api/dir-shortcuts", s.handleDirShortcutCreate)
+
+	// 目录分类
+	mux.HandleFunc("GET /api/dir-categories", s.handleDirCategories)
+	mux.HandleFunc("POST /api/dir-categories", s.handleDirCategoryCreate)
+	mux.HandleFunc("PUT /api/dir-categories/{id}", s.handleDirCategoryUpdate)
+	mux.HandleFunc("DELETE /api/dir-categories/{id}", s.handleDirCategoryDelete)
 	mux.HandleFunc("PUT /api/dir-shortcuts/{id}", s.handleDirShortcutUpdate)
 	mux.HandleFunc("DELETE /api/dir-shortcuts/{id}", s.handleDirShortcutDelete)
 	mux.HandleFunc("POST /api/dir-shortcuts/{id}/open", s.handleDirShortcutOpen)
@@ -1464,10 +1480,11 @@ func (s *APIServer) handleWebLinks(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) handleWebLinkCreate(w http.ResponseWriter, r *http.Request) {
 	logger.Infow("weblink create")
 	var req struct {
-		Name      string `json:"name"`
-		URL       string `json:"url"`
-		IconURL   string `json:"icon_url"`
-		SortOrder int    `json:"sort_order"`
+		Name       string `json:"name"`
+		URL        string `json:"url"`
+		IconURL    string `json:"icon_url"`
+		SortOrder  int    `json:"sort_order"`
+		CategoryID string `json:"category_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -1481,13 +1498,17 @@ func (s *APIServer) handleWebLinkCreate(w http.ResponseWriter, r *http.Request) 
 	if req.SortOrder == 0 {
 		req.SortOrder = s.linkDB.NextSortOrder()
 	}
+	if req.CategoryID == "" {
+		req.CategoryID = "default-link"
+	}
 	link := &backend.WebLink{
-		ID:        uuid.New().String(),
-		Name:      req.Name,
-		URL:       normalizeLinkURL(req.URL),
-		IconURL:   req.IconURL,
-		SortOrder: req.SortOrder,
-		CreatedAt: time.Now(),
+		ID:         uuid.New().String(),
+		Name:       req.Name,
+		URL:        normalizeLinkURL(req.URL),
+		IconURL:    req.IconURL,
+		SortOrder:  req.SortOrder,
+		CategoryID: req.CategoryID,
+		CreatedAt:  time.Now(),
 	}
 	if err := s.linkDB.Create(link); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -1500,16 +1521,17 @@ func (s *APIServer) handleWebLinkUpdate(w http.ResponseWriter, r *http.Request) 
 	id := r.PathValue("id")
 	logger.Infow("weblink update", "id", id)
 	var req struct {
-		Name      string `json:"name"`
-		URL       string `json:"url"`
-		IconURL   string `json:"icon_url"`
-		SortOrder int    `json:"sort_order"`
+		Name       string `json:"name"`
+		URL        string `json:"url"`
+		IconURL    string `json:"icon_url"`
+		SortOrder  int    `json:"sort_order"`
+		CategoryID string `json:"category_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	link := &backend.WebLink{ID: id, Name: req.Name, URL: normalizeLinkURL(req.URL), IconURL: req.IconURL, SortOrder: req.SortOrder}
+	link := &backend.WebLink{ID: id, Name: req.Name, URL: normalizeLinkURL(req.URL), IconURL: req.IconURL, SortOrder: req.SortOrder, CategoryID: req.CategoryID}
 	if err := s.linkDB.Update(link); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1522,6 +1544,79 @@ func (s *APIServer) handleWebLinkDelete(w http.ResponseWriter, r *http.Request) 
 	logger.Infow("weblink delete", "id", id)
 	if _, err := s.linkDB.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+// ===== 链接分类 =====
+
+func (s *APIServer) handleLinkCategories(w http.ResponseWriter, r *http.Request) {
+	list, err := s.linkCatDB.List()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []*backend.LinkCategory{}
+	}
+	writeJSON(w, list)
+}
+
+func (s *APIServer) handleLinkCategoryCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name      string `json:"name"`
+		Icon      string `json:"icon"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.SortOrder == 0 {
+		req.SortOrder = s.linkCatDB.NextSortOrder()
+	}
+	cat := &backend.LinkCategory{
+		ID:        uuid.New().String(),
+		Name:      req.Name,
+		Icon:      req.Icon,
+		SortOrder: req.SortOrder,
+		CreatedAt: time.Now(),
+	}
+	if err := s.linkCatDB.Create(cat); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cat)
+}
+
+func (s *APIServer) handleLinkCategoryUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Name      string `json:"name"`
+		Icon      string `json:"icon"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	cat := &backend.LinkCategory{ID: id, Name: req.Name, Icon: req.Icon, SortOrder: req.SortOrder}
+	if err := s.linkCatDB.Update(cat); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cat)
+}
+
+func (s *APIServer) handleLinkCategoryDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.linkCatDB.Delete(id); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
@@ -1654,6 +1749,7 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		RemotePassword string `json:"remote_password"`
 		AuthMethod     string `json:"auth_method"`
 		KeyPath        string `json:"key_path"`
+		CategoryID     string `json:"category_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -1683,6 +1779,9 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 	if req.SortOrder == 0 {
 		req.SortOrder = s.dirDB.NextSortOrder()
 	}
+	if req.CategoryID == "" {
+		req.CategoryID = "default-dir"
+	}
 	d := &backend.DirShortcut{
 		ID:             uuid.New().String(),
 		Name:           req.Name,
@@ -1695,6 +1794,7 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		RemotePassword: req.RemotePassword,
 		AuthMethod:     req.AuthMethod,
 		KeyPath:        req.KeyPath,
+		CategoryID:     req.CategoryID,
 		CreatedAt:      time.Now(),
 	}
 	if err := s.dirDB.Create(d); err != nil {
@@ -1718,6 +1818,7 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 		RemotePassword string `json:"remote_password"`
 		AuthMethod     string `json:"auth_method"`
 		KeyPath        string `json:"key_path"`
+		CategoryID     string `json:"category_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -1736,6 +1837,7 @@ func (s *APIServer) handleDirShortcutUpdate(w http.ResponseWriter, r *http.Reque
 		RemotePassword: req.RemotePassword,
 		AuthMethod:     req.AuthMethod,
 		KeyPath:        req.KeyPath,
+		CategoryID:     req.CategoryID,
 	}
 	logger.Infow("dir-shortcut update", "id", id, "name", req.Name)
 	if err := s.dirDB.Update(d); err != nil {
@@ -1750,6 +1852,79 @@ func (s *APIServer) handleDirShortcutDelete(w http.ResponseWriter, r *http.Reque
 	logger.Infow("dir-shortcut delete", "id", id)
 	if err := s.dirDB.Delete(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+// ===== 目录分类 =====
+
+func (s *APIServer) handleDirCategories(w http.ResponseWriter, r *http.Request) {
+	list, err := s.dirCatDB.List()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []*backend.DirCategory{}
+	}
+	writeJSON(w, list)
+}
+
+func (s *APIServer) handleDirCategoryCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name      string `json:"name"`
+		Icon      string `json:"icon"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.SortOrder == 0 {
+		req.SortOrder = s.dirCatDB.NextSortOrder()
+	}
+	cat := &backend.DirCategory{
+		ID:        uuid.New().String(),
+		Name:      req.Name,
+		Icon:      req.Icon,
+		SortOrder: req.SortOrder,
+		CreatedAt: time.Now(),
+	}
+	if err := s.dirCatDB.Create(cat); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cat)
+}
+
+func (s *APIServer) handleDirCategoryUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Name      string `json:"name"`
+		Icon      string `json:"icon"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	cat := &backend.DirCategory{ID: id, Name: req.Name, Icon: req.Icon, SortOrder: req.SortOrder}
+	if err := s.dirCatDB.Update(cat); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cat)
+}
+
+func (s *APIServer) handleDirCategoryDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.dirCatDB.Delete(id); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
@@ -2861,6 +3036,8 @@ func main() {
 	execRepo := backend.NewExecutionRepo(db)
 	linkRepo := backend.NewWebLinkRepo(db)
 	dirRepo := backend.NewDirShortcutRepo(db)
+	linkCatRepo := backend.NewLinkCategoryRepo(db)
+	dirCatRepo := backend.NewDirCategoryRepo(db)
 	schedRepo := backend.NewScheduledTaskRepo(db)
 	evalRepo := backend.NewEvaluationRepo(db)
 	h := hub.New()
@@ -2938,7 +3115,8 @@ func main() {
 	}
 
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
-		linkRepo, dirRepo, schedRepo, evalRepo, agentRepo,
+		linkRepo, dirRepo, linkCatRepo, dirCatRepo,
+		schedRepo, evalRepo, agentRepo,
 		eventRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)
 
 	// 后台 goroutine：心跳超时检测
