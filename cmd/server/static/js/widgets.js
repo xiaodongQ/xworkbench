@@ -1390,3 +1390,17 @@ function initCategoryState() {
   _dirActiveCategoryId = localStorage.getItem('sf-dir-active-cat') || '';
 }
 
+
+// ===== 分类排序（拖动重排） =====
+async function saveCategoryOrder(type, ids) {
+  // type: 'link' | 'dir'
+  const endpoint = type === 'link' ? '/api/link-categories' : '/api/dir-categories';
+  for (let i = 0; i < ids.length; i++) {
+    await fetch(endpoint + '/' + ids[i], {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sort_order: i + 1})
+    });
+  }
+  if (type === 'link') loadLinks(); else loadDirs();
+}
