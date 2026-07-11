@@ -8,8 +8,6 @@
 # 产物输出到当前目录
 # 依赖：Go，CGO_ENABLED=0（纯 Go，无 C 依赖）
 
-set -e
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP_DIR="${SCRIPT_DIR}/win-sshpass_tmp-source"
 REPO="https://github.com/chuccp/win-sshpass.git"
@@ -39,6 +37,25 @@ detect_platform() {
     [ "$goos" = "windows" ] && ext=".exe"
 }
 
+# 单平台构建函数（do_build 和 do_build_all 共用）
+xw_build_one() {
+    local goos=$1 goarch=$2 suffix=$3
+    local output="xw-sshpass-${goos}-${goarch}${suffix}"
+    printf "  %-12s %-8s ... " "$goos" "$goarch"
+    (cd "${TMP_DIR}" && CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build \
+        -ldflags="-s -w" \
+        -trimpath \
+        -o "${SCRIPT_DIR}/${output}" \
+        ./cmd/sshpass) 2>&1
+    if [ $? -eq 0 ]; then
+        local size=$(ls -lh "${SCRIPT_DIR}/${output}" | awk '{print $5}')
+        echo "[OK] $size"
+    else
+        echo "[FAIL]"
+        return 1
+    fi
+}
+
 do_build() {
     detect_platform
     echo "=============================================="
@@ -59,7 +76,7 @@ do_build() {
 
     echo
     echo "==> 开始构建"
-    build_one "$goos" "$goarch" "$ext"
+    xw_build_one "$goos" "$goarch" "$ext"
 
     echo
     echo "==> 设置执行权限"
@@ -96,29 +113,11 @@ do_build_all() {
     echo
     echo "==> 开始构建"
 
-    build_one() {
-        local goos=$1 goarch=$2 suffix=$3
-        local output="xw-sshpass-${goos}-${goarch}${suffix}"
-        printf "  %-12s %-8s ... " "$goos" "$goarch"
-        (cd "${TMP_DIR}" && CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build \
-            -ldflags="-s -w" \
-            -trimpath \
-            -o "${SCRIPT_DIR}/${output}" \
-            ./cmd/sshpass) 2>&1
-        if [ $? -eq 0 ]; then
-            local size=$(ls -lh "${SCRIPT_DIR}/${output}" | awk '{print $5}')
-            echo "[OK] $size"
-        else
-            echo "[FAIL]"
-            exit 1
-        fi
-    }
-
-    build_one darwin amd64 ""
-    build_one linux amd64 ""
-    # build_one darwin arm64 ""
-    # build_one linux arm64 ""
-    build_one windows amd64 ".exe"
+    xw_build_one darwin amd64 ""
+    xw_build_one linux amd64 ""
+    # xw_build_one darwin arm64 ""
+    # xw_build_one linux arm64 ""
+    xw_build_one windows amd64 ".exe"
 
     echo
     echo "==> 设置执行权限"
