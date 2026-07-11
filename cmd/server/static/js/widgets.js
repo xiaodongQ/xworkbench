@@ -39,10 +39,16 @@ async function openLink(url) {
 
 // ===== 链接（列表样式：每行一条） =====
 async function loadLinks() {
-  const list = sortByOrder(await fetchJSON('/api/web-links'));
+  const cats = await loadLinkCategories();
+  let list = sortByOrder(await fetchJSON('/api/web-links'));
+  // 按选中分类过滤
+  if (_linkActiveCategoryId) {
+    list = list.filter(l => l.category_id === _linkActiveCategoryId);
+  }
   const grid = document.getElementById('links-grid');
   if (!list || list.length === 0) {
-    grid.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;text-align:center;padding:20px 0">点击 + 添加你的第一个链接</div>';
+    const msg = _linkActiveCategoryId ? '该分类下暂无链接' : '点击 + 添加你的第一个链接';
+    grid.innerHTML = `<div style="color:var(--text-secondary);font-size:12px;text-align:center;padding:20px 0">${esc(msg)}</div>`;
     return;
   }
   grid.innerHTML = list.map((l, idx) => {
@@ -64,16 +70,23 @@ async function loadLinks() {
   }).join('');
 }
 
-function showLinkModal() {
+
+async function showLinkModal() {
   document.getElementById('link-name').value = '';
   document.getElementById('link-url').value = '';
   document.getElementById('link-icon').value = '';
-  document.getElementById('link-modal').dataset.editId = '';  // 确保新建时清空
+  document.getElementById('link-modal').dataset.editId = '';
+  await populateLinkCategorySelect();
+  // 默认选中当前激活分类
+  if (_linkActiveCategoryId) {
+    document.getElementById('link-category').value = _linkActiveCategoryId;
+  }
   const titleEl = document.querySelector('#link-modal h2');
   if (titleEl) titleEl.textContent = '添加链接';
   document.getElementById('link-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('link-name').focus(), 50);
 }
+
 function closeLinkModal() {
   document.getElementById('link-modal').classList.add('hidden');
   document.getElementById('link-modal').dataset.editId = '';
@@ -85,16 +98,18 @@ async function submitLink() {
   const name = document.getElementById('link-name').value.trim();
   const url = document.getElementById('link-url').value.trim();
   const icon = document.getElementById('link-icon').value.trim();
+  const category_id = document.getElementById('link-category').value;
   if (!name || !url) { alert('名称和 URL 必填'); return; }
   if (id) {
     await fetch('/api/web-links/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name, url, icon_url: icon})});
+      body: JSON.stringify({name, url, icon_url: icon, category_id})});
   } else {
-    await fetch('/api/web-links', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name,url,icon_url:icon})});
+    await fetch('/api/web-links', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, url, icon_url: icon, category_id})});
   }
   closeLinkModal();
   loadLinks();
 }
+
 async function editLink(id) {
   const list = sortByOrder(await fetchJSON('/api/web-links'));
   const l = list.find(x => x.id === id);
@@ -102,11 +117,16 @@ async function editLink(id) {
   document.getElementById('link-name').value = l.name || '';
   document.getElementById('link-url').value = l.url || '';
   document.getElementById('link-icon').value = l.icon_url || '';
+  await populateLinkCategorySelect();
+  if (l.category_id) {
+    document.getElementById('link-category').value = l.category_id;
+  }
   const titleEl = document.querySelector('#link-modal h2');
   if (titleEl) titleEl.textContent = '编辑链接';
   document.getElementById('link-modal').dataset.editId = id;
   document.getElementById('link-modal').classList.remove('hidden');
 }
+
 function deleteLink(id) {
   if (!confirm('删除该链接？')) return;
   fetch('/api/web-links/' + id, {method:'DELETE'}).then(() => loadLinks());
@@ -114,14 +134,19 @@ function deleteLink(id) {
 
 // ===== 目录 =====
 async function loadDirs() {
-  const list = sortByOrder(await fetchJSON('/api/dir-shortcuts'));
+  const cats = await loadDirCategories();
+  let list = sortByOrder(await fetchJSON('/api/dir-shortcuts'));
+  if (_dirActiveCategoryId) {
+    list = list.filter(d => d.category_id === _dirActiveCategoryId);
+  }
   const el = document.getElementById('dir-list');
   if (!list || list.length === 0) {
+    const msg = _dirActiveCategoryId ? '该分类下暂无目录' : '';
     el.innerHTML = `<div class="dir-item" onclick="showDirModal()" style="font-style:italic;color:var(--text-secondary)">
       <span class="dir-icon">📂</span>
       <span class="dir-text">
-        <span class="dir-name">+ 添加目录</span>
-        <span class="dir-path">点击添加</span>
+        <span class="dir-name">${msg || '+ 添加目录'}</span>
+        <span class="dir-path">${msg ? '' : '点击添加'}</span>
       </span>
     </div>`;
     return;
@@ -140,7 +165,8 @@ async function loadDirs() {
       <span class="dir-del" onclick="event.stopPropagation();deleteDir('${d.id}')" title="删除">×</span>
     </div>`).join('');
 }
-function showDirModal() {
+
+async function showDirModal() {
   document.getElementById('dir-name').value = '';
   document.getElementById('dir-type').value = 'local';
   document.getElementById('dir-path').value = '';
@@ -150,6 +176,10 @@ function showDirModal() {
   document.getElementById('dir-auth-method').value = 'password';
   document.getElementById('dir-remote-password').value = '';
   document.getElementById('dir-key-path').value = '';
+  await populateDirCategorySelect();
+  if (_dirActiveCategoryId) {
+    document.getElementById('dir-category').value = _dirActiveCategoryId;
+  }
   document.getElementById('dir-modal').dataset.editId = '';
   document.getElementById('dir-modal').classList.remove('hidden');
   document.getElementById('dir-modal-title').textContent = '添加目录';
@@ -158,6 +188,7 @@ function showDirModal() {
   onAuthMethodChange();
   setTimeout(() => document.getElementById('dir-name').focus(), 50);
 }
+
 function closeDirModal() { document.getElementById('dir-modal').classList.add('hidden'); }
 function onDirTypeChange() {
   const type = document.getElementById('dir-type').value;
@@ -278,50 +309,46 @@ async function editDir(id) {
   document.getElementById('dir-type').value = d.type || 'local';
   document.getElementById('dir-path').value = d.path || '';
   document.getElementById('dir-remote-host').value = d.remote_host || '';
-  document.getElementById('dir-remote-port').value = d.remote_port || '';
   document.getElementById('dir-remote-user').value = d.remote_user || '';
   document.getElementById('dir-remote-path').value = d.remote_path || '';
   document.getElementById('dir-auth-method').value = d.auth_method || 'password';
   document.getElementById('dir-remote-password').value = d.remote_password || '';
   document.getElementById('dir-key-path').value = d.key_path || '';
-  onDirTypeChange();
-  onAuthMethodChange();
+  await populateDirCategorySelect();
+  if (d.category_id) {
+    document.getElementById('dir-category').value = d.category_id;
+  }
   document.getElementById('dir-modal').dataset.editId = id;
-  document.getElementById('dir-modal').classList.remove('hidden');
   document.getElementById('dir-modal-title').textContent = '编辑目录';
   document.getElementById('dir-submit-btn').textContent = '保存';
-  setTimeout(() => document.getElementById('dir-name').focus(), 50);
+  document.getElementById('dir-modal').classList.remove('hidden');
+  onDirTypeChange();
+  onAuthMethodChange();
 }
-function submitDir() {
+
+async function submitDir() {
   const id = document.getElementById('dir-modal').dataset.editId;
   const name = document.getElementById('dir-name').value.trim();
   const type = document.getElementById('dir-type').value;
   const path = document.getElementById('dir-path').value.trim();
-  const remoteHost = document.getElementById('dir-remote-host').value.trim();
-  const remotePort = document.getElementById('dir-remote-port').value.trim();
-  const remoteUser = document.getElementById('dir-remote-user').value.trim();
-  const remotePath = document.getElementById('dir-remote-path').value.trim();
-  const authMethod = document.getElementById('dir-auth-method').value;
-  const remotePassword = document.getElementById('dir-remote-password').value;
-  const keyPath = document.getElementById('dir-key-path').value.trim();
+  const remote_host = document.getElementById('dir-remote-host').value.trim();
+  const remote_user = document.getElementById('dir-remote-user').value.trim();
+  const remote_path = document.getElementById('dir-remote-path').value.trim();
+  const auth_method = document.getElementById('dir-auth-method').value;
+  const remote_password = document.getElementById('dir-remote-password').value;
+  const key_path = document.getElementById('dir-key-path').value.trim();
+  const category_id = document.getElementById('dir-category').value;
   if (!name) { alert('名称必填'); return; }
-  if (type === 'local' && !path) { alert('本地目录路径必填'); return; }
-  if (type === 'remote' && (!remoteHost || !remoteUser)) { alert('主机和用户名必填'); return; }
-  const payload = { name, type, path, remote_host: remoteHost, remote_port: remotePort, remote_user: remoteUser, remote_path: remotePath, auth_method: authMethod, remote_password: remotePassword, key_path: keyPath };
+  const payload = {name, type, path, remote_host, remote_user, remote_path, auth_method, remote_password, key_path, category_id};
   if (id) {
-    fetch('/api/dir-shortcuts/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(payload)})
-      .then(() => { closeDirModal(); loadDirs(); });
+    await fetch('/api/dir-shortcuts/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
   } else {
-    fetch('/api/dir-shortcuts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json().then(d => ({ok: r.ok, body: d})))
-      .then(({ok, body}) => {
-        if (!ok) { alert('添加失败：' + (body.error || '未知错误')); return; }
-        closeDirModal();
-        loadDirs();
-      });
+    await fetch('/api/dir-shortcuts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
   }
+  closeDirModal();
+  loadDirs();
 }
+
 async function openDir(id) {
   try {
     const r = await fetch('/api/dir-shortcuts/' + id + '/open', {method:'POST'});
@@ -990,7 +1017,376 @@ function getTodoFilterLabel() {
 // 初始化 todo
 if (typeof window !== "undefined") {
   document.addEventListener("DOMContentLoaded", () => {
-    setTimeout(() => { loadTodo(); }, 100);
+    initCategoryState();
+    setTimeout(() => { loadLinks(); loadDirs(); loadTodo(); }, 100);
   });
+}
+
+
+
+// ===== 分类管理（链接 + 目录） =====
+
+// 全局状态：当前选中的分类 ID（空字符串表示"全部"）
+let _linkActiveCategoryId = '';
+let _dirActiveCategoryId = '';
+
+// ===== 链接分类 =====
+
+async function loadLinkCategories() {
+  try {
+    const cats = await fetchJSON('/api/link-categories') || [];
+    const bar = document.getElementById('link-categories-bar');
+    if (!bar) return;
+    // 保存当前选择
+    const activeId = _linkActiveCategoryId;
+    // 第一个 chip = "全部"
+    let html = `<span class="category-chip ${activeId === '' ? 'active' : ''}" data-cat-id="" onclick="selectLinkCategory('')">全部</span>`;
+    for (const c of cats) {
+      const icon = c.icon || '';
+      html += `<span class="category-chip ${activeId === c.id ? 'active' : ''}" data-cat-id="${esc(c.id)}" onclick="selectLinkCategory('${esc(c.id)}')">${esc(icon + (icon ? ' ' : '') + c.name)}</span>`;
+    }
+    // 管理按钮（如果分类 > 1 才显示）
+    if (cats.length > 1) {
+      html += `<span class="category-chip cat-manage" onclick="showLinkCategoryModal()" title="管理分类">⚙</span>`;
+    }
+    bar.innerHTML = html;
+    return cats;
+  } catch (e) {
+    console.error('loadLinkCategories:', e);
+    return [];
+  }
+}
+
+function selectLinkCategory(catId) {
+  _linkActiveCategoryId = catId;
+  localStorage.setItem('sf-link-active-cat', catId);
+  loadLinks();
+}
+
+async function loadLinks() {
+  const cats = await loadLinkCategories();
+  let list = sortByOrder(await fetchJSON('/api/web-links'));
+  // 按选中分类过滤
+  if (_linkActiveCategoryId) {
+    list = list.filter(l => l.category_id === _linkActiveCategoryId);
+  }
+  const grid = document.getElementById('links-grid');
+  if (!list || list.length === 0) {
+    const msg = _linkActiveCategoryId ? '该分类下暂无链接' : '点击 + 添加你的第一个链接';
+    grid.innerHTML = `<div style="color:var(--text-secondary);font-size:12px;text-align:center;padding:20px 0">${esc(msg)}</div>`;
+    return;
+  }
+  grid.innerHTML = list.map((l, idx) => {
+    const initial = (l.name || '?')[0].toUpperCase();
+    const icon = l.icon_url
+      ? `<img src="${esc(l.icon_url)}" onerror="this.outerHTML='${initial}'">`
+      : initial;
+    return `<div class="link-row" draggable="true" data-id="${l.id}" data-idx="${idx}"
+        ondragstart="widgetDragStart(event, 'web-links')" ondragover="widgetDragOver(event)" ondrop="widgetDrop(event, 'web-links', loadLinks)" ondragleave="widgetDragLeave(event)">
+      <span class="drag-handle" title="拖动排序">⋮⋮</span>
+      <div class="link-icon" onclick="openLink('${esc(l.url)}')">${icon}</div>
+      <div class="link-text" onclick="openLink('${esc(l.url)}')" title="${esc(l.url)}">
+        <div class="link-name">${esc(l.name)}</div>
+        <div class="link-url">${esc(l.url)}</div>
+      </div>
+      <div class="link-edit" onclick="event.stopPropagation();editLink('${l.id}')" title="编辑">✎</div>
+      <div class="link-del" onclick="event.stopPropagation();deleteLink('${l.id}')" title="删除">×</div>
+    </div>`;
+  }).join('');
+}
+
+// 修改现有函数：填充分类下拉框
+async function populateLinkCategorySelect() {
+  const sel = document.getElementById('link-category');
+  if (!sel) return;
+  const cats = await fetchJSON('/api/link-categories') || [];
+  sel.innerHTML = cats.map(c => `<option value="${esc(c.id)}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
+}
+
+async function showLinkModal() {
+  document.getElementById('link-name').value = '';
+  document.getElementById('link-url').value = '';
+  document.getElementById('link-icon').value = '';
+  document.getElementById('link-modal').dataset.editId = '';
+  await populateLinkCategorySelect();
+  // 默认选中当前激活分类
+  if (_linkActiveCategoryId) {
+    document.getElementById('link-category').value = _linkActiveCategoryId;
+  }
+  const titleEl = document.querySelector('#link-modal h2');
+  if (titleEl) titleEl.textContent = '添加链接';
+  document.getElementById('link-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('link-name').focus(), 50);
+}
+
+async function submitLink() {
+  const id = document.getElementById('link-modal').dataset.editId;
+  const name = document.getElementById('link-name').value.trim();
+  const url = document.getElementById('link-url').value.trim();
+  const icon = document.getElementById('link-icon').value.trim();
+  const category_id = document.getElementById('link-category').value;
+  if (!name || !url) { alert('名称和 URL 必填'); return; }
+  if (id) {
+    await fetch('/api/web-links/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, url, icon_url: icon, category_id})});
+  } else {
+    await fetch('/api/web-links', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, url, icon_url: icon, category_id})});
+  }
+  closeLinkModal();
+  loadLinks();
+}
+
+async function editLink(id) {
+  const list = sortByOrder(await fetchJSON('/api/web-links'));
+  const l = list.find(x => x.id === id);
+  if (!l) return;
+  document.getElementById('link-name').value = l.name || '';
+  document.getElementById('link-url').value = l.url || '';
+  document.getElementById('link-icon').value = l.icon_url || '';
+  await populateLinkCategorySelect();
+  if (l.category_id) {
+    document.getElementById('link-category').value = l.category_id;
+  }
+  const titleEl = document.querySelector('#link-modal h2');
+  if (titleEl) titleEl.textContent = '编辑链接';
+  document.getElementById('link-modal').dataset.editId = id;
+  document.getElementById('link-modal').classList.remove('hidden');
+}
+
+// ===== 链接分类管理 Modal =====
+function showLinkCategoryModal() {
+  document.getElementById('link-category-modal').classList.remove('hidden');
+  refreshLinkCategoryList();
+}
+function closeLinkCategoryModal() {
+  document.getElementById('link-category-modal').classList.add('hidden');
+}
+async function refreshLinkCategoryList() {
+  const list = await fetchJSON('/api/link-categories') || [];
+  const container = document.getElementById('link-category-list');
+  if (list.length === 0) {
+    container.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无分类</div>';
+    return;
+  }
+  container.innerHTML = list.map(c => `
+    <div class="cat-row" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)">
+      <span>${esc(c.icon || '')}</span>
+      <span style="flex:1">${esc(c.name)}</span>
+      ${c.is_default ? '<span style="color:var(--text-secondary);font-size:11px">默认</span>' :
+        `<button class="btn btn-small" onclick="deleteLinkCategory('${esc(c.id)}')">删除</button>`}
+    </div>
+  `).join('');
+}
+async function addLinkCategory() {
+  const name = document.getElementById('new-link-category-name').value.trim();
+  const icon = document.getElementById('new-link-category-icon').value.trim();
+  if (!name) { alert('分类名必填'); return; }
+  await fetch('/api/link-categories', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, icon})});
+  document.getElementById('new-link-category-name').value = '';
+  document.getElementById('new-link-category-icon').value = '';
+  await refreshLinkCategoryList();
+  loadLinks();
+}
+async function deleteLinkCategory(id) {
+  if (!confirm('删除该分类？其下链接将归入默认分类')) return;
+  await fetch('/api/link-categories/' + id, {method:'DELETE'});
+  await refreshLinkCategoryList();
+  if (_linkActiveCategoryId === id) {
+    _linkActiveCategoryId = '';
+    localStorage.setItem('sf-link-active-cat', '');
+  }
+  loadLinks();
+}
+
+// ===== 目录分类 =====
+
+async function loadDirCategories() {
+  try {
+    const cats = await fetchJSON('/api/dir-categories') || [];
+    const bar = document.getElementById('dir-categories-bar');
+    if (!bar) return;
+    const activeId = _dirActiveCategoryId;
+    let html = `<span class="category-chip ${activeId === '' ? 'active' : ''}" data-cat-id="" onclick="selectDirCategory('')">全部</span>`;
+    for (const c of cats) {
+      const icon = c.icon || '';
+      html += `<span class="category-chip ${activeId === c.id ? 'active' : ''}" data-cat-id="${esc(c.id)}" onclick="selectDirCategory('${esc(c.id)}')">${esc(icon + (icon ? ' ' : '') + c.name)}</span>`;
+    }
+    if (cats.length > 1) {
+      html += `<span class="category-chip cat-manage" onclick="showDirCategoryModal()" title="管理分类">⚙</span>`;
+    }
+    bar.innerHTML = html;
+    return cats;
+  } catch (e) {
+    console.error('loadDirCategories:', e);
+    return [];
+  }
+}
+
+function selectDirCategory(catId) {
+  _dirActiveCategoryId = catId;
+  localStorage.setItem('sf-dir-active-cat', catId);
+  loadDirs();
+}
+
+async function loadDirs() {
+  const cats = await loadDirCategories();
+  let list = sortByOrder(await fetchJSON('/api/dir-shortcuts'));
+  if (_dirActiveCategoryId) {
+    list = list.filter(d => d.category_id === _dirActiveCategoryId);
+  }
+  const el = document.getElementById('dir-list');
+  if (!list || list.length === 0) {
+    const msg = _dirActiveCategoryId ? '该分类下暂无目录' : '';
+    el.innerHTML = `<div class="dir-item" onclick="showDirModal()" style="font-style:italic;color:var(--text-secondary)">
+      <span class="dir-icon">📂</span>
+      <span class="dir-text">
+        <span class="dir-name">${msg || '+ 添加目录'}</span>
+        <span class="dir-path">${msg ? '' : '点击添加'}</span>
+      </span>
+    </div>`;
+    return;
+  }
+  el.innerHTML = list.map((d, idx) =>
+    `<div class="dir-item${d.type === 'remote' ? ' dir-remote' : ''}" draggable="true" data-id="${d.id}" data-idx="${idx}"
+        ondragstart="widgetDragStart(event, 'dir-shortcuts')" ondragover="widgetDragOver(event)" ondrop="widgetDrop(event, 'dir-shortcuts', loadDirs)" ondragleave="widgetDragLeave(event)">
+      <span class="drag-handle" title="拖动排序"></span>
+      <span class="dir-icon" onclick="openDir('${d.id}')">${d.type === 'remote' ? '🌐' : '📁'}</span>
+      <span class="dir-term" onclick="event.stopPropagation();openDirTerminal('${d.id}')" title="打开外部终端">⬢</span>
+      <span class="dir-text" onclick="openDir('${d.id}')">
+        <span class="dir-name">${esc(d.name)}</span>
+        <span class="dir-path" title="${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}">${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}</span>
+      </span>
+      <span class="dir-edit" onclick="event.stopPropagation();editDir('${d.id}')" title="编辑">✎</span>
+      <span class="dir-del" onclick="event.stopPropagation();deleteDir('${d.id}')" title="删除">×</span>
+    </div>`).join('');
+}
+
+async function populateDirCategorySelect() {
+  const sel = document.getElementById('dir-category');
+  if (!sel) return;
+  const cats = await fetchJSON('/api/dir-categories') || [];
+  sel.innerHTML = cats.map(c => `<option value="${esc(c.id)}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
+}
+
+async function showDirModal() {
+  document.getElementById('dir-name').value = '';
+  document.getElementById('dir-type').value = 'local';
+  document.getElementById('dir-path').value = '';
+  document.getElementById('dir-remote-host').value = '';
+  document.getElementById('dir-remote-user').value = '';
+  document.getElementById('dir-remote-path').value = '';
+  document.getElementById('dir-auth-method').value = 'password';
+  document.getElementById('dir-remote-password').value = '';
+  document.getElementById('dir-key-path').value = '';
+  await populateDirCategorySelect();
+  if (_dirActiveCategoryId) {
+    document.getElementById('dir-category').value = _dirActiveCategoryId;
+  }
+  document.getElementById('dir-modal').dataset.editId = '';
+  document.getElementById('dir-modal').classList.remove('hidden');
+  document.getElementById('dir-modal-title').textContent = '添加目录';
+  document.getElementById('dir-submit-btn').textContent = '添加';
+  onDirTypeChange();
+  onAuthMethodChange();
+  setTimeout(() => document.getElementById('dir-name').focus(), 50);
+}
+
+async function editDir(id) {
+  const list = sortByOrder(await fetchJSON('/api/dir-shortcuts'));
+  const d = list.find(x => x.id === id);
+  if (!d) return;
+  document.getElementById('dir-name').value = d.name || '';
+  document.getElementById('dir-type').value = d.type || 'local';
+  document.getElementById('dir-path').value = d.path || '';
+  document.getElementById('dir-remote-host').value = d.remote_host || '';
+  document.getElementById('dir-remote-user').value = d.remote_user || '';
+  document.getElementById('dir-remote-path').value = d.remote_path || '';
+  document.getElementById('dir-auth-method').value = d.auth_method || 'password';
+  document.getElementById('dir-remote-password').value = d.remote_password || '';
+  document.getElementById('dir-key-path').value = d.key_path || '';
+  await populateDirCategorySelect();
+  if (d.category_id) {
+    document.getElementById('dir-category').value = d.category_id;
+  }
+  document.getElementById('dir-modal').dataset.editId = id;
+  document.getElementById('dir-modal-title').textContent = '编辑目录';
+  document.getElementById('dir-submit-btn').textContent = '保存';
+  document.getElementById('dir-modal').classList.remove('hidden');
+  onDirTypeChange();
+  onAuthMethodChange();
+}
+
+async function submitDir() {
+  const id = document.getElementById('dir-modal').dataset.editId;
+  const name = document.getElementById('dir-name').value.trim();
+  const type = document.getElementById('dir-type').value;
+  const path = document.getElementById('dir-path').value.trim();
+  const remote_host = document.getElementById('dir-remote-host').value.trim();
+  const remote_user = document.getElementById('dir-remote-user').value.trim();
+  const remote_path = document.getElementById('dir-remote-path').value.trim();
+  const auth_method = document.getElementById('dir-auth-method').value;
+  const remote_password = document.getElementById('dir-remote-password').value;
+  const key_path = document.getElementById('dir-key-path').value.trim();
+  const category_id = document.getElementById('dir-category').value;
+  if (!name) { alert('名称必填'); return; }
+  const payload = {name, type, path, remote_host, remote_user, remote_path, auth_method, remote_password, key_path, category_id};
+  if (id) {
+    await fetch('/api/dir-shortcuts/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  } else {
+    await fetch('/api/dir-shortcuts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  }
+  closeDirModal();
+  loadDirs();
+}
+
+// ===== 目录分类管理 Modal =====
+function showDirCategoryModal() {
+  document.getElementById('dir-category-modal').classList.remove('hidden');
+  refreshDirCategoryList();
+}
+function closeDirCategoryModal() {
+  document.getElementById('dir-category-modal').classList.add('hidden');
+}
+async function refreshDirCategoryList() {
+  const list = await fetchJSON('/api/dir-categories') || [];
+  const container = document.getElementById('dir-category-list');
+  if (list.length === 0) {
+    container.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无分类</div>';
+    return;
+  }
+  container.innerHTML = list.map(c => `
+    <div class="cat-row" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)">
+      <span>${esc(c.icon || '')}</span>
+      <span style="flex:1">${esc(c.name)}</span>
+      ${c.is_default ? '<span style="color:var(--text-secondary);font-size:11px">默认</span>' :
+        `<button class="btn btn-small" onclick="deleteDirCategory('${esc(c.id)}')">删除</button>`}
+    </div>
+  `).join('');
+}
+async function addDirCategory() {
+  const name = document.getElementById('new-dir-category-name').value.trim();
+  const icon = document.getElementById('new-dir-category-icon').value.trim();
+  if (!name) { alert('分类名必填'); return; }
+  await fetch('/api/dir-categories', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, icon})});
+  document.getElementById('new-dir-category-name').value = '';
+  document.getElementById('new-dir-category-icon').value = '';
+  await refreshDirCategoryList();
+  loadDirs();
+}
+async function deleteDirCategory(id) {
+  if (!confirm('删除该分类？其下目录将归入默认分类')) return;
+  await fetch('/api/dir-categories/' + id, {method:'DELETE'});
+  await refreshDirCategoryList();
+  if (_dirActiveCategoryId === id) {
+    _dirActiveCategoryId = '';
+    localStorage.setItem('sf-dir-active-cat', '');
+  }
+  loadDirs();
+}
+
+// ===== 初始化：从 localStorage 恢复选中分类 =====
+function initCategoryState() {
+  _linkActiveCategoryId = localStorage.getItem('sf-link-active-cat') || '';
+  _dirActiveCategoryId = localStorage.getItem('sf-dir-active-cat') || '';
 }
 

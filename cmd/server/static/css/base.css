@@ -1065,3 +1065,44 @@ tr:last-child td { border-bottom: none; }
   user-select: none;
 }
 
+
+/* ===== 链接/目录分类 chips ===== */
+.category-bar {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.category-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 12px;
+  background: var(--hover);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  border: 1px solid transparent;
+}
+.category-chip:hover {
+  background: var(--border-color);
+  color: var(--text);
+}
+.category-chip.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.category-chip.cat-manage {
+  margin-left: auto;
+  opacity: 0.6;
+  padding: 3px 6px;
+}
+.category-chip.cat-manage:hover {
+  opacity: 1;
+}

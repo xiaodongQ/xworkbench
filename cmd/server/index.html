@@ -930,9 +930,28 @@
     <div class="form-group"><label>名称 <span class="field-hint">必填</span></label><input id="link-name" placeholder="如 GitHub"></div>
     <div class="form-group"><label>URL <span class="field-hint">必填，支持 https:// / file:/// / 绝对路径</span></label><input id="link-url" placeholder="https://... 或 /home/user/file.html"></div>
     <div class="form-group"><label>图标 URL <span class="field-hint">可选，留空用首字母占位</span></label><input id="link-icon" placeholder="https://.../favicon.ico"></div>
+    <div class="form-group"><label>分类</label>
+      <select id="link-category" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%"></select>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeLinkModal()">取消</button>
       <button class="btn btn-primary" onclick="submitLink()">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- 链接分类管理 Modal -->
+<div id="link-category-modal" class="modal-overlay hidden" >
+  <div class="modal">
+    <h2>管理链接分类</h2>
+    <div id="link-category-list" style="max-height:300px;overflow-y:auto;margin-bottom:12px"></div>
+    <div class="form-group" style="display:flex;gap:6px;align-items:center">
+      <input id="new-link-category-name" placeholder="新分类名" style="flex:1">
+      <input id="new-link-category-icon" placeholder="图标" style="width:60px">
+      <button class="btn btn-primary" onclick="addLinkCategory()">添加</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeLinkCategoryModal()">关闭</button>
     </div>
   </div>
 </div>
@@ -963,9 +982,28 @@
       <div class="form-group" id="dir-password-group"><label>密码</label><div style="position:relative;display:flex;align-items:center"><input id="dir-remote-password" type="password" placeholder="演示/内部用" style="flex:1;padding-right:32px"><button type="button" onclick="toggleDirPassword(this)" style="position:absolute;right:6px;background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:14px;padding:4px" title="显示/隐藏密码">👁</button></div></div>
       <div class="form-group hidden" id="dir-key-path-group"><label>密钥路径</label><input id="dir-key-path" placeholder="~/.ssh/id_rsa"></div>
     </div>
+    <div class="form-group"><label>分类</label>
+      <select id="dir-category" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%"></select>
+    </div>
         <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeDirModal()">取消</button>
       <button class="btn btn-primary" onclick="submitDir()" id="dir-submit-btn">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- 目录分类管理 Modal -->
+<div id="dir-category-modal" class="modal-overlay hidden" >
+  <div class="modal">
+    <h2>管理目录分类</h2>
+    <div id="dir-category-list" style="max-height:300px;overflow-y:auto;margin-bottom:12px"></div>
+    <div class="form-group" style="display:flex;gap:6px;align-items:center">
+      <input id="new-dir-category-name" placeholder="新分类名" style="flex:1">
+      <input id="new-dir-category-icon" placeholder="图标" style="width:60px">
+      <button class="btn btn-primary" onclick="addDirCategory()">添加</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeDirCategoryModal()">关闭</button>
     </div>
   </div>
 </div>
