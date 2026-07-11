@@ -58,8 +58,8 @@
     <div class="nav-item" data-tab="relay" onclick="switchTab('relay')" data-tooltip="代理&#10;命令执行 / HTTP 代理转发&#10;跨平台操作桥梁">
       <span class="nav-icon">🔀</span><span class="nav-text">代理</span>
     </div>
-    <div class="nav-item" data-tab="rterm" onclick="switchTab('rterm')" data-tooltip="远程终端&#10;Web 内嵌 SSH 交互式终端&#10;通过 dir shortcut 连接远程主机">
-      <span class="nav-icon">🖥️</span><span class="nav-text">远程终端</span>
+    <div class="nav-item" data-tab="rterm" onclick="switchTab('rterm')" data-tooltip="Web 终端&#10;Web 内嵌 SSH 交互式终端&#10;通过 dir shortcut 连接远程主机">
+      <span class="nav-icon">🖥️</span><span class="nav-text">Web 终端</span>
     </div>
     <div class="nav-item" data-tab="aichat" onclick="switchTab('aichat')" data-tooltip="AI 助手&#10;对话管理任务/目录/经验库&#10;终端式 Claude/CBC/shell 交互">
       <span class="nav-icon">🤖</span><span class="nav-text">AI 助手</span>
@@ -496,9 +496,9 @@
     <div id="aichat-root"></div>
   </div>
 
-  <!-- 远程终端 Tab -->
+  <!-- Web 终端 Tab -->
   <div id="page-rterm" class="hidden">
-    <h1 class="page-title">🖥️ 远程终端 <span style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px">Web 内嵌 SSH 交互式终端</span></h1>
+    <h1 class="page-title">🖥️ Web 终端 <span style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px">Web 内嵌 SSH 交互式终端</span></h1>
 
     <!-- 连接控制栏 -->
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
@@ -525,7 +525,7 @@
         <div class="terminal-dot red"></div>
         <div class="terminal-dot yellow"></div>
         <div class="terminal-dot green"></div>
-        <div class="terminal-title">xworkbench · 远程终端</div>
+        <div class="terminal-title">xworkbench · Web 终端</div>
         <div id="rpty-cols-display" style="margin-left:auto;font-size:11px;color:#94a3b8;font-family:monospace"></div>
       </div>
       <div id="rpty-container" tabindex="0" style="height:calc(100vh - 180px);min-height:350px;width:100%"></div>
