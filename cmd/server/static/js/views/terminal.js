@@ -21,12 +21,12 @@ function renderSessionList() {
     const locals = sessions.filter(s => s.type !== 'remote');
     const remotes = sessions.filter(s => s.type === 'remote');
 
-    localEl.innerHTML = `<div class="rterm-group-label" style="padding:6px 8px 2px;font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">本地终端</div>` +
+    localEl.innerHTML = `<div class="rterm-group-label" style="padding:6px 8px 2px;font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">本地终端</div>` +
       (locals.length === 0
         ? '<div style="font-size:10px;color:var(--text-secondary);padding:4px 8px">暂无</div>'
         : locals.map(s => sessionItemHTML(s)).join(''));
 
-    remoteEl.innerHTML = `<div class="rterm-group-label" style="padding:6px 8px 2px;font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">远程 SSH</div>` +
+    remoteEl.innerHTML = `<div class="rterm-group-label" style="padding:6px 8px 2px;font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">远程 SSH</div>` +
       (remotes.length === 0
         ? '<div style="font-size:10px;color:var(--text-secondary);padding:4px 8px">暂无</div>'
         : remotes.map(s => sessionItemHTML(s)).join(''));
