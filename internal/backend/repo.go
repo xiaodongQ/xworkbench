@@ -1631,8 +1631,10 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 
 // CountSince 按天统计 started_at >= since 的执行次数，返回 date -> count 的 map。
 func (r *ExecutionRepo) CountSince(since time.Time) (map[string]int, error) {
-	q := `SELECT DATE(started_at) as day, COUNT(*) FROM executions WHERE started_at >= ? GROUP BY day`
-	rows, err := r.db.Query(q, since.Format("2006-01-02 00:00:00"))
+	// started_at 存储格式包含 Go monotonic clock (m=+...)，SQLite DATE() 无法解析，
+	// 用 substr 截取前 10 位 YYYY-MM-DD 做分组和比较。
+	q := `SELECT substr(started_at, 1, 10) as day, COUNT(*) FROM executions WHERE substr(started_at, 1, 10) >= ? GROUP BY day`
+	rows, err := r.db.Query(q, since.Format("2006-01-02"))
 	if err != nil {
 		return nil, err
 	}
