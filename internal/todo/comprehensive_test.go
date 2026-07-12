@@ -793,6 +793,58 @@ func TestComprehensive_LineNoStabilityAcrossMultipleOps(t *testing.T) {
 	}
 }
 
+// TestComprehensive_MaxDepthLimit 验证最大嵌套层级为 3（顶级 + 子 + 孙 + 曾孙 = 4层 items，3层缩进）
+func TestComprehensive_MaxDepthLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "todo.md")
+	if err := os.WriteFile(path, []byte("# Todo\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 添加根项
+	l0, err := AddAndWrite(path, "Level 0", "", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Level 1: 子项 — 应该成功
+	if err := AddChildAndWrite(path, l0, "Level 1", "", false); err != nil {
+		t.Fatalf("Level 1 should succeed: %v", err)
+	}
+	// 找到 Level 1 的 line_no
+	items, _ := ReadAndParse(path)
+	tree := BuildTree(items)
+	if len(tree) != 1 || len(tree[0].Children) != 1 {
+		t.Fatalf("unexpected tree structure")
+	}
+	l1 := tree[0].Children[0].LineNo
+
+	// Level 2: 孙项 — 应该成功
+	if err := AddChildAndWrite(path, l1, "Level 2", "", false); err != nil {
+		t.Fatalf("Level 2 should succeed: %v", err)
+	}
+	items, _ = ReadAndParse(path)
+	tree = BuildTree(items)
+	l2 := tree[0].Children[0].Children[0].LineNo
+
+	// Level 3: 曾孙项 — 应该成功（最大深度）
+	if err := AddChildAndWrite(path, l2, "Level 3", "", false); err != nil {
+		t.Fatalf("Level 3 should succeed: %v", err)
+	}
+	items, _ = ReadAndParse(path)
+	tree = BuildTree(items)
+	l3 := tree[0].Children[0].Children[0].Children[0].LineNo
+
+	// Level 4: 应拒绝 — 超过最大嵌套层级
+	err = AddChildAndWrite(path, l3, "Level 4", "", false)
+	if err == nil {
+		t.Error("Level 4 should be rejected (max depth is 3)")
+	}
+	if err != nil && !strings.Contains(err.Error(), "已达到最大嵌套层级") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
 // string_to_path_helper 写 data 到 t.TempDir() 下的临时文件并返回 path，
 // 供 ReadAndParse 使用。文件由 t.TempDir() 在测试结束时自动清理。
 func string_to_path_helper(t *testing.T, data []byte) string {

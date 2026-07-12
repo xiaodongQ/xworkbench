@@ -915,22 +915,34 @@ function showTodoAddModal() {
   document.getElementById('todo-modal-due').value = '';
   document.getElementById('todo-modal-submit').textContent = '添加';
   document.getElementById('todo-modal-children').innerHTML = '';
+  document.getElementById('todo-modal-children-group').style.display = '';
   document.getElementById('todo-add-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('todo-modal-title-input').focus(), 50);
 }
 function openTodoEditModal(lineNo) {
   const item = findTodoItem(lineNo);
   if (!item) return;
+  // 计算深度（递归遍历树）
+  const depth = calcItemDepth(window._todoTreeData, lineNo, 0);
+  const isMaxDepth = depth >= 3;
+
   document.getElementById('todo-modal-title').textContent = '编辑任务';
   document.getElementById('todo-edit-line-no').value = lineNo;
   document.getElementById('todo-modal-title-input').value = item.text;
   document.getElementById('todo-modal-due').value = item.due_date || '';
   document.getElementById('todo-modal-submit').textContent = '保存';
   // 渲染现有子项
+  const childrenGroup = document.getElementById('todo-modal-children-group');
   const container = document.getElementById('todo-modal-children');
   container.innerHTML = '';
-  if (item.children) {
-    item.children.forEach(c => addTodoChildRow(c.text, c.line_no, c.done));
+  if (isMaxDepth) {
+    childrenGroup.style.display = 'none';
+    container.innerHTML = '<div style="font-size:11px;color:var(--text-secondary)">已达到最大嵌套层级（3层），无法添加子项</div>';
+  } else {
+    childrenGroup.style.display = '';
+    if (item.children) {
+      item.children.forEach(c => addTodoChildRow(c.text, c.line_no, c.done));
+    }
   }
   document.getElementById('todo-add-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('todo-modal-title-input').focus(), 50);
@@ -1087,6 +1099,18 @@ function findTodoItem(lineNo) {
         return null;
     };
     return search(window._todoTreeData);
+}
+
+// 递归计算项的深度（0 = 顶级）
+function calcItemDepth(items, targetLineNo, depth) {
+    for (const item of items) {
+        if (item.line_no === targetLineNo) return depth;
+        if (item.children) {
+            const d = calcItemDepth(item.children, targetLineNo, depth + 1);
+            if (d >= 0) return d;
+        }
+    }
+    return -1;
 }
 async function showTodoPathModal() {
   const [pathData, configData] = await Promise.all([

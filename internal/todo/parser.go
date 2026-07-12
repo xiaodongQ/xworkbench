@@ -384,6 +384,11 @@ func AddChildAndWrite(path string, parentLineNo int, text, dueDate string, done 
 	if len(parentMatch) >= 2 {
 		parentIndent = parentMatch[1]
 	}
+
+	// 最大嵌套层级为 3（缩进 6 空格），超过拒绝添加
+	if len(parentIndent) >= 6 {
+		return fmt.Errorf("已达到最大嵌套层级（3），无法继续添加子项")
+	}
 	childIndent := parentIndent + "  "
 
 	// 扫描后续行，找到插入位置：更深缩进 item/孙项、note 行跳过，
