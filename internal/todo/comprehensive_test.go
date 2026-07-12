@@ -322,7 +322,7 @@ func TestComprehensive_MultipleArchivesNoExtraSeparator(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "todo.md")
 	// 初始：已带分隔线（这是 xworkbench 标准模板）
-	initial := "- [ ] A\n- [ ] B\n\n---\n\n## 📦 Archived\n- [x] Z archived:2026-07-01\n"
+	initial := "- [ ] A\n- [ ] B\n\n--- archived (must exist for archived, do not delete) ---\n\n## 📦 Archived\n- [x] Z archived:2026-07-01\n"
 	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -332,18 +332,19 @@ func TestComprehensive_MultipleArchivesNoExtraSeparator(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(path)
-	if n := strings.Count(string(data), "---"); n != 1 {
-		t.Errorf("第一次归档后 '---' 数 = %d, want 1\n内容:\n%s", n, data)
-	}
+		separator := "--- archived (must exist for archived, do not delete) ---"
+		if n := strings.Count(string(data), separator); n != 1 {
+			t.Errorf("第一次归档后 separator 数 = %d, want 1\n内容:\n%s", n, data)
+		}
 
-	// 第二次归档 B（line 1）
-	if err := ArchiveItem(path, 1); err != nil {
-		t.Fatal(err)
-	}
-	data, _ = os.ReadFile(path)
-	if n := strings.Count(string(data), "---"); n != 1 {
-		t.Errorf("第二次归档后 '---' 数 = %d, want 1\n内容:\n%s", n, data)
-	}
+		// 第二次归档 B（line 1）
+		if err := ArchiveItem(path, 1); err != nil {
+			t.Fatal(err)
+		}
+		data, _ = os.ReadFile(path)
+		if n := strings.Count(string(data), separator); n != 1 {
+			t.Errorf("第二次归档后 separator 数 = %d, want 1\n内容:\n%s", n, data)
+		}
 
 	// 第三次归档（原文件里没顶级活跃项了，跳过 —— 校验前两个已归档的结构合理）
 	sections, err := ParseSections(string(data))
@@ -585,7 +586,7 @@ func TestComprehensive_AddToEmptyFile(t *testing.T) {
 func TestComprehensive_AddWithSeparator(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "todo.md")
-	if err := os.WriteFile(path, []byte("# Todo\n- [ ] Old task\n\n---\n\n## 📦 已归档\n- [x] Archived task\n"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("# Todo\n- [ ] Old task\n\n--- archived (must exist for archived, do not delete) ---\n\n## 📦 已归档\n- [x] Archived task\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 

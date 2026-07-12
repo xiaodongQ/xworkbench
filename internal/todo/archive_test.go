@@ -29,7 +29,7 @@ func TestParseSections(t *testing.T) {
 			content: `# Todo
 - [ ] 活跃任务
 
----
+--- archived (must exist for archived, do not delete) ---
 
 ## 📦 已归档
 - [x] 归档任务
@@ -42,7 +42,7 @@ func TestParseSections(t *testing.T) {
 			content: `- [ ] 任务A
 - [x] 任务B
 
----
+--- archived (must exist for archived, do not delete) ---
 
 ## 📦 已归档
 - [x] 归档A
@@ -223,7 +223,7 @@ func TestArchiveItem(t *testing.T) {
 		content := `# Todo
 - [ ] 任务A
 
----
+--- archived (must exist for archived, do not delete) ---
 
 ## 📦 已归档
 

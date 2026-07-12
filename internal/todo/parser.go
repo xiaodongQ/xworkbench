@@ -24,11 +24,16 @@ type Item struct {
 }
 
 var (
-	itemRe     = regexp.MustCompile(`^(\s*)-\s+\[( |x|X)\]\s+(.+)$`)
-	dueRe      = regexp.MustCompile(`\s+due:(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})\b`)
-	tagsRe     = regexp.MustCompile(`\s+tags:([\w,]+)`)
-	createdRe  = regexp.MustCompile(`\s+created:(\d{4}-\d{2}-\d{2})\b`)
-	archivedRe = regexp.MustCompile(`\s+archived:(\d{4}-\d{2}-\d{2})\b`)
+	itemRe           = regexp.MustCompile(`^(\s*)-\s+\[( |x|X)\]\s+(.+)$`)
+	dueRe            = regexp.MustCompile(`\s+due:(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})\b`)
+	tagsRe           = regexp.MustCompile(`\s+tags:([\w,]+)`)
+	createdRe        = regexp.MustCompile(`\s+created:(\d{4}-\d{2}-\d{2})\b`)
+	archivedRe       = regexp.MustCompile(`\s+archived:(\d{4}-\d{2}-\d{2})\b`)
+)
+
+const (
+	archiveSeparator = "--- archived (must exist for archived, do not delete) ---"
+	archiveHeader    = "## 📦 已归档"
 )
 
 // Parse 从 markdown 文本中解析 todo 项。
@@ -286,7 +291,7 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, e
 	lines := strings.Split(string(data), "\n")
 	separatorIdx := -1
 	for i, line := range lines {
-		if strings.TrimSpace(line) == "---" {
+		if strings.TrimSpace(line) == archiveSeparator {
 			separatorIdx = i
 			break
 		}
@@ -315,7 +320,7 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, e
 	}
 	result += newContent.String()
 	// 追加分隔线和归档区
-	result += "---\n"
+	result += archiveSeparator + "\n"
 	for i := separatorIdx + 1; i < len(lines); i++ {
 		result += lines[i] + "\n"
 	}
@@ -375,7 +380,7 @@ func AddChildAndWrite(path string, parentLineNo int, text, dueDate string, done 
 		trimmed := strings.TrimSpace(line)
 
 		// 遇到分隔线或归档区标题则停止（活跃区边界）
-		if trimmed == "---" || strings.HasPrefix(trimmed, "## 📦") {
+		if trimmed == archiveSeparator || strings.HasPrefix(trimmed, "## 📦") {
 			break
 		}
 
@@ -416,8 +421,8 @@ func AddChildAndWrite(path string, parentLineNo int, text, dueDate string, done 
 	for len(before) > 0 && strings.TrimSpace(before[len(before)-1]) == "" {
 		before = before[:len(before)-1]
 	}
-	// 如果 after 以 --- 开头，只保留 --- 前的一个空行
-	if len(after) > 0 && strings.TrimSpace(after[0]) == "---" {
+	// 如果 after 以 archiveSeparator 开头，只保留其前的一个空行
+	if len(after) > 0 && strings.TrimSpace(after[0]) == archiveSeparator {
 		// 移除 --- 前的所有空行，然后留一个空行
 		for len(after) > 0 && strings.TrimSpace(after[0]) == "" {
 			after = after[1:]
@@ -511,7 +516,7 @@ func ParseSections(content string) (*ParsedSections, error) {
 	// 定位分隔线位置
 	separatorIdx := -1
 	for i, line := range lines {
-		if strings.TrimSpace(line) == "---" {
+		if strings.TrimSpace(line) == archiveSeparator {
 			separatorIdx = i
 			break
 		}
@@ -637,7 +642,7 @@ func WriteSections(path string, active, archived []*Item) error {
 
 	// 写分隔线和归档区（仅当有归档项时）
 	if len(archived) > 0 {
-		sb.WriteString("---\n\n")
+		sb.WriteString(archiveSeparator + "\n\n" + archiveHeader + "\n\n")
 		for _, item := range archived {
 			for _, line := range itemLines(item) {
 				sb.WriteString(line + "\n")
@@ -696,7 +701,7 @@ func ArchiveItem(path string, lineNo int) error {
 			break
 		}
 		// 遇到分隔线或归档区标题则停止
-		if trimmed == "---" || strings.HasPrefix(trimmed, "## 📦") {
+		if trimmed == archiveSeparator || strings.HasPrefix(trimmed, "## 📦") {
 			break
 		}
 		if !itemRe.MatchString(line) {
@@ -758,21 +763,21 @@ func ArchiveItem(path string, lineNo int) error {
 	// 2. 在 keptLines 末尾补分隔线（如果原文件已有就只换行，避免重复加）
 	// 关键：必须看整个原文件，而不是只看 startIdx 之前——因为 keptLines 已经把
 	// endIdx 之后的归档区（含原分隔线）保留下来了，只看 startIdx 之前会把那个
-	// 已存在的 --- 漏算，导致每次归档都多出一个 ---。
+	// 已存在的分隔符漏算，导致每次归档都多出一个分隔线。
 	hasSeparator := false
 	for _, l := range lines {
-		if strings.TrimSpace(l) == "---" {
+		if strings.TrimSpace(l) == archiveSeparator {
 			hasSeparator = true
 			break
 		}
 	}
 	if !hasSeparator {
-		sb.WriteString("\n\n---\n\n")
+		sb.WriteString("\n\n" + archiveSeparator + "\n\n" + archiveHeader + "\n\n")
 	} else {
 		sb.WriteString("\n")
 	}
 
-	// 3. 写入归档项（无额外标题）
+	// 3. 追加归档项
 	for _, line := range movedLinesUpdated {
 		sb.WriteString(line + "\n")
 	}
@@ -796,7 +801,7 @@ func UnarchiveItem(path string, lineNo int) error {
 	// 找到分隔线位置
 	separatorIdx := -1
 	for i, line := range lines {
-		if strings.TrimSpace(line) == "---" {
+		if strings.TrimSpace(line) == archiveSeparator {
 			separatorIdx = i
 			break
 		}

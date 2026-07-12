@@ -15,7 +15,7 @@ func TestE2E_UserReportedScenario(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "todo.md")
 	// 仅归档区，活跃区为空（避免 "Old" 这种预设项干扰根计数断言）
-	initial := "\n---\n\n## 📦 Archived\n- [x] X archived:2026-07-01\n"
+	initial := "\n--- archived (must exist for archived, do not delete) ---\n\n## 📦 Archived\n- [x] X archived:2026-07-01\n"
 	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
 		t.Fatal(err)
 	}

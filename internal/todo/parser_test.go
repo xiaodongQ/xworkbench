@@ -293,7 +293,7 @@ func TestAddAndWrite_WithArchive(t *testing.T) {
 	content := `# Todo
 - [ ] 活跃任务
 
----
+--- archived (must exist for archived, do not delete) ---
 
 ## 📦 已归档
 - [x] 归档任务 archived:2026-07-01
@@ -567,7 +567,7 @@ func TestAddAndWrite_ConsecutiveReturnsCorrectLineNo(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "todo.md")
 	// xworkbench 标准模板：分隔线前恰好一个空行
-	initial := "- [ ] Old\n\n---\n\n## 📦 Archived\n- [x] X archived:2026-07-01\n"
+	initial := "- [ ] Old\n\n--- archived (must exist for archived, do not delete) ---\n\n## 📦 Archived\n- [x] X archived:2026-07-01\n"
 	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
 		t.Fatal(err)
 	}
