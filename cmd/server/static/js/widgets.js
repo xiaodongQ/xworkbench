@@ -834,6 +834,7 @@ function toggleTodoMenu(event, lineNo) {
   closeAllTodoMenus();
   positionTodoMenu(menu, trigger);
   menu.classList.remove('closed');
+  trigger.classList.add('open');
   _openTodoMenu = menu;
   installTodoMenuDocListeners();
 }
@@ -841,6 +842,8 @@ function toggleTodoMenu(event, lineNo) {
 function closeAllTodoMenus() {
   if (_openTodoMenu) {
     _openTodoMenu.classList.add('closed');
+    const trigger = _openTodoMenu.parentElement.querySelector('.todo-menu-trigger');
+    if (trigger) trigger.classList.remove('open');
     _openTodoMenu = null;
   }
 }

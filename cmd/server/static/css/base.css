@@ -1068,6 +1068,10 @@ tr:last-child td { border-bottom: none; }
 .todo-menu-trigger:hover {
   background: var(--hover);
 }
+.todo-menu-trigger.open {
+  opacity: 1;
+  background: var(--bg-tertiary);
+}
 .todo-item:hover .todo-menu-trigger {
   opacity: 1;
 }
