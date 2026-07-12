@@ -585,13 +585,13 @@ tr:last-child td { border-bottom: none; }
 .todo-item .todo-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .todo-item.done .todo-text { text-decoration: line-through; color: var(--text-secondary); }
 .todo-child-count {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-secondary);
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 0 5px;
-    line-height: 14px;
+    padding: 0 4px;
+    line-height: 12px;
     flex-shrink: 0;
     transition: color 0.15s;
 }
@@ -1019,12 +1019,12 @@ tr:last-child td { border-bottom: none; }
 
 /* Todo 增强样式 */
 .todo-due {
-  font-size: 11px;
+  font-size: 9px;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
-  padding: 1px 5px;
+  padding: 1px 4px;
   border-radius: 3px;
-  margin-left: 4px;
+  margin-left: 2px;
 }
 .todo-due.overdue {
   color: #e53e3e;
