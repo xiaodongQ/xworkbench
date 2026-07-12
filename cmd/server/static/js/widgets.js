@@ -159,7 +159,6 @@ async function loadDirs() {
   if (!list || list.length === 0) {
     const msg = _dirActiveCategoryId ? '该分类下暂无目录' : '';
     el.innerHTML = `<div class="dir-item" onclick="showDirModal()" style="font-style:italic;color:var(--text-secondary)">
-      <span class="dir-icon">📂</span>
       <span class="dir-text">
         <span class="dir-name">${msg || '+ 添加目录'}</span>
         <span class="dir-path">${msg ? '' : '点击添加'}</span>
@@ -171,7 +170,6 @@ async function loadDirs() {
     `<div class="dir-item${d.type === 'remote' ? ' dir-remote' : ''}" draggable="true" data-id="${d.id}" data-idx="${idx}"
         ondragstart="widgetDragStart(event, 'dir-shortcuts')" ondragover="widgetDragOver(event)" ondrop="widgetDrop(event, 'dir-shortcuts', loadDirs)" ondragleave="widgetDragLeave(event)">
       <span class="drag-handle" title="拖动排序"></span>
-      <span class="dir-icon" onclick="openDir('${d.id}')">${d.type === 'remote' ? '🌐' : '📁'}</span>
       <span class="dir-text" onclick="openDir('${d.id}')">
         <span class="dir-name">${esc(d.name)}</span>
         <span class="dir-path" title="${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}">${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}</span>
@@ -1785,7 +1783,6 @@ async function loadDirs() {
         html += `<div class="dir-item${d.type === 'remote' ? ' dir-remote' : ''}" draggable="true" data-id="${d.id}" data-cat-id="${esc(cat.id)}"
             ondragstart="dirCatDragStart(event, '${esc(cat.id)}')" ondragover="dirCatDragOver(event)" ondrop="dirCatDrop(event, '${esc(cat.id)}')" ondragleave="dirCatDragLeave(event)">
           <span class="drag-handle" title="拖动排序"></span>
-          <span class="dir-icon" onclick="openDir('${d.id}')">${d.type === 'remote' ? '🌐' : '📁'}</span>
           <span class="dir-text" onclick="openDir('${d.id}')">
             <span class="dir-name">${esc(d.name)}</span>
             <span class="dir-path" title="${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}">${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}</span>
@@ -1812,7 +1809,6 @@ async function loadDirs() {
 
   if (html === '') {
     html = `<div class="dir-item" onclick="showDirModal()" style="font-style:italic;color:var(--text-secondary)">
-      <span class="dir-icon">📂</span>
       <span class="dir-text">
         <span class="dir-name">+ 添加目录</span>
         <span class="dir-path">点击添加</span>
