@@ -558,3 +558,99 @@ func TestDeleteAndWriteChildOnly(t *testing.T) {
 		t.Errorf("'子任务1' should be deleted")
 	}
 }
+
+// TestAddAndWrite_ConsecutiveReturnsCorrectLineNo 验证连续两次 AddAndWrite
+// 返回的 line_no 始终等于新 item 在文件里的真实 1-based 行号（不依赖算式 / 边界巧合）。
+// 这个用例之前无法通过，因为 AddAndWrite 有分隔线分支返回 separatorIdx（0-based），
+// 当 separator 前的空行被前一次写入"吃掉"后，从第二次起就会持续 off-by-one。
+func TestAddAndWrite_ConsecutiveReturnsCorrectLineNo(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "todo.md")
+	// xworkbench 标准模板：分隔线前恰好一个空行
+	initial := "- [ ] Old\n\n---\n\n## 📦 Archived\n- [x] X archived:2026-07-01\n"
+	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 第一次：碰巧正确（off-by-one 在边界刚好被吞空行"对齐"）
+	ln1, err := AddAndWrite(path, "First", "", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ln1 != 2 {
+		t.Errorf("first add: line_no = %d, want 2", ln1)
+	}
+
+	// 第二次：separator 前已无空行可吃，新行应落在真实行号位置。
+	// 修复前 ln2 错为 separatorIdx (0-based)，修复后必须等于实际行号 3。
+	ln2, err := AddAndWrite(path, "Second", "", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ln2 != 3 {
+		t.Errorf("second add: line_no = %d, want 3 (off-by-one bug exposed here pre-fix)", ln2)
+	}
+
+	// 第三次再压一次，确认多次连续都正确
+	ln3, err := AddAndWrite(path, "Third", "", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ln3 != 4 {
+		t.Errorf("third add: line_no = %d, want 4 (off-by-one bug exposed here pre-fix)", ln3)
+	}
+
+	// 给"Second"加一个子项 —— 这是用户报告的精确路径：
+	//   前端拿 ln2 当 parentLineNo 调 AddChildAndWrite，子项必须挂在"Second"下。
+	if err := AddChildAndWrite(path, ln2, "sub-of-second", "", false); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := ReadAndParse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := BuildTree(items)
+
+	// 期望：3 个顶级项，Second 只有 1 个子项 sub-of-second
+	var secondNode *Item
+	for _, root := range tree {
+		if root.Text == "Second" {
+			secondNode = root
+			break
+		}
+	}
+	if secondNode == nil {
+		t.Fatalf("Second item not found in tree: %+v", tree)
+	}
+	if len(secondNode.Children) != 1 || secondNode.Children[0].Text != "sub-of-second" {
+		t.Errorf("Second should have exactly 1 child 'sub-of-second', got: %+v", secondNode.Children)
+	}
+}
+
+// TestAddAndWrite_NoSeparator 返回真实行号（避免末尾无换行时的 off-by-one）。
+func TestAddAndWrite_NoSeparator(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "todo.md")
+	if err := os.WriteFile(path, []byte("# h\n- [ ] a\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 单条追加
+	ln1, err := AddAndWrite(path, "new1", "", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ln1 != 3 {
+		t.Errorf("first add (no separator): line_no = %d, want 3", ln1)
+	}
+
+	// 连续追加，第二条应在第 4 行
+	ln2, err := AddAndWrite(path, "new2", "", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ln2 != 4 {
+		t.Errorf("second add (no separator): line_no = %d, want 4", ln2)
+	}
+}

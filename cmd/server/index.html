@@ -99,7 +99,10 @@
     <div class="widget" id="widget-links">
       <div class="widget-title">
         <span>🔗 快捷链接</span>
-        <button class="btn btn-small" onclick="showLinkModal()">+ 添加</button>
+        <span style="display:flex;gap:4px">
+          <button class="btn btn-small" onclick="showLinkSettingsModal()" title="设置">⚙️</button>
+          <button class="btn btn-small" onclick="showLinkModal()">+ 添加</button>
+        </span>
       </div>
       <div id="links-container" style="overflow-y:auto;flex:1;min-height:0">
         <div id="links-grid" class="link-list"></div>
@@ -929,7 +932,29 @@
     <h2>添加链接</h2>
     <div class="form-group"><label>名称 <span class="field-hint">必填</span></label><input id="link-name" placeholder="如 GitHub"></div>
     <div class="form-group"><label>URL <span class="field-hint">必填，支持 https:// / file:/// / 绝对路径</span></label><input id="link-url" placeholder="https://... 或 /home/user/file.html"></div>
-    <div class="form-group"><label>图标 URL <span class="field-hint">可选，留空用首字母占位</span></label><input id="link-icon" placeholder="https://.../favicon.ico"></div>
+    <div class="form-group"><label>图标</label>
+      <select id="link-icon" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
+        <option value="">（首字母）</option>
+        <option value="📄">📄 文档</option>
+        <option value="📰">📰 新闻</option>
+        <option value="📝">📝 笔记</option>
+        <option value="📚">📚 书籍</option>
+        <option value="🛠️">🛠️ 工具</option>
+        <option value="💻">💻 代码</option>
+        <option value="🌐">🌐 网站</option>
+        <option value="📱">📱 移动</option>
+        <option value="📧">📧 邮件</option>
+        <option value="🖥️">🖥️ 桌面</option>
+        <option value="🎮">🎮 游戏</option>
+        <option value="🎨">🎨 设计</option>
+        <option value="🎵">🎵 音乐</option>
+        <option value="🔧">🔧 维修</option>
+        <option value="🚀">🚀 启动</option>
+        <option value="🎯">🎯 目标</option>
+        <option value="💼">💼 工作</option>
+        <option value="📊">📊 图表</option>
+      </select>
+    </div>
     <div class="form-group"><label>分类</label>
       <select id="link-category" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%"></select>
     </div>
@@ -952,6 +977,42 @@
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeLinkCategoryModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 链接设置 Modal -->
+<div id="link-settings-modal" class="modal-overlay hidden" >
+  <div class="modal">
+    <h2 style="margin:0 0 12px 0;font-size:14px">🔗 快捷链接设置</h2>
+    <div style="margin-top:12px">
+      <div style="font-size:12px;font-weight:500;margin-bottom:6px">分类管理</div>
+      <div id="link-settings-category-list" style="max-height:160px;overflow-y:auto;margin-bottom:8px;border:1px solid var(--border);border-radius:4px;padding:6px;font-size:12px"></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input id="new-link-settings-category-name" placeholder="新分类名" style="flex:1;font-size:12px;padding:6px 8px">
+        <select id="new-link-settings-category-icon" style="width:50px;font-size:12px;padding:4px 4px">
+          <option value="">无</option>
+          <option value="📁">📁</option>
+          <option value="📂">📂</option>
+          <option value="🔗">🔗</option>
+          <option value="📎">📎</option>
+          <option value="🏷️">🏷️</option>
+          <option value="📌">📌</option>
+          <option value="💼">💼</option>
+          <option value="🗂️">🗂️</option>
+          <option value="🗃️">🗃️</option>
+          <option value="📥">📥</option>
+          <option value="🏠">🏠</option>
+          <option value="🖥️">🖥️</option>
+          <option value="🌐">🌐</option>
+          <option value="🚀">🚀</option>
+          <option value="🎯">🎯</option>
+        </select>
+        <button class="btn btn-primary" onclick="addLinkCategoryFromSettings()">添加</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeLinkSettingsModal()">关闭</button>
     </div>
   </div>
 </div>
@@ -1318,6 +1379,30 @@
     <div class="form-group">
       <label style="font-size:12px">自定义路径 <span class="field-hint">可覆盖检测结果，留空用检测值</span></label>
       <input id="dir-settings-terminal-path" placeholder="留空自动使用检测到的路径" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
+    </div>
+    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:12px;font-weight:500;margin-bottom:6px">分类管理</div>
+      <div id="dir-settings-category-list" style="max-height:120px;overflow-y:auto;margin-bottom:8px;border:1px solid var(--border);border-radius:4px;padding:6px;font-size:12px"></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input id="new-dir-settings-category-name" placeholder="新分类名" style="flex:1;font-size:12px;padding:6px 8px">
+        <select id="new-dir-settings-category-icon" style="width:50px;font-size:12px;padding:4px 4px">
+          <option value="">无</option>
+          <option value="📁">📁</option>
+          <option value="📂">📂</option>
+          <option value="🗂️">🗂️</option>
+          <option value="🗃️">🗃️</option>
+          <option value="📥">📥</option>
+          <option value="🏠">🏠</option>
+          <option value="🖥️">🖥️</option>
+          <option value="💻">💻</option>
+          <option value="🌐">🌐</option>
+          <option value="📡">📡</option>
+          <option value="🔗">🔗</option>
+          <option value="🚀">🚀</option>
+          <option value="🎯">🎯</option>
+        </select>
+        <button class="btn btn-primary" onclick="addDirCategoryFromSettings()">添加</button>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeDirSettingsModal()">取消</button>

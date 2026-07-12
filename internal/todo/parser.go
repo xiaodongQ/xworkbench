@@ -300,7 +300,7 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, e
 			result += "\n"
 		}
 		result += newContent.String()
-		return len(lines), atomicWrite(path, result)
+		return scannedLineNo(result, newItemLine), atomicWrite(path, result)
 	}
 
 	// 有分隔线，插入到分隔线之前
@@ -319,8 +319,22 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, e
 	for i := separatorIdx + 1; i < len(lines); i++ {
 		result += lines[i] + "\n"
 	}
-	// 新项插入在 separatorIdx 位置（分隔线之前），返回新项的行号
-	return separatorIdx, atomicWrite(path, result)
+	// 写完文件前扫描 result，按新 item 行精确返回 1-based 行号
+	// （活跃区末尾非固定行：TrimRight 会"吃掉"分隔线前的空行让位给新 item，
+	//  实际行号依赖 activeLines 末尾有几个空行，无法用算式覆盖）
+	return scannedLineNo(result, newItemLine), atomicWrite(path, result)
+}
+
+// scannedLineNo 在 result 中找到 newItemLine 第一次出现的位置，返回 1-based 行号。
+// 用字符串扫描替代"用算式硬算行号"——避免 AddAndWrite 内部 TrimRight/补换行带来的边界误差。
+// 找不到返回 0（调用方应自己处理这种情况，理论上不可能）。
+func scannedLineNo(result, newItemLine string) int {
+	for i, l := range strings.Split(strings.TrimRight(result, "\n"), "\n") {
+		if l == newItemLine {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 // AddChildAndWrite 在指定父行后追加一个子项。
@@ -415,7 +429,12 @@ func AddChildAndWrite(path string, parentLineNo int, text, dueDate string, done 
 
 	newLines := append(before, newLine)
 	newLines = append(newLines, after...)
-	return atomicWrite(path, strings.Join(newLines, "\n"))
+	joined := strings.Join(newLines, "\n")
+	// 保证文件以换行结尾（pre-existing bug：before 末尾 trim 空行会让 after 的尾空行丢失）
+	if !strings.HasSuffix(joined, "\n") {
+		joined += "\n"
+	}
+	return atomicWrite(path, joined)
 }
 
 // DeleteAndWrite 删除指定行号 item 及其所有子项（缩进更深）和关联 note 行。
@@ -736,16 +755,18 @@ func ArchiveItem(path string, lineNo int) error {
 		}
 	}
 
-	// 2. 如果原来没有分隔线，添加分隔线
-	separatorIdx := -1
-	for i := 0; i < startIdx; i++ {
-		if strings.TrimSpace(lines[i]) == "---" {
-			separatorIdx = i
+	// 2. 在 keptLines 末尾补分隔线（如果原文件已有就只换行，避免重复加）
+	// 关键：必须看整个原文件，而不是只看 startIdx 之前——因为 keptLines 已经把
+	// endIdx 之后的归档区（含原分隔线）保留下来了，只看 startIdx 之前会把那个
+	// 已存在的 --- 漏算，导致每次归档都多出一个 ---。
+	hasSeparator := false
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "---" {
+			hasSeparator = true
 			break
 		}
 	}
-
-	if separatorIdx == -1 {
+	if !hasSeparator {
 		sb.WriteString("\n\n---\n\n")
 	} else {
 		sb.WriteString("\n")

@@ -5,7 +5,8 @@ import (
 	"testing"
 )
 
-// TestDetermineAICmd_SessionParams verifies determineAICmd passes session/resume flags.
+// TestDetermineAICmd_SessionParams verifies determineAICmd passes resume flags correctly.
+// sessionID is PTY tab ID (not AI session), only resumeUUID triggers --resume.
 func TestDetermineAICmd_SessionParams(t *testing.T) {
 	validUUID := "550e8400-e29b-41d4-a716-446655440000"
 	validUUID2 := "660e8400-e29b-41d4-a716-446655440001"
@@ -17,14 +18,17 @@ func TestDetermineAICmd_SessionParams(t *testing.T) {
 		wantContain string
 	}{
 		{"claude no session", "claude", "", "", "claude"},
-		{"claude with session_id (valid UUID)", "claude", validUUID, "", "--resume " + validUUID},
+		// sessionID is tab ID, not AI session - should NOT add --resume
+		{"claude with session_id (tab ID, not AI session)", "claude", validUUID, "", "claude"},
 		{"claude with resume_uuid", "claude", "", validUUID, "--resume " + validUUID},
-		// both: sessionID and resumeUUID both use --resume
-		{"claude with both (both valid UUIDs)", "claude", validUUID, validUUID2, "--resume " + validUUID},
-		{"cbc with session_id (valid UUID)", "cbc", validUUID, "", "--resume " + validUUID},
+		// both: only resumeUUID is used (sessionID is ignored for --resume)
+		{"claude with both (only resumeUUID used)", "claude", validUUID, validUUID2, "--resume " + validUUID2},
+		// sessionID is tab ID - should NOT add --resume for cbc either
+		{"cbc with session_id (tab ID, not AI session)", "cbc", validUUID, "", "cbc"},
 		// codex falls through to default claude
 		{"codex no session", "codex", "", "", "claude"},
-		{"shell no session", "shell", "", "", "sh"},
+		// shell returns "" → caller uses exec.Command(shell, "-i") for interactive shell
+		{"shell no session", "shell", "", "", ""},
 	}
 
 	for _, tt := range tests {
@@ -38,7 +42,7 @@ func TestDetermineAICmd_SessionParams(t *testing.T) {
 }
 
 // TestEnrichCmd verifies enrichCmd adds --resume flags correctly.
-// sessionID (scheduler last_session_id) and resumeUUID both use --resume flag.
+// sessionID is PTY tab ID (not AI session), only resumeUUID triggers --resume.
 func TestEnrichCmd(t *testing.T) {
 	validUUID := "550e8400-e29b-41d4-a716-446655440000"
 	validUUID2 := "660e8400-e29b-41d4-a716-446655440001"
@@ -50,10 +54,9 @@ func TestEnrichCmd(t *testing.T) {
 		want       string
 	}{
 		{"empty both", "claude", "", "", "claude"},
-		{"session only", "claude", validUUID, "", "claude --resume " + validUUID},
+		{"session only (tab ID, not AI session)", "claude", validUUID, "", "claude"},
 		{"resume only", "claude", "", validUUID, "claude --resume " + validUUID},
-		// both: both get --resume (sessionID = last_session_id, resumeUUID = explicit resume)
-		{"both", "claude", validUUID, validUUID2, "claude --resume " + validUUID + " --resume " + validUUID2},
+		{"both (only resumeUUID used)", "claude", validUUID, validUUID2, "claude --resume " + validUUID2},
 	}
 
 	for _, tt := range tests {

@@ -116,7 +116,14 @@ async function editLink(id) {
   if (!l) return;
   document.getElementById('link-name').value = l.name || '';
   document.getElementById('link-url').value = l.url || '';
-  document.getElementById('link-icon').value = l.icon_url || '';
+  // icon_url 可能是 URL 或 emoji，回显到 select（select 只支持预定义 emoji）
+  const iconVal = l.icon_url || '';
+  const iconSelect = document.getElementById('link-icon');
+  if (iconSelect.querySelector(`option[value="${iconVal}"]`)) {
+    iconSelect.value = iconVal;
+  } else {
+    iconSelect.value = ''; // URL 或未知格式，显示为首字母
+  }
   await populateLinkCategorySelect();
   if (l.category_id) {
     document.getElementById('link-category').value = l.category_id;
@@ -239,6 +246,44 @@ function showDirSettingsModal() {
     document.getElementById('dir-settings-terminal-path').value = '';
   });
   document.getElementById('dir-settings-modal').classList.remove('hidden');
+  loadDirSettingsCategories();
+}
+
+async function loadDirSettingsCategories() {
+  const cats = await fetchJSON('/api/dir-categories') || [];
+  const list = document.getElementById('dir-settings-category-list');
+  if (!list) return;
+
+  if (cats.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无分类</div>';
+    return;
+  }
+
+  list.innerHTML = sortByOrder(cats).map(c => `
+    <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">
+      <span>${esc(c.icon || '')} ${esc(c.name)}</span>
+      <span style="flex:1"></span>
+      ${c.is_default ? '<span style="color:var(--text-secondary)">默认</span>' :
+        `<button class="btn btn-small" onclick="void deleteDirCategory('${esc(c.id)}').then(() => loadDirSettingsCategories())">删除</button>`}
+    </div>
+  `).join('');
+}
+
+async function addDirCategoryFromSettings() {
+  const name = document.getElementById('new-dir-settings-category-name').value.trim();
+  const icon = document.getElementById('new-dir-settings-category-icon').value.trim();
+  if (!name) { alert('分类名必填'); return; }
+  await fetch('/api/dir-categories', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, icon})
+  });
+  document.getElementById('new-dir-settings-category-name').value = '';
+  document.getElementById('new-dir-settings-category-icon').value = '';
+  // 同时刷新：① settings panel 列表 ② 首页 chips
+  await loadDirSettingsCategories();
+  await refreshDirCategoryList();
+  loadDirs();
 }
 function closeDirSettingsModal() { document.getElementById('dir-settings-modal').classList.add('hidden'); }
 let _dirDetectGen = 0;
@@ -531,7 +576,7 @@ function groupByMonth(items, dateField) {
     return result;
 }
 
-// 渲染单个活跃 todo item
+// 渲染单个活跃 todo item（操作合并到一个 ⋮ 按钮下的 dropdown）
 function renderTodoItem(i) {
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = i.due_date && !i.done && i.due_date < today;
@@ -539,7 +584,7 @@ function renderTodoItem(i) {
   const childCount = i._child_count || 0;
   const hasChildren = childCount > 0;
   const isExpanded = _todoExpandedSet.has(i.line_no);
-  // 顶级已完成项显示归档按钮
+  // 顶级已完成项显示归档菜单项
   const isTopLevelDone = i.done && (i._depth === 0);
 
   let extraHtml = '';
@@ -550,9 +595,23 @@ function renderTodoItem(i) {
   if (i.due_date) {
     extraHtml += `<span class="todo-due ${isOverdue ? 'overdue' : ''}" ${childClickAttr} title="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
   }
-  if (isTopLevelDone) {
-    extraHtml += `<span class="todo-archive" onclick="event.stopPropagation(); archiveTodoItem(${i.line_no})" title="归档">📦</span>`;
-  }
+
+  // 操作菜单：编辑 / 归档（条件）/ 删除
+  const menuItems = `
+    <button class="todo-menu-item" onclick="event.stopPropagation(); openTodoEditModal(${i.line_no}); closeAllTodoMenus();">
+      <span class="todo-menu-icon">✎</span><span>编辑</span>
+    </button>
+    ${isTopLevelDone ? `
+    <button class="todo-menu-item" onclick="event.stopPropagation(); archiveTodoItem(${i.line_no}); closeAllTodoMenus();">
+      <span class="todo-menu-icon">📦</span><span>归档</span>
+    </button>` : ''}
+    <button class="todo-menu-item danger" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no}); closeAllTodoMenus();">
+      <span class="todo-menu-icon">×</span><span>删除</span>
+    </button>`;
+  const menuHtml = `<span class="todo-menu-wrap">
+    <button class="todo-menu-trigger" type="button" onclick="event.stopPropagation(); toggleTodoMenu(event, ${i.line_no})" title="更多操作" aria-label="更多操作">⋮</button>
+    <div class="todo-menu closed" data-line-no="${i.line_no}">${menuItems}</div>
+  </span>`;
 
   const indent = i._depth * 20;
   const onclickAttr = hasChildren ? `onclick="event.stopPropagation(); toggleTodoItem(${i.line_no})"` : '';
@@ -561,14 +620,13 @@ function renderTodoItem(i) {
   <input type="checkbox" ${i.done?'checked':''} onchange="event.stopPropagation(); toggleTodo(${i.line_no}, this.checked)">
   <span class="todo-text" ${hasChildren ? `onclick="event.stopPropagation(); toggleTodoItem(${i.line_no})"` : ''}>${esc(i.text)}</span>
   ${extraHtml}
-  <span class="todo-edit" onclick="event.stopPropagation(); openTodoEditModal(${i.line_no})" title="编辑">✎</span>
-  <span class="todo-del" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no})" title="删除">×</span>
+  ${menuHtml}
 </div>`;
   return html;
 }
 
 // 渲染单个归档 item（简化版，无展开/收起，无编辑）
-// 仅顶级项显示删除按钮
+// 仅顶级项显示 ⋮ 操作按钮（仅删除）
 function renderArchivedItem(i) {
   const dueLabel = i.due_date ? i.due_date.slice(5) : '';
   const indent = (i._depth || 0) * 20;
@@ -577,15 +635,22 @@ function renderArchivedItem(i) {
     extraHtml += `<span class="todo-due" title="${esc(i.due_date)}">📅 ${dueLabel}</span>`;
   }
   const isTopLevel = !i._parent_line_no;
-  const actionsHtml = isTopLevel
-    ? `<span class="todo-del" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no})" title="删除">×</span>`
+  const menuHtml = isTopLevel
+    ? `<span class="todo-menu-wrap">
+         <button class="todo-menu-trigger" type="button" onclick="event.stopPropagation(); toggleTodoMenu(event, ${i.line_no})" title="更多操作" aria-label="更多操作">⋮</button>
+         <div class="todo-menu closed" data-line-no="${i.line_no}">
+           <button class="todo-menu-item danger" onclick="event.stopPropagation(); deleteTodoItem(${i.line_no}); closeAllTodoMenus();">
+             <span class="todo-menu-icon">×</span><span>删除</span>
+           </button>
+         </div>
+       </span>`
     : '';
   let html = `<div class="todo-item done" style="padding-left:${indent}px" data-line-no="${i.line_no}" data-parent-line-no="${i._parent_line_no != null ? i._parent_line_no : ''}">
   <span class="todo-indent"></span>
   <input type="checkbox" checked disabled>
   <span class="todo-text">${esc(i.text)}</span>
   ${extraHtml}
-  ${actionsHtml}
+  ${menuHtml}
 </div>`;
   return html;
 }
@@ -750,6 +815,85 @@ async function archiveTodoItem(lineNo) {
   if (!r.ok) { const b = await r.json().catch(() => ({})); alert('归档失败：' + (b.error || r.statusText)); return; }
   loadTodo();
 }
+
+// 单 ⋮ 按钮下的 dropdown 菜单：每次只展开一个，外部点击 / Esc / 滚动都关。
+let _openTodoMenu = null;        // 当前打开的 .todo-menu 节点
+let _todoMenuDocListenersOn = false;
+
+function toggleTodoMenu(event, lineNo) {
+  event.stopPropagation();
+  const trigger = event.currentTarget;
+  const menu = trigger.parentElement.querySelector('.todo-menu');
+  if (!menu) return;
+
+  // 点击同一个 trigger → 关闭
+  if (_openTodoMenu === menu && !menu.classList.contains('closed')) {
+    closeAllTodoMenus();
+    return;
+  }
+  closeAllTodoMenus();
+  positionTodoMenu(menu, trigger);
+  menu.classList.remove('closed');
+  _openTodoMenu = menu;
+  installTodoMenuDocListeners();
+}
+
+function closeAllTodoMenus() {
+  if (_openTodoMenu) {
+    _openTodoMenu.classList.add('closed');
+    _openTodoMenu = null;
+  }
+}
+
+// 用 fixed 定位以避开 todo-container (overflow-y:auto) 的裁剪。
+function positionTodoMenu(menu, trigger) {
+  // 先临时可见以测量尺寸（.closed = display:none 时 getBoundingClientRect 不可信）
+  const hadClosed = menu.classList.contains('closed');
+  if (hadClosed) menu.classList.remove('closed');
+  menu.style.visibility = 'hidden';
+  const mRect = menu.getBoundingClientRect();
+  const tRect = trigger.getBoundingClientRect();
+  let top = tRect.bottom + 4;
+  let left = tRect.right - mRect.width;
+  // 溢出底部则向上展开
+  if (top + mRect.height > window.innerHeight - 8) {
+    top = tRect.top - mRect.height - 4;
+  }
+  if (left < 8) left = 8;
+  if (left + mRect.width > window.innerWidth - 8) {
+    left = window.innerWidth - mRect.width - 8;
+  }
+  menu.style.position = 'fixed';
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+  menu.style.visibility = '';
+  if (hadClosed) menu.classList.add('closed');
+}
+
+function installTodoMenuDocListeners() {
+  if (_todoMenuDocListenersOn) return;
+  _todoMenuDocListenersOn = true;
+  document.addEventListener('click', (e) => {
+    if (!_openTodoMenu) return;
+    if (e.target.closest('.todo-menu')) return;
+    if (e.target.closest('.todo-menu-trigger')) return;
+    closeAllTodoMenus();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && _openTodoMenu) closeAllTodoMenus();
+  });
+  const container = document.getElementById('todo-container');
+  if (container) container.addEventListener('scroll', () => {
+    if (_openTodoMenu) closeAllTodoMenus();
+  });
+}
+
+// loadTodo 重新渲染时关闭任何 open menu（DOM 被替换，引用会失效）
+const _origLoadTodo = loadTodo;
+loadTodo = async function () {
+  closeAllTodoMenus();
+  return _origLoadTodo.apply(this, arguments);
+};
 
 
 async function deleteTodoItem(lineNo) {
@@ -1030,84 +1174,230 @@ if (typeof window !== "undefined") {
 let _linkActiveCategoryId = '';
 let _dirActiveCategoryId = '';
 
-// ===== 链接分类 =====
+// 链接分类展开状态
+const _linkExpandedCats = JSON.parse(localStorage.getItem('sf-link-expanded') || '{}');
 
-async function loadLinkCategories() {
-  try {
-    const [cats, links] = await Promise.all([
-      fetchJSON('/api/link-categories'),
-      fetchJSON('/api/web-links'),
-    ]);
-    const allCats = cats || [];
-    const allLinks = links || [];
+function toggleLinkCategory(catId) {
+  _linkExpandedCats[catId] = _linkExpandedCats[catId] === false ? true : false;
+  localStorage.setItem('sf-link-expanded', JSON.stringify(_linkExpandedCats));
+  loadLinks();
+}
 
-    // 统计每个分类的链接数量
-    const countByCat = {};
-    for (const l of allLinks) {
-      countByCat[l.category_id || ''] = (countByCat[l.category_id || ''] || 0) + 1;
-    }
+function isLinkCategoryExpanded(catId) {
+  return _linkExpandedCats[catId] !== false;
+}
 
-    // 过滤：count=0 的非默认分类不显示（默认分类始终保留）
-    const visibleCats = allCats.filter(c => c.is_default || (countByCat[c.id] || 0) > 0);
+// ===== 链接分组展示 =====
 
-    const bar = document.getElementById('link-categories-bar');
-    if (!bar) return visibleCats;
-    // 保存当前选择
-    const activeId = _linkActiveCategoryId;
-    // 第一个 chip = "全部"
-    let html = `<span class="category-chip ${activeId === '' ? 'active' : ''}" data-cat-id="" onclick="selectLinkCategory('')" oncontextmenu="onCategoryContextMenu(event, 'link', '')">全部</span>`;
-    for (const c of visibleCats) {
-      const icon = c.icon || '';
-      html += `<span class="category-chip ${activeId === c.id ? 'active' : ''}" data-cat-id="${esc(c.id)}" onclick="selectLinkCategory('${esc(c.id)}')" oncontextmenu="onCategoryContextMenu(event, 'link', '${esc(c.id)}')">${esc(icon + (icon ? ' ' : '') + c.name)}</span>`;
-    }
-    // 管理按钮（如果有多个可见分类才显示）
-    if (visibleCats.length > 1) {
-      html += `<span class="category-chip cat-manage" onclick="showLinkCategoryModal()" title="管理分类">⚙</span>`;
-    }
-    bar.innerHTML = html;
-    return visibleCats;
-  } catch (e) {
-    console.error('loadLinkCategories:', e);
-    return [];
+async function loadLinks() {
+  const [cats, links] = await Promise.all([
+    fetchJSON('/api/link-categories'),
+    fetchJSON('/api/web-links'),
+  ]);
+
+  const allCats = sortByOrder(cats || []);
+  const allLinks = links || [];
+
+  // 按 category_id 分组
+  const byCat = {};
+  for (const l of allLinks) {
+    const catId = l.category_id || '';
+    if (!byCat[catId]) byCat[catId] = [];
+    byCat[catId].push(l);
   }
+
+  const grid = document.getElementById('links-grid');
+  if (!grid) return;
+
+  let html = '';
+  for (const cat of allCats) {
+    const items = byCat[cat.id] || [];
+    const isExpanded = isLinkCategoryExpanded(cat.id);
+    const arrow = isExpanded ? '▼' : '▶';
+
+    html += `<div class="link-category-group">`;
+    html += `<div class="link-category-header" onclick="toggleLinkCategory('${esc(cat.id)}')">`;
+    html += `<span style="color:var(--text-secondary)">${arrow}</span>`;
+    html += `<span>${esc(cat.icon || '')} ${esc(cat.name)}</span>`;
+    html += `<span style="color:var(--text-secondary);margin-left:auto">${items.length}</span>`;
+    html += `</div>`;
+    html += `<div class="link-category-items${isExpanded ? '' : ' hidden'}" data-cat-id="${esc(cat.id)}">`;
+    if (items.length === 0) {
+      html += `<div style="padding:8px 16px;color:var(--text-secondary);font-size:12px">暂无链接</div>`;
+    } else {
+	      for (const l of sortByOrder(items)) {
+	        const initial = (l.name || '?')[0].toUpperCase();
+	        const iconUrl = l.icon_url || '';
+	        let icon;
+	        if (iconUrl && !iconUrl.startsWith('http') && !iconUrl.startsWith('file://') && !iconUrl.startsWith('/')) {
+	          icon = `<span style="font-size:14px">${esc(iconUrl)}</span>`;
+	        } else if (iconUrl) {
+	          icon = `<img src="${esc(iconUrl)}" onerror="this.outerHTML='${initial}'">`;
+	        } else {
+	          icon = initial;
+	        }
+        html += `<div class="link-row" draggable="true" data-id="${l.id}" data-cat-id="${esc(cat.id)}"
+            ondragstart="linkCatDragStart(event, '${esc(cat.id)}')" ondragover="linkCatDragOver(event)" ondrop="linkCatDrop(event, '${esc(cat.id)}')" ondragleave="linkCatDragLeave(event)">
+          <span class="drag-handle" title="拖动排序">⋮⋮</span>
+          <div class="link-icon" onclick="openLink('${esc(l.url)}')">${icon}</div>
+          <div class="link-text" onclick="openLink('${esc(l.url)}')" title="${esc(l.url)}">
+            <div class="link-name">${esc(l.name)}</div>
+            <div class="link-url">${esc(l.url)}</div>
+          </div>
+          <div class="link-edit" onclick="event.stopPropagation();editLink('${l.id}')" title="编辑">✎</div>
+          <div class="link-del" onclick="event.stopPropagation();deleteLink('${l.id}')" title="删除">×</div>
+        </div>`;
+      }
+    }
+    html += `</div></div>`;
+  }
+
+  if (html === '') {
+    html = `<div style="color:var(--text-secondary);font-size:12px;text-align:center;padding:20px 0">点击 + 添加你的第一个链接</div>`;
+  }
+
+  grid.innerHTML = html;
+}
+
+// ===== 链接同分类拖动 =====
+
+let _linkDragSrcId = null;
+let _linkDragCatId = null;
+
+function linkCatDragStart(e, catId) {
+  _linkDragSrcId = e.currentTarget.dataset.id;
+  _linkDragCatId = catId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.style.opacity = '0.4';
+}
+
+function linkCatDragOver(e) {
+  if (!_linkDragSrcId) return;
+  const tgtCatId = e.currentTarget.closest('.link-category-items')?.dataset.catId;
+  if (tgtCatId !== _linkDragCatId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.style.borderTop = '2px solid var(--primary)';
+}
+
+function linkCatDragLeave(e) {
+  e.currentTarget.style.borderTop = '';
+}
+
+async function linkCatDrop(e, catId) {
+  e.preventDefault();
+  e.currentTarget.style.borderTop = '';
+
+  // 只允许同分类内拖动
+  if (catId !== _linkDragCatId) {
+    _linkDragSrcId = null;
+    _linkDragCatId = null;
+    return;
+  }
+
+  const tgtId = e.currentTarget.dataset.id;
+  document.querySelectorAll('.link-row[draggable="true"]').forEach(el => el.style.opacity = '');
+
+  if (!_linkDragSrcId || _linkDragSrcId === tgtId) {
+    _linkDragSrcId = null;
+    _linkDragCatId = null;
+    return;
+  }
+
+  const container = e.currentTarget.closest('.link-category-items');
+  const rows = Array.from(container.querySelectorAll('.link-row[data-id]'));
+  const idsInNewOrder = rows.map(el => el.dataset.id);
+
+  const srcIdx = idsInNewOrder.indexOf(_linkDragSrcId);
+  const tgtIdx = idsInNewOrder.indexOf(tgtId);
+
+  if (srcIdx < 0 || tgtIdx < 0) {
+    _linkDragSrcId = null;
+    _linkDragCatId = null;
+    return;
+  }
+
+  idsInNewOrder.splice(srcIdx, 1);
+  idsInNewOrder.splice(tgtIdx, 0, _linkDragSrcId);
+
+  // 获取所有链接的 category_id，避免排序时丢失
+  const allLinks = await fetchJSON('/api/web-links');
+  const catById = {};
+  for (const l of allLinks) { catById[l.id] = l.category_id || ''; }
+
+  // 并行 PUT 全部 sort_order 和 category_id
+  const promises = idsInNewOrder.map((id, idx) =>
+    fetch(`/api/web-links/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sort_order: idx + 1, category_id: catById[id] || ''}),
+    })
+  );
+  await Promise.all(promises);
+
+  _linkDragSrcId = null;
+  _linkDragCatId = null;
+  loadLinks();
+}
+
+// ===== 链接设置 Modal =====
+
+function showLinkSettingsModal() {
+  document.getElementById('link-settings-modal').classList.remove('hidden');
+  loadLinkSettingsCategories();
+}
+
+function closeLinkSettingsModal() {
+  document.getElementById('link-settings-modal').classList.add('hidden');
+}
+
+async function loadLinkSettingsCategories() {
+  const cats = await fetchJSON('/api/link-categories') || [];
+  const list = document.getElementById('link-settings-category-list');
+  if (!list) return;
+
+  if (cats.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无分类</div>';
+    return;
+  }
+
+  list.innerHTML = sortByOrder(cats).map(c => `
+    <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">
+      <span>${esc(c.icon || '')} ${esc(c.name)}</span>
+      <span style="flex:1"></span>
+      ${c.is_default ? '<span style="color:var(--text-secondary)">默认</span>' :
+        `<button class="btn btn-small" onclick="void deleteLinkCategory('${esc(c.id)}').then(() => loadLinkSettingsCategories())">删除</button>`}
+    </div>
+  `).join('');
+}
+
+async function addLinkCategoryFromSettings() {
+  const name = document.getElementById('new-link-settings-category-name').value.trim();
+  const icon = document.getElementById('new-link-settings-category-icon').value.trim();
+  if (!name) { alert('分类名必填'); return; }
+  await fetch('/api/link-categories', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, icon})
+  });
+  document.getElementById('new-link-settings-category-name').value = '';
+  document.getElementById('new-link-settings-category-icon').value = '';
+  // 同时刷新：① settings panel 列表 ② 首页 chips（之前漏了 → 添加/删除后首页不立即显示新分类）
+  await loadLinkSettingsCategories();
+  await refreshLinkCategoryList();
+  loadLinks();
+}
+
+// 保留旧函数兼容：loadLinkCategories 返回分类列表（不再渲染 chips）
+async function loadLinkCategories() {
+  const cats = await fetchJSON('/api/link-categories') || [];
+  return sortByOrder(cats);
 }
 
 function selectLinkCategory(catId) {
   _linkActiveCategoryId = catId;
   localStorage.setItem('sf-link-active-cat', catId);
   loadLinks();
-}
-
-async function loadLinks() {
-  const cats = await loadLinkCategories();
-  let list = sortByOrder(await fetchJSON('/api/web-links'));
-  // 按选中分类过滤
-  if (_linkActiveCategoryId) {
-    list = list.filter(l => l.category_id === _linkActiveCategoryId);
-  }
-  const grid = document.getElementById('links-grid');
-  if (!list || list.length === 0) {
-    const msg = _linkActiveCategoryId ? '该分类下暂无链接' : '点击 + 添加你的第一个链接';
-    grid.innerHTML = `<div style="color:var(--text-secondary);font-size:12px;text-align:center;padding:20px 0">${esc(msg)}</div>`;
-    return;
-  }
-  grid.innerHTML = list.map((l, idx) => {
-    const initial = (l.name || '?')[0].toUpperCase();
-    const icon = l.icon_url
-      ? `<img src="${esc(l.icon_url)}" onerror="this.outerHTML='${initial}'">`
-      : initial;
-    return `<div class="link-row" draggable="true" data-id="${l.id}" data-idx="${idx}"
-        ondragstart="widgetDragStart(event, 'web-links')" ondragover="widgetDragOver(event)" ondrop="widgetDrop(event, 'web-links', loadLinks)" ondragleave="widgetDragLeave(event)">
-      <span class="drag-handle" title="拖动排序">⋮⋮</span>
-      <div class="link-icon" onclick="openLink('${esc(l.url)}')">${icon}</div>
-      <div class="link-text" onclick="openLink('${esc(l.url)}')" title="${esc(l.url)}">
-        <div class="link-name">${esc(l.name)}</div>
-        <div class="link-url">${esc(l.url)}</div>
-      </div>
-      <div class="link-edit" onclick="event.stopPropagation();editLink('${l.id}')" title="编辑">✎</div>
-      <div class="link-del" onclick="event.stopPropagation();deleteLink('${l.id}')" title="删除">×</div>
-    </div>`;
-  }).join('');
 }
 
 // 修改现有函数：填充分类下拉框
@@ -1157,7 +1447,14 @@ async function editLink(id) {
   if (!l) return;
   document.getElementById('link-name').value = l.name || '';
   document.getElementById('link-url').value = l.url || '';
-  document.getElementById('link-icon').value = l.icon_url || '';
+  // icon_url 可能是 URL 或 emoji，回显到 select（select 只支持预定义 emoji）
+  const iconVal = l.icon_url || '';
+  const iconSelect = document.getElementById('link-icon');
+  if (iconSelect.querySelector(`option[value="${iconVal}"]`)) {
+    iconSelect.value = iconVal;
+  } else {
+    iconSelect.value = ''; // URL 或未知格式，显示为首字母
+  }
   await populateLinkCategorySelect();
   if (l.category_id) {
     document.getElementById('link-category').value = l.category_id;
@@ -1220,82 +1517,192 @@ async function deleteLinkCategory(id) {
   loadLinks();
 }
 
-// ===== 目录分类 =====
+// ===== 目录分类展开状态 =====
 
-async function loadDirCategories() {
-  try {
-    const [cats, dirs] = await Promise.all([
-      fetchJSON('/api/dir-categories'),
-      fetchJSON('/api/dir-shortcuts'),
-    ]);
-    const allCats = cats || [];
-    const allDirs = dirs || [];
+const _dirExpandedCats = JSON.parse(localStorage.getItem('sf-dir-expanded') || '{}');
 
-    // 统计每个分类的目录数量
-    const countByCat = {};
-    for (const d of allDirs) {
-      countByCat[d.category_id || ''] = (countByCat[d.category_id || ''] || 0) + 1;
-    }
+function toggleDirCategory(catId) {
+  _dirExpandedCats[catId] = _dirExpandedCats[catId] === false ? true : false;
+  localStorage.setItem('sf-dir-expanded', JSON.stringify(_dirExpandedCats));
+  loadDirs();
+}
 
-    // 过滤：count=0 的非默认分类不显示（默认分类始终保留）
-    const visibleCats = allCats.filter(c => c.is_default || (countByCat[c.id] || 0) > 0);
+function isDirCategoryExpanded(catId) {
+  return _dirExpandedCats[catId] !== false;
+}
 
-    const bar = document.getElementById('dir-categories-bar');
-    if (!bar) return visibleCats;
-    const activeId = _dirActiveCategoryId;
-    let html = `<span class="category-chip ${activeId === '' ? 'active' : ''}" data-cat-id="" onclick="selectDirCategory('')" oncontextmenu="onCategoryContextMenu(event, 'dir', '')">全部</span>`;
-    for (const c of visibleCats) {
-      const icon = c.icon || '';
-      html += `<span class="category-chip ${activeId === c.id ? 'active' : ''}" data-cat-id="${esc(c.id)}" onclick="selectDirCategory('${esc(c.id)}')" oncontextmenu="onCategoryContextMenu(event, 'dir', '${esc(c.id)}')">${esc(icon + (icon ? ' ' : '') + c.name)}</span>`;
-    }
-    if (visibleCats.length > 1) {
-      html += `<span class="category-chip cat-manage" onclick="showDirCategoryModal()" title="管理分类">⚙</span>`;
-    }
-    bar.innerHTML = html;
-    return visibleCats;
-  } catch (e) {
-    console.error('loadDirCategories:', e);
-    return [];
+// ===== 目录分组展示 =====
+
+async function loadDirs() {
+  const [cats, dirs] = await Promise.all([
+    fetchJSON('/api/dir-categories'),
+    fetchJSON('/api/dir-shortcuts'),
+  ]);
+
+  const allCats = sortByOrder(cats || []);
+  const allDirs = dirs || [];
+
+  // 按 category_id 分组
+  const byCat = {};
+  for (const d of allDirs) {
+    const catId = d.category_id || '';
+    if (!byCat[catId]) byCat[catId] = [];
+    byCat[catId].push(d);
   }
+
+  const el = document.getElementById('dir-list');
+  if (!el) return;
+
+  let html = '';
+  for (const cat of allCats) {
+    const items = byCat[cat.id] || [];
+    const isExpanded = isDirCategoryExpanded(cat.id);
+    const arrow = isExpanded ? '▼' : '▶';
+
+    html += `<div class="dir-category-group">`;
+    html += `<div class="dir-category-header" onclick="toggleDirCategory('${esc(cat.id)}')">`;
+    html += `<span style="color:var(--text-secondary)">${arrow}</span>`;
+    html += `<span>${esc(cat.icon || '')} ${esc(cat.name)}</span>`;
+    html += `<span style="color:var(--text-secondary);margin-left:auto">${items.length}</span>`;
+    html += `</div>`;
+    html += `<div class="dir-category-items${isExpanded ? '' : ' hidden'}" data-cat-id="${esc(cat.id)}">`;
+    if (items.length === 0) {
+      html += `<div style="padding:8px 16px;color:var(--text-secondary);font-size:12px">暂无目录</div>`;
+    } else {
+      for (const d of sortByOrder(items)) {
+        html += `<div class="dir-item${d.type === 'remote' ? ' dir-remote' : ''}" draggable="true" data-id="${d.id}" data-cat-id="${esc(cat.id)}"
+            ondragstart="dirCatDragStart(event, '${esc(cat.id)}')" ondragover="dirCatDragOver(event)" ondrop="dirCatDrop(event, '${esc(cat.id)}')" ondragleave="dirCatDragLeave(event)">
+          <span class="drag-handle" title="拖动排序"></span>
+          <span class="dir-icon" onclick="openDir('${d.id}')">${d.type === 'remote' ? '🌐' : '📁'}</span>
+          <span class="dir-term" onclick="event.stopPropagation();openDirTerminal('${d.id}')" title="打开外部终端">⬢</span>
+          <span class="dir-text" onclick="openDir('${d.id}')">
+            <span class="dir-name">${esc(d.name)}</span>
+            <span class="dir-path" title="${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}">${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}</span>
+          </span>
+          <span class="dir-edit" onclick="event.stopPropagation();editDir('${d.id}')" title="编辑">✎</span>
+          <span class="dir-del" onclick="event.stopPropagation();deleteDir('${d.id}')" title="删除">×</span>
+        </div>`;
+      }
+    }
+    html += `</div></div>`;
+  }
+
+  if (html === '') {
+    html = `<div class="dir-item" onclick="showDirModal()" style="font-style:italic;color:var(--text-secondary)">
+      <span class="dir-icon">📂</span>
+      <span class="dir-text">
+        <span class="dir-name">+ 添加目录</span>
+        <span class="dir-path">点击添加</span>
+      </span>
+    </div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+// ===== 目录同分类拖动 =====
+
+let _dirDragSrcId = null;
+let _dirDragCatId = null;
+
+function dirCatDragStart(e, catId) {
+  _dirDragSrcId = e.currentTarget.dataset.id;
+  _dirDragCatId = catId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.style.opacity = '0.4';
+}
+
+function dirCatDragOver(e) {
+  if (!_dirDragSrcId) return;
+  const tgtCatId = e.currentTarget.closest('.dir-category-items')?.dataset.catId;
+  if (tgtCatId !== _dirDragCatId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.style.borderTop = '2px solid var(--primary)';
+}
+
+function dirCatDragLeave(e) {
+  e.currentTarget.style.borderTop = '';
+}
+
+async function dirCatDrop(e, catId) {
+  e.preventDefault();
+  e.currentTarget.style.borderTop = '';
+
+  if (catId !== _dirDragCatId) {
+    _dirDragSrcId = null;
+    _dirDragCatId = null;
+    return;
+  }
+
+  const tgtId = e.currentTarget.dataset.id;
+  document.querySelectorAll('.dir-item[draggable="true"]').forEach(el => el.style.opacity = '');
+
+  if (!_dirDragSrcId || _dirDragSrcId === tgtId) {
+    _dirDragSrcId = null;
+    _dirDragCatId = null;
+    return;
+  }
+
+  const container = e.currentTarget.closest('.dir-category-items');
+  const rows = Array.from(container.querySelectorAll('.dir-item[data-id]'));
+  const idsInNewOrder = rows.map(el => el.dataset.id);
+
+  const srcIdx = idsInNewOrder.indexOf(_dirDragSrcId);
+  const tgtIdx = idsInNewOrder.indexOf(tgtId);
+
+  if (srcIdx < 0 || tgtIdx < 0) {
+    _dirDragSrcId = null;
+    _dirDragCatId = null;
+    return;
+  }
+
+  idsInNewOrder.splice(srcIdx, 1);
+  idsInNewOrder.splice(tgtIdx, 0, _dirDragSrcId);
+
+  // 获取所有目录的完整数据，避免排序时丢失字段
+  const allDirs = await fetchJSON('/api/dir-shortcuts');
+  const dataById = {};
+  for (const d of allDirs) { dataById[d.id] = d; }
+
+  // 并行 PUT 全部 sort_order 和所有字段
+  const promises = idsInNewOrder.map((id, idx) => {
+    const d = dataById[id] || {};
+    return fetch(`/api/dir-shortcuts/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        sort_order: idx + 1,
+        category_id: d.category_id || '',
+        name: d.name || '',
+        type: d.type || 'local',
+        path: d.path || '',
+        remote_host: d.remote_host || '',
+        remote_user: d.remote_user || '',
+        remote_path: d.remote_path || '',
+        remote_password: d.remote_password || '',
+        auth_method: d.auth_method || 'password',
+        key_path: d.key_path || '',
+      }),
+    });
+  });
+  await Promise.all(promises);
+
+  _dirDragSrcId = null;
+  _dirDragCatId = null;
+  loadDirs();
+}
+
+// 保留旧函数兼容：loadDirCategories 返回分类列表
+async function loadDirCategories() {
+  const cats = await fetchJSON('/api/dir-categories') || [];
+  return sortByOrder(cats);
 }
 
 function selectDirCategory(catId) {
   _dirActiveCategoryId = catId;
   localStorage.setItem('sf-dir-active-cat', catId);
   loadDirs();
-}
-
-async function loadDirs() {
-  const cats = await loadDirCategories();
-  let list = sortByOrder(await fetchJSON('/api/dir-shortcuts'));
-  if (_dirActiveCategoryId) {
-    list = list.filter(d => d.category_id === _dirActiveCategoryId);
-  }
-  const el = document.getElementById('dir-list');
-  if (!list || list.length === 0) {
-    const msg = _dirActiveCategoryId ? '该分类下暂无目录' : '';
-    el.innerHTML = `<div class="dir-item" onclick="showDirModal()" style="font-style:italic;color:var(--text-secondary)">
-      <span class="dir-icon">📂</span>
-      <span class="dir-text">
-        <span class="dir-name">${msg || '+ 添加目录'}</span>
-        <span class="dir-path">${msg ? '' : '点击添加'}</span>
-      </span>
-    </div>`;
-    return;
-  }
-  el.innerHTML = list.map((d, idx) =>
-    `<div class="dir-item${d.type === 'remote' ? ' dir-remote' : ''}" draggable="true" data-id="${d.id}" data-idx="${idx}"
-        ondragstart="widgetDragStart(event, 'dir-shortcuts')" ondragover="widgetDragOver(event)" ondrop="widgetDrop(event, 'dir-shortcuts', loadDirs)" ondragleave="widgetDragLeave(event)">
-      <span class="drag-handle" title="拖动排序"></span>
-      <span class="dir-icon" onclick="openDir('${d.id}')">${d.type === 'remote' ? '🌐' : '📁'}</span>
-      <span class="dir-term" onclick="event.stopPropagation();openDirTerminal('${d.id}')" title="打开外部终端">⬢</span>
-      <span class="dir-text" onclick="openDir('${d.id}')">
-        <span class="dir-name">${esc(d.name)}</span>
-        <span class="dir-path" title="${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}">${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}</span>
-      </span>
-      <span class="dir-edit" onclick="event.stopPropagation();editDir('${d.id}')" title="编辑">✎</span>
-      <span class="dir-del" onclick="event.stopPropagation();deleteDir('${d.id}')" title="删除">×</span>
-    </div>`).join('');
 }
 
 async function populateDirCategorySelect() {

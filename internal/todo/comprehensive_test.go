@@ -39,7 +39,7 @@ func TestComprehensive_ConsecutiveAddAndWrite(t *testing.T) {
 		}
 		// 校验文件中该项的实际行号
 		data, _ := os.ReadFile(path)
-		items, _ := ReadAndParse(string_to_path_helper(data))
+		items, _ := ReadAndParse(string_to_path_helper(t, data))
 		var found bool
 		for _, it := range items {
 			if it.Text == e.text {
@@ -94,7 +94,7 @@ func TestComprehensive_AddAndWriteAfterChildrenWithNoTrailingNewline(t *testing.
 
 	// 解析验证 Parent 2 的实际行号
 	data, _ = os.ReadFile(path)
-	items, _ := ReadAndParse(string_to_path_helper(data))
+	items, _ := ReadAndParse(string_to_path_helper(t, data))
 	var actualP2Line int
 	for _, it := range items {
 		if it.Text == "Parent 2" {
@@ -117,8 +117,7 @@ func TestComprehensive_AddAndWriteAfterChildrenWithNoTrailingNewline(t *testing.
 	// 重新解析验证树结构
 	data, _ = os.ReadFile(path)
 	t.Logf("Final file:\n%s", string(data))
-	items = Parse(string(data))
-	tree := BuildTree(items)
+	tree := BuildTree(bytesToTree(data))
 
 	if len(tree) != 2 {
 		t.Fatalf("Tree has %d root items, want 2", len(tree))
@@ -211,7 +210,7 @@ func TestComprehensive_FrontendSubmitFlow_AddNewParentWithChildren(t *testing.T)
 	data, _ := os.ReadFile(path)
 	t.Logf("Final file:\n%s", string(data))
 
-	items, _ := ReadAndParse(string_to_path_helper(data))
+	items, _ := ReadAndParse(string_to_path_helper(t, data))
 	tree := BuildTree(items)
 
 	if len(tree) != 3 {
@@ -254,18 +253,25 @@ func TestComprehensive_FrontendSubmitFlow_AddGrandchildren(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 重新解析找子任务行号
+	// 重新解析找子任务行号（ReadAndParse 只返回 root，需要遍历整个 tree 找 "Child 1"）
 	data, _ := os.ReadFile(path)
-	items, _ := ReadAndParse(string_to_path_helper(data))
+	items, _ := ReadAndParse(string_to_path_helper(t, data))
 	var c1Line int
-	for _, it := range items {
-		if it.Text == "Child 1" {
-			c1Line = it.LineNo
-			break
+	var findChild func([]*Item) bool
+	findChild = func(ns []*Item) bool {
+		for _, n := range ns {
+			if n.Text == "Child 1" {
+				c1Line = n.LineNo
+				return true
+			}
+			if findChild(n.Children) {
+				return true
+			}
 		}
+		return false
 	}
-	if c1Line == 0 {
-		t.Fatal("Child 1 not found")
+	if !findChild(items) {
+		t.Fatalf("Child 1 not found in tree; items=%#v", items)
 	}
 
 	// 添加孙任务
@@ -284,8 +290,7 @@ func TestComprehensive_FrontendSubmitFlow_AddGrandchildren(t *testing.T) {
 	// 验证树结构
 	data, _ = os.ReadFile(path)
 	t.Logf("File:\n%s", string(data))
-	items = Parse(string(data))
-	tree := BuildTree(items)
+	tree := BuildTree(bytesToTree(data))
 
 	if len(tree) != 1 {
 		t.Fatalf("Tree roots=%d, want 1", len(tree))
@@ -309,6 +314,49 @@ func TestComprehensive_FrontendSubmitFlow_AddGrandchildren(t *testing.T) {
 // ============================================================================
 // 混合操作场景：编辑、归档后继续添加
 // ============================================================================
+
+// TestComprehensive_MultipleArchivesNoExtraSeparator 连续归档多次，文件里应只有 1 个 ---
+// （之前的 bug：ArchiveItem 只看 startIdx 之前有没有 ---，忽略了 endIdx 之后已保留的分隔线，
+//  导致每次归档都新增一个 ---）
+func TestComprehensive_MultipleArchivesNoExtraSeparator(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "todo.md")
+	// 初始：已带分隔线（这是 xworkbench 标准模板）
+	initial := "- [ ] A\n- [ ] B\n\n---\n\n## 📦 Archived\n- [x] Z archived:2026-07-01\n"
+	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 第一次归档 A
+	if err := ArchiveItem(path, 1); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if n := strings.Count(string(data), "---"); n != 1 {
+		t.Errorf("第一次归档后 '---' 数 = %d, want 1\n内容:\n%s", n, data)
+	}
+
+	// 第二次归档 B（line 1）
+	if err := ArchiveItem(path, 1); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(path)
+	if n := strings.Count(string(data), "---"); n != 1 {
+		t.Errorf("第二次归档后 '---' 数 = %d, want 1\n内容:\n%s", n, data)
+	}
+
+	// 第三次归档（原文件里没顶级活跃项了，跳过 —— 校验前两个已归档的结构合理）
+	sections, err := ParseSections(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sections.ActiveItems) != 0 {
+		t.Errorf("ActiveItems = %d, want 0", len(sections.ActiveItems))
+	}
+	if len(sections.ArchivedItems) != 3 {
+		t.Errorf("ArchivedItems = %d, want 3 (Z + A + B)", len(sections.ArchivedItems))
+	}
+}
 
 // TestComprehensive_ArchiveThenAdd 归档后继续添加新任务
 func TestComprehensive_ArchiveThenAdd(t *testing.T) {
@@ -405,7 +453,7 @@ func TestComprehensive_DeleteParentCascadesChildren(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	t.Logf("File:\n%s", string(data))
 
-	items, _ := ReadAndParse(string_to_path_helper(data))
+	items, _ := ReadAndParse(string_to_path_helper(t, data))
 	if len(items) != 1 {
 		t.Errorf("After delete parent, items=%d, want 1", len(items))
 	}
@@ -430,14 +478,16 @@ func TestComprehensive_DeleteChildPreservesParentAndSiblings(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	t.Logf("File:\n%s", string(data))
 
-	items, _ := ReadAndParse(string_to_path_helper(data))
-	if len(items) != 3 {
-		t.Errorf("After delete child, items=%d, want 3", len(items))
+	items, _ := ReadAndParse(string_to_path_helper(t, data))
+	// ReadAndParse 返回 root 切片，1 个 root；数全树用 Flatten
+	flat := Flatten(items)
+	if len(flat) != 3 {
+		t.Errorf("After delete child, items=%d, want 3 (Parent + Child 1 + Child 3)", len(flat))
 	}
 
-	// 验证剩余项
-	wantTexts := []string{"Parent", "Child 1", "Child 3"}
-	for i, it := range items {
+	// 验证剩余项（line 3 是 Child 1，删除后剩 Child 2 + Child 3）
+	wantTexts := []string{"Parent", "Child 2", "Child 3"}
+	for i, it := range flat {
 		if it.Text != wantTexts[i] {
 			t.Errorf("Item[%d]=%q, want %q", i, it.Text, wantTexts[i])
 		}
@@ -617,7 +667,7 @@ func TestComprehensive_BuildTreeDeepNesting(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(path)
-	items, _ := ReadAndParse(string_to_path_helper(data))
+	items, _ := ReadAndParse(string_to_path_helper(t, data))
 	tree := BuildTree(items)
 
 	if len(tree) != 1 {
@@ -640,18 +690,18 @@ func TestComprehensive_BuildTreeDeepNesting(t *testing.T) {
 
 // TestComprehensive_FlattenMultipleRoots 多根节点扁平化
 func TestComprehensive_FlattenMultipleRoots(t *testing.T) {
-	items := []*Item{
-		{LineNo: 1, Text: "A"},
-		{LineNo: 2, Text: "A1", Indent: "  ", Children: nil},
-		{LineNo: 3, Text: "A2", Indent: "  ", Children: nil},
-		{LineNo: 4, Text: "B"},
-		{LineNo: 5, Text: "B1", Indent: "  ", Children: nil},
+	// 用 BuildTree 让它按 Indent 自动识别父子（之前手工构造的 items 数组里 5 个全当 root，
+	// children 引用导致重复 append；让 BuildTree 一次性正确建树）
+	flatInput := []*Item{
+		{LineNo: 1, Text: "A", Indent: ""},
+		{LineNo: 2, Text: "A1", Indent: "  "},
+		{LineNo: 3, Text: "A2", Indent: "  "},
+		{LineNo: 4, Text: "B", Indent: ""},
+		{LineNo: 5, Text: "B1", Indent: "  "},
 	}
-	// 手动构建 children
-	items[0].Children = []*Item{items[1], items[2]}
-	items[3].Children = []*Item{items[4]}
+	tree := BuildTree(flatInput)
 
-	flat := Flatten(items)
+	flat := Flatten(tree)
 	if len(flat) != 5 {
 		t.Errorf("Flatten len=%d, want 5", len(flat))
 	}
@@ -701,7 +751,7 @@ func TestComprehensive_LineNoStabilityAcrossMultipleOps(t *testing.T) {
 			}
 			// 验证 lineNo 准确
 			data, _ := os.ReadFile(path)
-			items, _ := ReadAndParse(string_to_path_helper(data))
+			items, _ := ReadAndParse(string_to_path_helper(t, data))
 			for _, it := range items {
 				if it.Text == o.text {
 					if it.LineNo != lineNo {
@@ -722,7 +772,7 @@ func TestComprehensive_LineNoStabilityAcrossMultipleOps(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	t.Logf("Final file:\n%s", string(data))
 
-	items, _ := ReadAndParse(string_to_path_helper(data))
+	items, _ := ReadAndParse(string_to_path_helper(t, data))
 	tree := BuildTree(items)
 	if len(tree) != 3 {
 		t.Errorf("Tree roots=%d, want 3", len(tree))
@@ -740,4 +790,26 @@ func TestComprehensive_LineNoStabilityAcrossMultipleOps(t *testing.T) {
 			t.Errorf("%s children=%d, want %d", root.Text, len(root.Children), want)
 		}
 	}
+}
+
+// string_to_path_helper 写 data 到 t.TempDir() 下的临时文件并返回 path，
+// 供 ReadAndParse 使用。文件由 t.TempDir() 在测试结束时自动清理。
+func string_to_path_helper(t *testing.T, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "todo.md")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// bytesToTree Parse+BuildTree 的便捷封装。comprehensive_test.go 中两处"items = Parse(...); tree := BuildTree(items)"
+// 写法因 Parse 返回 []Item 而 BuildTree 需要 []*Item 不匹配，用此 helper 统一转换。
+func bytesToTree(data []byte) []*Item {
+	flat := Parse(string(data))
+	ptrs := make([]*Item, len(flat))
+	for i := range flat {
+		ptrs[i] = &flat[i]
+	}
+	return BuildTree(ptrs)
 }
