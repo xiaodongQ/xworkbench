@@ -62,9 +62,6 @@
       <span class="nav-icon">🖥️</span><span class="nav-text">Web 终端</span>
       <span id="rterm-nav-status" style="display:none;width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;margin-left:4px" title="有活跃连接"></span>
     </div>
-    <div class="nav-item" data-tab="aichat" onclick="switchTab('aichat')" data-tooltip="AI 助手&#10;对话管理任务/目录/经验库&#10;终端式 Claude/CBC/shell 交互">
-      <span class="nav-icon">🤖</span><span class="nav-text">AI 助手</span>
-    </div>
     <div class="nav-item" data-tab="config" onclick="switchTab('config')" data-tooltip="系统配置&#10;导入 / 导出 / 默认设置&#10;快捷 / 经验 / 任务 / 默认 CLI">
       <span class="nav-icon">⚙️</span><span class="nav-text">系统配置</span>
     </div>
@@ -179,7 +176,7 @@
           <span>⏰ 调度器</span>
           <span id="scheduler-badge"></span>
         </div>
-        <div id="scheduled-summary" class="scheduled-list" style="max-height:200px;overflow-y:auto"></div>
+        <div id="scheduled-summary" class="scheduled-list" style="max-height:160px;overflow-y:auto"></div>
       </div>
       <div class="widget" id="dash-execs-widget" style="flex: 2">
         <div class="widget-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -189,14 +186,14 @@
             <button class="btn btn-small" onclick="loadRecentExecutions()">手动刷新</button>
           </div>
         </div>
-        <div id="recent-execs" style="max-height:280px;overflow-y:auto"></div>
+        <div id="recent-execs" style="max-height:180px;overflow-y:auto"></div>
       </div>
     </div>
 
-    <div class="section-header">
-      <div class="section-title">最新任务</div>
+    <div class="section-header" style="margin-top:8px">
+      <div class="section-title">最新手动任务</div>
     </div>
-    <div id="recent-list" style="max-height:320px;overflow-y:auto"></div>
+    <div id="recent-list" style="max-height:200px;overflow-y:auto"></div>
 
     <div class="chart-section">
       <div class="chart-title" style="display:flex;align-items:center;gap:12px">
@@ -497,12 +494,7 @@
     </div>
   </div>
 
-  <!-- AI Chat -->
-  <div id="page-aichat" class="hidden">
-    <!-- AI Chat 容器，由 aichat.js 的 renderAICheat() 填充 -->
-    <div id="aichat-root"></div>
-  </div>
-
+  <!-- Web 终端 Tab -->
   <!-- Web 终端 Tab -->
   <div id="page-rterm" class="hidden">
     <div style="display:flex;height:calc(100vh - 120px);min-height:400px">
@@ -1550,6 +1542,9 @@ document.getElementById('run-task-model').innerHTML = buildModelOptions('claude'
     setTimeout(() => switchCfgTab(cfgSub), 50);
   }
 })();
+
+// 初始化浮动 AI 对话挂件
+if (typeof initFloatingChat === 'function') initFloatingChat();
 
 // 列宽拖拽：拖 widget-sidebar 与 main 之间的 4px 把手
 (function initResize() {

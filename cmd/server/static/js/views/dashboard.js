@@ -44,7 +44,7 @@ async function loadDashboard() {
   try {
     const [stats, recent] = await Promise.all([
       fetchJSON(API + '/api/stats?range=' + currentChartRange),
-      fetchJSON(API + '/api/tasks?limit=5')
+      fetchJSON(API + '/api/tasks?task_type=manual&limit=5')
     ]);
     document.getElementById('stat-pending').textContent = stats.pending_tasks;
     document.getElementById('stat-in_progress').textContent = stats.in_progress_tasks;
