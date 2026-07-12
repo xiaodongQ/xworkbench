@@ -24,37 +24,53 @@ function renderSessionList() {
     const locals = sessions.filter(s => s.type !== 'remote');
     const remotes = sessions.filter(s => s.type === 'remote');
 
-    localEl.innerHTML = locals.length === 0
-      ? '<div style="font-size:10px;color:var(--text-secondary);padding:2px 8px">暂无</div>'
-      : locals.map(s => sessionItemHTML(s)).join('');
+    localEl.innerHTML = '<div class="rterm-group-label" style="padding:6px 8px 2px;font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">本地终端</div>' +
+      (locals.length === 0
+        ? '<div style="font-size:10px;color:var(--text-secondary);padding:4px 8px">暂无</div>'
+        : locals.map(s => sessionItemHTML(s)).join(''));
 
-    remoteEl.innerHTML = remotes.length === 0
-      ? '<div style="font-size:10px;color:var(--text-secondary);padding:2px 8px">暂无</div>'
-      : remotes.map(s => sessionItemHTML(s)).join('');
+    remoteEl.innerHTML = '<div class="rterm-group-label" style="padding:6px 8px 2px;font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">远程 SSH</div>' +
+      (remotes.length === 0
+        ? '<div style="font-size:10px;color:var(--text-secondary);padding:4px 8px">暂无</div>'
+        : remotes.map(s => sessionItemHTML(s)).join(''));
 
     updateNavStatus(sessions);
   }).catch(() => {});
 }
 
 function sessionItemHTML(s) {
-  const statusDot = s.status === 'connected'
-    ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0" title="已连接"></span>'
-    : s.status === 'connecting'
-    ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;flex-shrink:0" title="连接中"></span>'
-    : '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--text-secondary);flex-shrink:0" title="已断开"></span>';
-
+  const isConnected = s.status === 'connected';
+  const isConnecting = s.status === 'connecting';
   const isActive = activeSession === s.id;
-  const bgStyle = isActive ? 'background:var(--hover);' : '';
 
-  const disconnectBtn = s.status === 'connected'
-    ? `<button class="rterm-session-close" onclick="event.stopPropagation();disconnectSession('${s.id}')" title="断开">×</button>`
-    : '';
+  // 状态颜色
+  const dotColor = isConnected ? '#22c55e' : isConnecting ? '#f59e0b' : 'var(--text-secondary)';
 
-  return `<div class="rterm-session-item" style="${bgStyle}" onclick="switchSession('${s.id}', '${s.type}', '${s.dir_id || ''}')">
-    ${statusDot}
+  // 活跃高亮左边框
+  const borderStyle = isActive ? 'border-left:2px solid var(--primary);' : '';
+
+  // 操作按钮
+  let actionBtn = '';
+  if (isConnected) {
+    actionBtn = `<button class="rterm-session-close" onclick="event.stopPropagation();disconnectSession('${s.id}')" title="断开">×</button>`;
+  } else if (s.type === 'remote' && s.status === 'disconnected') {
+    actionBtn = `<button class="rterm-session-close" onclick="event.stopPropagation();removeSession('${s.id}')" title="删除记录">×</button>`;
+  }
+
+  return `<div class="rterm-session-item" style="${borderStyle}" onclick="switchSession('${s.id}', '${s.type}', '${s.dir_id || ''}')">
+    <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0" title="${s.status}"></span>
     <span style="flex:1;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.label}</span>
-    ${disconnectBtn}
+    ${actionBtn}
   </div>`;
+}
+
+// removeSession 删除远程 SSH 会话记录
+function removeSession(sessionID) {
+  fetch('/api/terminal/remove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionID })
+  }).then(() => renderSessionList()).catch(e => console.error('remove error:', e));
 }
 
 // switchSession 点击列表项切换到该会话
@@ -293,6 +309,8 @@ window.onRptyConnect = function() {
 
   updateTermStatus('connecting');
   initTerminal(type, dirID);
+  // 立即刷新列表，显示 "连接中" 状态
+  setTimeout(() => renderSessionList(), 100);
 };
 
 window.disconnectTerminal = function() {

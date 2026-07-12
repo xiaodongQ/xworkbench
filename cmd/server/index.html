@@ -507,11 +507,13 @@
   <div id="page-rterm" class="hidden">
     <div style="display:flex;height:calc(100vh - 120px);min-height:400px">
       <!-- 左侧会话列表 -->
-      <div id="rterm-sidebar" style="width:160px;border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0;padding:8px 0">
-        <div style="padding:0 8px 6px;font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">会话</div>
-        <div id="rterm-local-sessions" style="display:flex;flex-direction:column"></div>
-        <div style="padding:4px 8px 4px;font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid var(--border);margin-top:4px">远程 SSH</div>
-        <div id="rterm-remote-sessions" style="display:flex;flex-direction:column"></div>
+      <div id="rterm-sidebar" style="width:160px;border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0;background:var(--card-bg)">
+        <div id="rterm-local-sessions" style="display:flex;flex-direction:column">
+          <div class="rterm-group-label" style="padding:6px 8px 2px;font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">本地终端</div>
+        </div>
+        <div id="rterm-remote-sessions" style="display:flex;flex-direction:column;border-top:1px solid var(--border);margin-top:4px;padding-top:4px">
+          <div class="rterm-group-label" style="padding:2px 8px 2px;font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">远程 SSH</div>
+        </div>
       </div>
 
       <!-- 右侧终端区 -->

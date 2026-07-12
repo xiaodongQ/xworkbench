@@ -205,3 +205,31 @@ func (s *APIServer) handleTerminalDisconnect(w http.ResponseWriter, r *http.Requ
 	terminalSessions.Disconnect(req.SessionID)
 	writeJSON(w, map[string]string{"status": "ok"})
 }
+
+// handleTerminalRemove  POST /api/terminal/remove
+func (s *APIServer) handleTerminalRemove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.SessionID == "" {
+		writeErr(w, http.StatusBadRequest, "session_id is required")
+		return
+	}
+	terminalSessions.Disconnect(req.SessionID) // 先断开
+	terminalSessions.Remove(req.SessionID)     // 再删除
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// Remove 从 map 中删除会话记录。
+func (sm *sessionManager) Remove(id string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if s, ok := sm.sessions[id]; ok {
+		sm.disconnectLocked(s)
+		delete(sm.sessions, id)
+	}
+}

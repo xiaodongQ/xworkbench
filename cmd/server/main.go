@@ -186,6 +186,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/pty/{tab_id}/submit-input", s.handlePtyInput)
 	mux.HandleFunc("GET /api/terminal/sessions", s.handleTerminalSessions)
 	mux.HandleFunc("POST /api/terminal/disconnect", s.handleTerminalDisconnect)
+	mux.HandleFunc("POST /api/terminal/remove", s.handleTerminalRemove)
 	mux.HandleFunc("GET /ws", s.handleWS)
 	// /static/* 用 embed.FS serve 拆分 CSS/JS 文件
 	mux.Handle("GET /static/", http.FileServer(http.FS(FS)))
