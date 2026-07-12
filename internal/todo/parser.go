@@ -310,11 +310,29 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, e
 
 	// 有分隔线，插入到分隔线之前
 	activeLines := lines[:separatorIdx]
-	for i := 0; i < len(activeLines); i++ {
+
+	// 分离末尾空行：新项紧跟前一个活跃项，空行留在分隔线前
+	lastNonEmpty := -1
+	for i := len(activeLines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(activeLines[i]) != "" {
+			lastNonEmpty = i
+			break
+		}
+	}
+
+	for i := 0; i <= lastNonEmpty; i++ {
 		result += activeLines[i] + "\n"
 	}
-	// 直接追加新项，保留活跃区末尾原有的空行（不再 TrimRight 吃掉分隔线前的空行）
+	// 清理活跃区末尾连续换行，然后追加新项
+	result = strings.TrimRight(result, "\n")
+	if result != "" && !strings.HasSuffix(result, "\n") {
+		result += "\n"
+	}
 	result += newContent.String()
+	// 追加分隔线前的空行
+	for i := lastNonEmpty + 1; i < len(activeLines); i++ {
+		result += activeLines[i] + "\n"
+	}
 	// 追加分隔线和归档区
 	result += archiveSeparator + "\n"
 	for i := separatorIdx + 1; i < len(lines); i++ {
