@@ -1214,9 +1214,11 @@ tr:last-child td { border-bottom: none; }
   padding: 6px 8px;
   cursor: pointer;
   user-select: none;
-  background: var(--hover);
+  background: var(--border);
   transition: background 0.15s;
   font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px 4px 0 0;
 }
 
 .link-category-header:hover,
