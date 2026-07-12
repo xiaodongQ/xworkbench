@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/creack/pty"
@@ -177,6 +178,8 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	sid := sessionIDFromCliType(cliType)
+
 	ctxDir := getContextDir()
 	shell := os.Getenv("SHELL")
 	if shell == "" {
@@ -215,9 +218,23 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	sess := &PTYSession{ptmx: ptmx, cmd: cmd, tabID: tabID}
 	registerPTY(tabID, sess)
 
+	// 注册到会话管理器
+	terminalSessions.CreateOrReplace(&SessionInfo{
+		ID:           sid,
+		Type:         "local_" + cliType,
+		Label:        labelForCliType(cliType),
+		Status:       "connected",
+		CreatedAt:    time.Now(),
+		LastActiveAt: time.Now(),
+		wsConn:       conn,
+		ptmx:         ptmx,
+		cmd:          cmd,
+	})
+
 	defer func() {
 		ptmx.Close()
 		_ = cmd.Process.Kill()
+		terminalSessions.MarkDisconnected(sid)
 		logger.Infof("pty: cleanup done tab_id=%q pid=%d", tabID, pid)
 	}()
 
@@ -255,9 +272,10 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 			n, rerr := ptmx.Read(buf)
 			reads++
 			if n > 0 {
-				totalBytes += n
-				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
-					logger.Errorf("pty: ws write error tab_id=%q err=%v", tabID, werr)
+		totalBytes += n
+			terminalSessions.MarkActive(sid)
+			if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+				logger.Errorf("pty: ws write error tab_id=%q err=%v", tabID, werr)
 					return
 				}
 				if !authNotified {
@@ -490,6 +508,8 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 
 	logger.Infof("pty: remote cmd ready tab_id=%q args=%v", tabID, xwArgs)
 
+	remoteSessionID := "remote_" + dirID
+
 	cmd := exec.Command(xwBin, xwArgs[1:]...)
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
@@ -511,9 +531,24 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 	sess := &PTYSession{ptmx: ptmx, cmd: cmd, tabID: tabID}
 	registerPTY(tabID, sess)
 
+	// 注册到会话管理器
+	terminalSessions.CreateOrReplace(&SessionInfo{
+		ID:           remoteSessionID,
+		Type:         "remote",
+		DirID:        dirID,
+		Label:        dir.Name + " (" + dir.RemoteHost + ")",
+		Status:       "connected",
+		CreatedAt:    time.Now(),
+		LastActiveAt: time.Now(),
+		wsConn:       conn,
+		ptmx:         ptmx,
+		cmd:          cmd,
+	})
+
 	defer func() {
 		ptmx.Close()
 		_ = cmd.Process.Kill()
+		terminalSessions.MarkDisconnected(remoteSessionID)
 		logger.Infof("pty: remote cleanup done tab_id=%q pid=%d", tabID, pid)
 	}()
 
@@ -556,9 +591,10 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 				logger.Infof("pty: [REMOTE] ptmx.Read tab_id=%q n=%d rerr=%v reads=%d totalBytes=%d", tabID, n, rerr, reads, totalBytes)
 			}
 			if n > 0 {
-				totalBytes += n
-				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
-					logger.Errorf("pty: remote ws write error tab_id=%q err=%v", tabID, werr)
+		totalBytes += n
+			terminalSessions.MarkActive(remoteSessionID)
+			if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+				logger.Errorf("pty: remote ws write error tab_id=%q err=%v", tabID, werr)
 					return
 				}
 				if !authNotified {
@@ -639,4 +675,36 @@ func resolveXwSshpassBin() string {
 		return bin
 	}
 	return ""
+}
+
+// sessionIDFromCliType 将 cli_type 转为会话管理器 ID。
+func sessionIDFromCliType(cliType string) string {
+	switch cliType {
+	case "shell":
+		return "local_shell"
+	case "claude":
+		return "local_claude"
+	case "cbc":
+		return "local_cbc"
+	case "powershell":
+		return "local_powershell"
+	default:
+		return "local_shell"
+	}
+}
+
+// labelForCliType 返回前端显示用的类型标签。
+func labelForCliType(cliType string) string {
+	switch cliType {
+	case "shell":
+		return "bash"
+	case "claude":
+		return "Claude"
+	case "cbc":
+		return "CBC"
+	case "powershell":
+		return "PowerShell"
+	default:
+		return cliType
+	}
 }

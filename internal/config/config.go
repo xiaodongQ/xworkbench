@@ -133,6 +133,7 @@ type Config struct {
 	TodoMDPath       string `json:"todo_md_path,omitempty"`
 	TodoShowArchived bool   `json:"todo_show_archived"` // todo widget 归档区默认显示/隐藏
 	SchedulerEnabled bool   `json:"scheduler_enabled"`
+	TerminalSessionTimeoutMinutes int `json:"terminal_session_timeout_minutes"` // 终端会话空闲超时（分钟），0 表示不超时，默认 30
 
 	// 部署级配置
 	Relay    RelayConfig    `json:"relay"`

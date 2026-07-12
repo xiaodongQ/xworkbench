@@ -184,6 +184,8 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/pty", s.handlePty)
 	mux.HandleFunc("POST /api/pty/{tab_id}/submit-input", s.handlePtyInput)
+	mux.HandleFunc("GET /api/terminal/sessions", s.handleTerminalSessions)
+	mux.HandleFunc("POST /api/terminal/disconnect", s.handleTerminalDisconnect)
 	mux.HandleFunc("GET /ws", s.handleWS)
 	// /static/* 用 embed.FS serve 拆分 CSS/JS 文件
 	mux.Handle("GET /static/", http.FileServer(http.FS(FS)))
@@ -3195,8 +3197,11 @@ func main() {
 				defer stop()
 				<-ctx.Done()
 				logger.Infow("shutdown signal received...")
+				terminalSessions.Stop()
 				close(stopCh)
 			}()
+
+			terminalSessions.StartIdleChecker()
 
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
@@ -3248,6 +3253,7 @@ func main() {
 		defer stop()
 		<-ctx.Done()
 		logger.Infow("shutdown signal received...")
+		terminalSessions.Stop()
 		close(stopCh)
 	}()
 
