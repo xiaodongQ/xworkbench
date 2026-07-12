@@ -17,8 +17,9 @@ import (
 
 // Message represents a chat message.
 type Message struct {
-	Role    string `json:"role"`              // system | user | assistant | tool
-	Content string `json:"content,omitempty"` // text content
+	Role       string `json:"role"`                        // system | user | assistant | tool
+	Content    string `json:"content,omitempty"`           // text content (also used by tool result body)
+	ToolCallID string `json:"tool_call_id,omitempty"`      // OpenAI: required when Role=="tool"; Anthropic: tool_use_id stored here on tool result
 }
 
 // ToolCall represents a tool call returned by the model.
@@ -344,6 +345,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message, tools 
 	var apiResp struct {
 		Content []struct {
 			Type   string `json:"type"`
+			ID     string `json:"id"` // tool_use_id (Anthropic returns "toolu_xxx")
 			Text   string `json:"text"`
 			Name   string `json:"name"`
 			Input_ any    `json:"input"` // can be string or object (tool call args)
@@ -368,7 +370,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message, tools 
 				argsStr = string(inputJSON)
 			}
 			result.ToolCalls = append(result.ToolCalls, ToolCall{
-				ID:   "call_anthropic",
+				ID:   c.ID, // use Anthropic-provided tool_use_id so tool_result can be correlated back
 				Name: c.Name,
 				Args: argsStr,
 			})

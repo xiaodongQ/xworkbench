@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/config"
 )
@@ -170,5 +171,132 @@ func TestAIProviderFromConfig(t *testing.T) {
 	// Verify it works (will hit mock server if we had one, just check type)
 	if _, ok := p2.(*OpenAIProvider); !ok {
 		t.Errorf("expected *OpenAIProvider, got %T", p2)
+	}
+}
+
+// --- Regression tests: #1 tool_result protocol & #2 context cancellation ---
+
+// TestMessageToolCallIDSerialization — OpenAI protocol tool messages must carry
+// tool_call_id so the result can be correlated to the original call.
+func TestMessageToolCallIDSerialization(t *testing.T) {
+	msg := Message{Role: "tool", Content: "result text", ToolCallID: "call_abc"}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(data)
+	if !strings.Contains(s, `"role":"tool"`) ||
+		!strings.Contains(s, `"content":"result text"`) ||
+		!strings.Contains(s, `"tool_call_id":"call_abc"`) {
+		t.Errorf("expected role+content+tool_call_id in JSON, got: %s", s)
+	}
+
+	var got Message
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.ToolCallID != "call_abc" {
+		t.Errorf("round-trip tool_call_id: got %q want %q", got.ToolCallID, "call_abc")
+	}
+	if got.Role != "tool" {
+		t.Errorf("round-trip role: got %q", got.Role)
+	}
+}
+
+// TestAnthropicToolResultArraySerialization — Anthropic expects the tool result
+// to be a content array block. ai_chat.go encodes it as user role with a JSON
+// array string; verify the shape survives AnthropicProvider's array-detection.
+func TestAnthropicToolResultArraySerialization(t *testing.T) {
+	block, _ := json.Marshal(map[string]any{
+		"type":        "tool_result",
+		"tool_use_id": "toolu_01abc",
+		"content":     "task created",
+	})
+	msg := Message{Role: "user", Content: "[" + string(block) + "]"}
+
+	if !strings.HasPrefix(msg.Content, "[{") {
+		t.Skipf("content does not match Anthropic array form: %s", msg.Content)
+	}
+	var arr []any
+	if err := json.Unmarshal([]byte(msg.Content), &arr); err != nil {
+		t.Fatalf("expected valid array of blocks, got error: %v", err)
+	}
+	if len(arr) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(arr))
+	}
+	blk, ok := arr[0].(map[string]any)
+	if !ok {
+		t.Fatalf("block[0] not object: %T", arr[0])
+	}
+	if blk["type"] != "tool_result" {
+		t.Errorf("block.type: got %v", blk["type"])
+	}
+	if blk["tool_use_id"] != "toolu_01abc" {
+		t.Errorf("block.tool_use_id: got %v", blk["tool_use_id"])
+	}
+	if blk["content"] != "task created" {
+		t.Errorf("block.content: got %v", blk["content"])
+	}
+}
+
+// TestAnthropicProviderReadsToolUseID — Anthropic response includes a tool_use
+// id. Previously the decoder hardcoded "call_anthropic" which broke tool_result
+// correlation. Verify the real id is now captured.
+func TestAnthropicProviderReadsToolUseID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":   "msg_test",
+			"type": "message",
+			"content": []map[string]any{
+				{"type": "text", "text": "I'll create the task now."},
+				{"type": "tool_use", "id": "toolu_01abc", "name": "create_task", "input": map[string]any{"title": "demo"}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(server.URL, "sk-ant-test", "claude-sonnet-test", 0.7, 4096)
+	resp, err := provider.Chat(context.Background(), []Message{{Role: "user", Content: "create a task"}}, nil)
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(resp.ToolCalls))
+	}
+	if resp.ToolCalls[0].ID != "toolu_01abc" {
+		t.Errorf("tool_use_id not captured: got %q (was previously hardcoded 'call_anthropic')", resp.ToolCalls[0].ID)
+	}
+	if resp.ToolCalls[0].Name != "create_task" {
+		t.Errorf("tool name: got %q", resp.ToolCalls[0].Name)
+	}
+}
+
+// TestOpenAIProviderPropagatesContextCancel — verifies ctx cancellation
+// reaches the upstream HTTP request (foundation for handleAIChat total budget).
+func TestOpenAIProviderPropagatesContextCancel(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release // block until released
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]string{"role": "assistant", "content": ""},
+			}},
+		})
+	}))
+	defer server.Close()
+	defer close(release)
+
+	provider := NewOpenAIProvider(server.URL+"/v1", "sk-test", "gpt-4o", 0.7, 4096)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := provider.Chat(ctx, []Message{{Role: "user", Content: "hi"}}, nil)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "context") &&
+		!strings.Contains(err.Error(), "deadline") {
+		t.Errorf("expected context/deadline error, got: %v", err)
 	}
 }

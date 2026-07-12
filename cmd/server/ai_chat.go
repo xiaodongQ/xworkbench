@@ -4,12 +4,21 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/xiaodongQ/xworkbench/internal/config"
+)
+
+// AI chat timeout / round budget (centralized, see CLAUDE.md §10.4 entry table).
+const (
+	aiChatTotalBudget = 5 * time.Minute // whole-request budget; also ends if client disconnects (r.Context)
+	aiChatRoundBudget = 60 * time.Second // per provider.Chat call (single round)
+	aiChatToolBudget  = 30 * time.Second // per-tool execution
+	aiChatMaxRounds   = 20               // hard cap on consecutive tool-call iterations
 )
 
 // handleAIChat is the main AI chat endpoint.
@@ -63,6 +72,12 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 		req.Messages = append([]Message{{Role: "system", Content: mem}}, req.Messages...)
 	}
 
+	// Whole-request ctx. Bound by r.Context() so client disconnect cancels
+	// the request, capped at aiChatTotalBudget as a hard ceiling. Per-round
+	// and per-tool timeouts are layered on top below.
+	ctx, cancel := context.WithTimeout(r.Context(), aiChatTotalBudget)
+	defer cancel()
+
 	if req.Stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -71,38 +86,57 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		err := provider.ChatStream(context.Background(), req.Messages, tools, func(event AIEvent) {
+		streamCtx, streamCancel := context.WithTimeout(ctx, aiChatTotalBudget)
+		err := provider.ChatStream(streamCtx, req.Messages, tools, func(event AIEvent) {
 			data, _ := json.Marshal(event)
 			io.WriteString(w, "data: " + string(data) + "\n\n")
 			flusher.Flush()
 		})
+		streamCancel()
 		if err != nil {
 			logger.Errorf("AI stream error: %v", err)
 		}
 		return
 	}
 
-	resp, err := provider.Chat(context.Background(), req.Messages, tools)
+	roundCtx, roundCancel := context.WithTimeout(ctx, aiChatRoundBudget)
+	resp, err := provider.Chat(roundCtx, req.Messages, tools)
+	roundCancel()
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			logger.Warnw("handleAIChat: total budget exceeded", "err", err, "ctxErr", ctxErr)
+			writeErr(w, http.StatusGatewayTimeout, "AI chat total budget exceeded: "+ctxErr.Error())
+			return
+		}
 		logger.Errorw("handleAIChat: provider.Chat failed", "provider", cfg.AIChat.ActiveProvider, "err", err)
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	logger.Infow("handleAIChat: response received", "provider", cfg.AIChat.ActiveProvider, "contentLen", len(resp.Message.Content), "toolCalls", len(resp.ToolCalls))
 
-	// Multi-round tool calling: keep looping until AI stops calling tools
+	// Multi-round tool calling: keep looping until AI stops calling tools.
+	// Capped at aiChatMaxRounds to prevent runaway iteration if the model keeps
+	// asking for new tools without converging.
 	refreshWidgets := make(map[string]bool)
-	maxRounds := 20
-	for round := 0; round < maxRounds; round++ {
+	roundsDone := 0
+	for round := 0; round < aiChatMaxRounds; round++ {
 		if len(resp.ToolCalls) == 0 {
 			break
 		}
+		roundsDone = round + 1
 		logger.Infow("handleAIChat: round start", "round", round+1, "toolCount", len(resp.ToolCalls))
+		// Check whole-request budget before burning another round.
+		if err := ctx.Err(); err != nil {
+			logger.Warnw("handleAIChat: total budget exceeded mid-loop", "round", round+1, "ctxErr", err)
+			writeErr(w, http.StatusGatewayTimeout, "AI chat total budget exceeded: "+err.Error())
+			return
+		}
 		for i := range resp.ToolCalls {
 			tc := &resp.ToolCalls[i]
 			logger.Infow("handleAIChat: tool call", "round", round+1, "tool", tc.Name, "args", tc.Args)
+			toolCtx, toolCancel := context.WithTimeout(ctx, aiChatToolBudget)
 			tc.Result = ExecuteTool(
-				context.Background(),
+				toolCtx,
 				s.db, s.expDB, s.execDB, s.agentDB,
 				s.linkDB, s.dirDB,
 				s.schedDB, s.sch,
@@ -110,6 +144,7 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 				nil, // localShellState
 				tc.Name, tc.Args,
 			)
+			toolCancel()
 			// Truncate result for logging if too long
 			resultPreview := tc.Result
 			if len(resultPreview) > 200 {
@@ -125,28 +160,53 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 			case "add_todo", "toggle_todo", "delete_todo":
 				refreshWidgets["todos"] = true
 			}
-			// Append tool result as a special message and continue
-			// Anthropic requires: role=user, content=[{type:"tool_result",tool_use_id:"...",content:"..."}]
-			toolResultContent, _ := json.Marshal(map[string]any{
-				"type":        "tool_result",
-				"tool_use_id": tc.ID,
-				"content":     tc.Result,
-			})
-			req.Messages = append(req.Messages, Message{
-				Role:    "user",
-				Content: string(toolResultContent),
-			})
+			// Append tool result back to conversation, format depends on provider:
+			//   - Anthropic: needs role=user + content = JSON array of content blocks
+			//     with a {type:"tool_result", tool_use_id:..., content:...} entry
+			//   - OpenAI:    needs role="tool" + tool_call_id (set on Message.ToolCallID) + content
+			switch cfg.AIChat.ActiveProvider {
+			case "openai":
+				req.Messages = append(req.Messages, Message{
+					Role:       "tool",
+					Content:    tc.Result,
+					ToolCallID: tc.ID,
+				})
+			default:
+				block, _ := json.Marshal(map[string]any{
+					"type":        "tool_result",
+					"tool_use_id": tc.ID,
+					"content":     tc.Result,
+				})
+				req.Messages = append(req.Messages, Message{
+					Role:    "user",
+					Content: "[" + string(block) + "]",
+				})
+			}
 		}
 		// Continue conversation with tool results — keep tools enabled for next round
-		resp, err = provider.Chat(context.Background(), req.Messages, tools)
+		roundCtx, roundCancel := context.WithTimeout(ctx, aiChatRoundBudget)
+		resp, err = provider.Chat(roundCtx, req.Messages, tools)
+		roundCancel()
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				logger.Warnw("handleAIChat: total budget exceeded on round provider call", "round", round+1, "ctxErr", ctxErr)
+				writeErr(w, http.StatusGatewayTimeout, "AI chat total budget exceeded: "+ctxErr.Error())
+				return
+			}
 			logger.Errorw("handleAIChat: tool result feedback failed", "round", round+1, "err", err)
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		logger.Infow("handleAIChat: round end", "round", round+1, "contentLen", len(resp.Message.Content), "toolCalls", len(resp.ToolCalls))
 	}
-	logger.Infow("handleAIChat: final response", "contentLen", len(resp.Message.Content))
+
+	// If we exited the loop because we hit maxRounds while AI was still asking for
+	// tools, surface that to the caller instead of silently truncating the result.
+	if len(resp.ToolCalls) > 0 && roundsDone == aiChatMaxRounds {
+		logger.Warnw("handleAIChat: round cap reached while AI still requested tools", "rounds", roundsDone)
+		resp.Message.Content += "\n\n[⚠️ 已达到最大工具调用轮次 " + fmt.Sprintf("%d", aiChatMaxRounds) + "，剩余工具调用被截断]"
+	}
+	logger.Infow("handleAIChat: final response", "contentLen", len(resp.Message.Content), "rounds", roundsDone)
 
 	// Build refresh list
 	refreshList := make([]string, 0, len(refreshWidgets))
