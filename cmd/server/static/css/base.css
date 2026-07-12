@@ -211,10 +211,10 @@ html.windows { zoom: 1.11; }
 .hidden { display: none !important; }
 
 /* ===== 统计卡 ===== */
-.stat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 16px; }
-.stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; }
-.stat-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
-.stat-value { font-size: 20px; font-weight: 600; }
+.stat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 12px; }
+.stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
+.stat-label { font-size: 10px; color: var(--text-secondary); margin-bottom: 2px; }
+.stat-value { font-size: 18px; font-weight: 600; }
 .stat-pending .stat-value { color: var(--warning); }
 .stat-in_progress .stat-value { color: var(--primary); }
 .stat-running .stat-value { color: #ea580c; }
