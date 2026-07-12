@@ -163,7 +163,6 @@ function switchTab(tab) {
   }
   if (tab === 'experiences' && typeof loadExps === 'function') loadExps();
   if (tab === 'automation' && typeof loadAutomation === 'function') { loadAutomation(); if (typeof loadTerminalSetting === 'function') loadTerminalSetting(); }
-  if (tab === 'aichat' && typeof renderAICheat === 'function') renderAICheat(document.getElementById('aichat-root'));
   if (tab === 'rterm' && typeof initRptyTabOnFirstVisit === 'function') initRptyTabOnFirstVisit();
   if (tab === 'relay' && typeof loadRelayStats === 'function') { loadRelayStats(); if (typeof loadAgents === 'function') loadAgents(); }
   if (tab === 'config' && typeof loadConfig === 'function') loadConfig();

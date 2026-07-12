@@ -1,4 +1,4 @@
-// aichat.js — AI Chat view with function calling
+// aichat.js — 浮动 AI 对话挂件
 (function() {
   'use strict';
 
@@ -13,69 +13,242 @@
   function setLastId(id) { localStorage.setItem(LAST_KEY, id); }
 
   // eslint-disable-next-line no-var
-  var currentSession = null;
+  var pinned = false;
 
-  // ── Public: render into #aichat-root ────────────────────────
-  window.renderAICheat = function(root) {
+  // ── Init ─────────────────────────────────────────────────
+  window.initFloatingChat = function() {
+    if (document.getElementById('floating-chat-btn')) return; // already initialized
+
+    // 浮动按钮
+    const btn = document.createElement('button');
+    btn.id = 'floating-chat-btn';
+    btn.className = 'floating-chat-btn';
+    btn.title = 'AI 助手';
+    btn.innerHTML = '💬';
+    document.body.appendChild(btn);
+
+    // 遮罩
+    const backdrop = document.createElement('div');
+    backdrop.id = 'floating-chat-backdrop';
+    backdrop.className = 'floating-chat-backdrop';
+    document.body.appendChild(backdrop);
+
+    // 面板
+    const panel = document.createElement('div');
+    panel.id = 'floating-chat-panel';
+    panel.className = 'floating-chat-panel';
+    panel.innerHTML = panelHTML();
+    document.body.appendChild(panel);
+
+    // 配置 Modal（在面板内）
+    addConfigModal(panel);
+
+    // 高度拖拽调节
+    initResize(panel);
+
+    bindEvents();
+    refreshPanel();
+  };
+
+  function panelHTML() {
     const sessions = getSessions();
-    const activeId = getLastId();
-    const active = sessions.find(s => s.id === activeId) || sessions[0] || null;
-
-    root.innerHTML = `
-      <div class="aichat-root">
-        <aside class="aichat-sidebar">
-          <div class="aichat-sidebar-header">
-            <button class="btn btn-primary btn-sm" id="aichat-new-btn">+ 新建对话</button>
-          </div>
-          <div class="aichat-session-list" id="aichat-session-list"></div>
-        </aside>
-        <main class="aichat-main">
-          <div class="aichat-toolbar">
-            <span class="aichat-toolbar-title">AI对话助手</span>
-            <button class="btn-icon" id="aichat-open-config" title="AI对话助手配置" aria-label="open config">⚙</button>
-          </div>
-
-          <div class="aichat-chat-region" id="aichat-chat-region">
-            <div class="aichat-messages" id="aichat-messages"></div>
-            <div class="aichat-input-area">
-              <textarea id="aichat-input" placeholder="发送消息，AI 将通过工具帮你操作任务、目录、经验库..." rows="3"></textarea>
-              <div class="aichat-input-row">
-                <button class="btn btn-secondary btn-sm" id="aichat-clear-btn">清空</button>
-                <button class="btn btn-primary" id="aichat-send-btn">发送</button>
-              </div>
-            </div>
-          </div>
-        </main>
+    const lastId = getLastId();
+    return `
+      <div class="floating-chat-resize-handle" id="floating-chat-resize-handle" title="拖拽调节高度"></div>
+      <div class="floating-chat-header">
+        <span class="floating-chat-header-title">AI 助手</span>
+        <div class="floating-chat-header-actions">
+          <button class="btn-icon" id="aichat-open-config" title="配置">⚙</button>
+          <button class="btn-icon" id="aichat-pin-btn" title="点击不收起（自动收起）">📌</button>
+          <button class="btn-icon" id="aichat-close-btn" title="收起">◀</button>
+        </div>
       </div>
-
-      <div class="modal-backdrop hidden" id="aichat-config-modal">
-        <div class="modal-card">
-          <div class="modal-header">
-            <h3>AI对话助手配置</h3>
-            <button class="btn-icon" id="aichat-config-close" aria-label="close">✕</button>
-          </div>
-          <div class="modal-body" id="aichat-config-body">
-            ${configPanelHTML()}
+      <div class="floating-chat-sessions">
+        <select id="aichat-session-select">
+          ${sessions.length === 0 ? '<option value="">-- 无会话 --</option>' : ''}
+          ${sessions.map(s => `<option value="${s.id}" ${s.id === lastId ? 'selected' : ''}>${escHtml(s.title || '新对话')}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary btn-sm" id="aichat-new-btn">+ 新建</button>
+        <button class="btn btn-secondary btn-sm" id="aichat-del-btn" title="删除选中会话">删除</button>
+      </div>
+      <div class="floating-chat-body">
+        <div class="aichat-messages" id="aichat-messages"></div>
+        <div class="aichat-input-area">
+          <textarea id="aichat-input" placeholder="发送消息，AI 将通过工具帮你操作任务、目录..." rows="2"></textarea>
+          <div class="aichat-input-row">
+            <button class="btn btn-secondary btn-sm" id="aichat-clear-btn">清空</button>
+            <button class="btn btn-primary" id="aichat-send-btn">发送</button>
           </div>
         </div>
       </div>
     `;
+  }
 
-    bindEvents(root);
-    if (active) renderMessages(active.messages || []);
-    else renderMessages([]);
-    renderSessionList(root);
-  };
+  function addConfigModal(panel) {
+    const modal = document.createElement('div');
+    modal.id = 'aichat-config-modal';
+    modal.className = 'modal-backdrop hidden';
+    modal.innerHTML = `
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>AI 助手配置</h3>
+          <button class="btn-icon" id="aichat-config-close" aria-label="close">✕</button>
+        </div>
+        <div class="modal-body" id="aichat-config-body">
+          ${configPanelHTML()}
+        </div>
+      </div>
+    `;
+    panel.appendChild(modal);
+  }
 
+  // ── Open / Close ─────────────────────────────────────────
+  function open() {
+    document.getElementById('floating-chat-panel').classList.add('open');
+    document.getElementById('floating-chat-backdrop').classList.add('open');
+    document.getElementById('floating-chat-btn').style.display = 'none';
+    refreshPanel();
+    const input = document.getElementById('aichat-input');
+    if (input) setTimeout(() => input.focus(), 300);
+  }
+
+  function close() {
+    document.getElementById('floating-chat-panel').classList.remove('open');
+    document.getElementById('floating-chat-backdrop').classList.remove('open');
+    document.getElementById('floating-chat-btn').style.display = '';
+  }
+
+  function toggle() {
+    const panel = document.getElementById('floating-chat-panel');
+    if (panel.classList.contains('open')) close();
+    else open();
+  }
+
+  // ── Resize ───────────────────────────────────────────────
+  function initResize(panel) {
+    const handle = panel.querySelector('#floating-chat-resize-handle');
+    let startY, startTop;
+
+    function onMove(e) {
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const dy = clientY - startY;
+      const newTop = Math.max(0, Math.min(window.innerHeight - 320, startTop + dy));
+      panel.style.top = newTop + 'px';
+      panel.style.height = (window.innerHeight - newTop) + 'px';
+    }
+
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+      document.body.style.userSelect = '';
+    }
+
+    handle.addEventListener('mousedown', e => {
+      startY = e.clientY;
+      startTop = panel.offsetTop;
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    handle.addEventListener('touchstart', e => {
+      startY = e.touches[0].clientY;
+      startTop = panel.offsetTop;
+      document.addEventListener('touchmove', onMove, { passive: false });
+      document.addEventListener('touchend', onUp);
+      document.body.style.userSelect = 'none';
+    }, { passive: true });
+  }
+
+  // ── Events ───────────────────────────────────────────────
+  function bindEvents() {
+    document.getElementById('floating-chat-btn').addEventListener('click', toggle);
+    document.getElementById('floating-chat-backdrop').addEventListener('click', () => { if (!pinned) close(); });
+    document.getElementById('aichat-close-btn').addEventListener('click', close);
+
+    // 图钉锁定
+    const pinBtn = document.getElementById('aichat-pin-btn');
+    pinBtn.addEventListener('click', () => {
+      pinned = !pinned;
+      pinBtn.classList.toggle('pinned', pinned);
+      pinBtn.title = pinned ? '已锁定不收起（点击取消）' : '点击不收起（自动收起）';
+    });
+
+    // 配置
+    document.getElementById('aichat-open-config').addEventListener('click', () => {
+      const modal = document.getElementById('aichat-config-modal');
+      modal.classList.remove('hidden');
+      const panel = document.getElementById('floating-chat-panel');
+      loadConfig(panel);
+    });
+    const cfgModal = document.getElementById('aichat-config-modal');
+    document.getElementById('aichat-config-close').addEventListener('click', () => {
+      cfgModal.classList.add('hidden');
+    });
+    cfgModal.addEventListener('click', e => {
+      if (e.target === cfgModal) cfgModal.classList.add('hidden');
+    });
+
+    // 会话
+    document.getElementById('aichat-new-btn').addEventListener('click', () => createSession());
+    document.getElementById('aichat-del-btn').addEventListener('click', () => deleteSession());
+    document.getElementById('aichat-session-select').addEventListener('change', function() {
+      const id = this.value;
+      if (id) switchToSession(id);
+    });
+
+    // 消息
+    document.getElementById('aichat-send-btn').addEventListener('click', sendMessage);
+    document.getElementById('aichat-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+    document.getElementById('aichat-clear-btn').addEventListener('click', () => {
+      document.getElementById('aichat-messages').innerHTML = '';
+      document.getElementById('aichat-input').value = '';
+    });
+
+    // 配置保存/测试
+    const panel = document.getElementById('floating-chat-panel');
+    panel.querySelector('#cfg-save-btn')?.addEventListener('click', () => saveConfig(panel));
+    panel.querySelector('#cfg-test-btn')?.addEventListener('click', () => testConfig(panel));
+
+    // ESC
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      const modal = document.getElementById('aichat-config-modal');
+      if (modal && !modal.classList.contains('hidden')) {
+        modal.classList.add('hidden');
+        return;
+      }
+      if (!pinned) close();
+    });
+  }
+
+  // ── Panel refresh ────────────────────────────────────────
+  function refreshPanel() {
+    const sessions = getSessions();
+    const lastId = getLastId();
+    const select = document.getElementById('aichat-session-select');
+    if (select) {
+      select.innerHTML = sessions.length === 0
+        ? '<option value="">-- 无会话 --</option>'
+        : sessions.map(s => `<option value="${s.id}" ${s.id === lastId ? 'selected' : ''}>${escHtml(s.title || '新对话')}</option>`).join('');
+    }
+    const active = sessions.find(s => s.id === lastId);
+    renderMessages(active ? active.messages : []);
+  }
+
+  // ── Config Panel HTML ────────────────────────────────────
   function configPanelHTML() {
     return `<div class="aichat-config">
-      <h3>AI对话助手配置</h3>
       <p class="aichat-config-hint">支持 Anthropic / OpenAI 双协议共存，填好后用顶部切换选择使用哪套。</p>
       <div class="cfg-model-warning" id="cfg-model-warning" style="display:none;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#92400e">
         ⚠️ 当前未配置模型，请先在下方填写 API Key 和 Model 后保存。
       </div>
 
-      <!-- 当前激活 Provider -->
       <div class="form-group" id="cfg-provider-row" style="background:var(--hover);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px">
         <label style="font-size:12px;font-weight:600;margin-bottom:6px;display:block;color:var(--text)">当前使用</label>
         <div style="display:flex;align-items:center;gap:8px">
@@ -87,7 +260,6 @@
         </div>
       </div>
 
-      <!-- Anthropic + OpenAI 并排 -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="provider-config-block anthropic" id="cfg-block-anthropic">
           <div class="provider-config-header">Anthropic</div>
@@ -126,9 +298,9 @@
     </div>`;
   }
 
-  // 显示测试按钮 tooltip：当前选中 provider + model + key 状态
+  // ── Global helpers (called from inline onchange) ─────────
   window.showTestTip = function() {
-    const root = document.getElementById('aichat-config-body');
+    const root = document.getElementById('floating-chat-panel');
     if (!root) return;
     const provider = root.querySelector('#cfg-provider').value;
     const model = (provider === 'openai'
@@ -145,25 +317,23 @@
     tip.style.display = 'block';
   };
   window.hideTestTip = function() {
-    const root = document.getElementById('aichat-config-body');
+    const root = document.getElementById('floating-chat-panel');
     if (!root) return;
     const tip = root.querySelector('#cfg-test-tip');
     if (tip) tip.style.display = 'none';
   };
-
   window.onCfgProviderChange = function() {
-    // 切换 active_provider，不改变页面可见性（两套始终可见）
-    const provider = document.getElementById('cfg-provider').value;
-    document.querySelector('#cfg-active-provider-display')?.setAttribute('data-provider', provider);
-    // 根据当前表单值更新右侧状态文字颜色
+    const root = document.getElementById('floating-chat-panel');
+    if (!root) return;
+    const provider = root.querySelector('#cfg-provider').value;
     const model = (provider === 'openai'
-      ? document.getElementById('cfg-openai-model')
-      : document.getElementById('cfg-anthropic-model'))?.value.trim();
+      ? root.querySelector('#cfg-openai-model')
+      : root.querySelector('#cfg-anthropic-model'))?.value.trim();
     const keyEl = (provider === 'openai'
-      ? document.getElementById('cfg-openai-key')
-      : document.getElementById('cfg-anthropic-key'));
+      ? root.querySelector('#cfg-openai-key')
+      : root.querySelector('#cfg-anthropic-key'));
     const hasKey = !!(keyEl?.value.trim() || (keyEl?.placeholder?.startsWith('已配置')));
-    const hint = document.querySelector('#cfg-provider-hint');
+    const hint = root.querySelector('#cfg-provider-hint');
     if (hint) {
       if (hasKey && model) {
         hint.textContent = '✅ 已配置'; hint.style.color = '#16a34a';
@@ -175,88 +345,42 @@
     }
   };
 
-  // ── Events ─────────────────────────────────────────────────
-  function bindEvents(root) {
-    // 1) 配置 modal
-    const cfgBtn   = root.querySelector('#aichat-open-config');
-    const cfgModal = root.querySelector('#aichat-config-modal');
-    const cfgClose = root.querySelector('#aichat-config-close');
-    cfgBtn?.addEventListener('click', () => {
-      cfgModal.classList.remove('hidden');
-      loadConfig(root);
-    });
-    const closeCfg = () => cfgModal?.classList.add('hidden');
-    cfgClose?.addEventListener('click', closeCfg);
-    cfgModal?.addEventListener('click', e => { if (e.target === cfgModal) closeCfg(); });
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && cfgModal && !cfgModal.classList.contains('hidden')) closeCfg();
-    });
-
-    // 3) 其余原 handler（聊天 / 会话 / 清空 / 配置保存）
-    root.querySelector('#aichat-new-btn').addEventListener('click', () => createSession(root));
-    root.querySelector('#aichat-send-btn').addEventListener('click', () => sendMessage(root));
-    root.querySelector('#aichat-input').addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(root); }
-    });
-    root.querySelector('#aichat-clear-btn').addEventListener('click', () => {
-      root.querySelector('#aichat-messages').innerHTML = '';
-      root.querySelector('#aichat-input').value = '';
-    });
-    root.querySelector('#cfg-save-btn')?.addEventListener('click', () => saveConfig(root));
-    root.querySelector('#cfg-test-btn')?.addEventListener('click', () => testConfig(root));
-  }
-
-  // ── Sessions ─────────────────────────────────────────────────
-  function createSession(root) {
+  // ── Sessions ─────────────────────────────────────────────
+  function createSession() {
     const sessions = getSessions();
     const s = { id: 'sess_' + Date.now(), title: '新对话', messages: [], createdAt: new Date().toISOString() };
     sessions.unshift(s);
     saveSessions(sessions);
     setLastId(s.id);
-    renderSessionList(root);
-    switchToSession(root, s.id);
+    refreshPanel();
   }
 
-  function renderSessionList(root) {
-    const sessions = getSessions();
-    const lastId = getLastId();
-    const list = root.querySelector('#aichat-session-list');
-    if (!list) return;
-    if (!sessions.length) { list.innerHTML = '<div class="empty-hint">无会话</div>'; return; }
-    list.innerHTML = sessions.map(s => `
-      <div class="session-item ${s.id === lastId ? 'active' : ''}" data-id="${s.id}">
-        <span class="session-title">${escHtml(s.title || '新对话')}</span>
-        <button class="session-del" data-id="${s.id}">✕</button>
-      </div>`).join('');
-    list.querySelectorAll('.session-item').forEach(item => {
-      item.addEventListener('click', e => {
-        if (e.target.classList.contains('session-del')) { e.stopPropagation(); deleteSession(root, item.dataset.id); }
-        else { switchToSession(root, item.dataset.id); }
-      });
-    });
-  }
-
-  function switchToSession(root, id) {
+  function switchToSession(id) {
     setLastId(id);
     const sessions = getSessions();
     const s = sessions.find(s => s.id === id);
-    renderSessionList(root);
-    renderMessages(s ? s.messages : []);
+    refreshPanel();
   }
 
-  function deleteSession(root, id) {
+  function deleteSession() {
+    const select = document.getElementById('aichat-session-select');
+    const id = select ? select.value : '';
+    if (!id) return;
     let sessions = getSessions().filter(s => s.id !== id);
     saveSessions(sessions);
-    renderSessionList(root);
-    if (sessions.length) switchToSession(root, sessions[0].id);
-    else renderMessages([]);
+    if (sessions.length === 0) {
+      setLastId('');
+    } else {
+      setLastId(sessions[0].id);
+    }
+    refreshPanel();
   }
 
-  // ── Messages ─────────────────────────────────────────────────
+  // ── Messages ─────────────────────────────────────────────
   function renderMessages(messages) {
     const container = document.getElementById('aichat-messages');
     if (!container) return;
-    if (!messages.length) { container.innerHTML = welcomeHTML(); return; }
+    if (!messages || !messages.length) { container.innerHTML = welcomeHTML(); return; }
     container.innerHTML = messages.map(m => `
       <div class="aichat-msg aichat-msg-${escHtml(m.role)}">
         <div class="aichat-msg-role">${m.role === 'user' ? '你' : 'AI'}</div>
@@ -265,8 +389,6 @@
     container.scrollTop = container.scrollHeight;
   }
 
-  // welcomeHTML: 无消息时展示欢迎面板（4 张能力卡 + 提示）。
-  // 能力分类来自 cmd/server/ai_tools.go 的真实工具。
   function welcomeHTML() {
     return `<div class="aichat-welcome">
       <div class="aichat-welcome-title">👋 你好，我是 AI 对话助手</div>
@@ -307,9 +429,9 @@
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  // ── Send ─────────────────────────────────────────────────────
-  async function sendMessage(root) {
-    const input = root.querySelector('#aichat-input');
+  // ── Send ─────────────────────────────────────────────────
+  async function sendMessage() {
+    const input = document.getElementById('aichat-input');
     const text = input.value.trim();
     if (!text) return;
     input.value = '';
@@ -317,13 +439,12 @@
     let sessions = getSessions();
     let id = getLastId();
     let session = sessions.find(s => s.id === id);
-    if (!session) { createSession(root); sessions = getSessions(); id = getLastId(); session = sessions.find(s => s.id === id); }
+    if (!session) { createSession(); sessions = getSessions(); id = getLastId(); session = sessions.find(s => s.id === id); }
 
     session.messages.push({ role: 'user', content: text });
     if (session.messages.length === 1) { session.title = text.slice(0, 30); }
     saveSessions(sessions);
-    renderMessages(session.messages);
-    renderSessionList(root);
+    refreshPanel();
 
     const msgContainer = document.getElementById('aichat-messages');
     const typing = document.createElement('div');
@@ -340,16 +461,12 @@
       });
       if (!resp.ok) {
         let errMsg = resp.statusText;
-        try {
-          const err = await resp.json().catch(() => null);
-          if (err && err.error) errMsg = err.error;
-        } catch {}
+        try { const err = await resp.json().catch(() => null); if (err && err.error) errMsg = err.error; } catch {}
         throw new Error(errMsg);
       }
       const data = await resp.json();
       session.messages.push({ role: 'assistant', content: data.message?.content || JSON.stringify(data) });
 
-      // Refresh sidebar widgets if AI tool modified them (same as config.js import)
       if (data.refresh_widgets && data.refresh_widgets.length > 0) {
         if (typeof loadLinks === 'function' && data.refresh_widgets.includes('links')) loadLinks();
         if (typeof loadDirs === 'function' && data.refresh_widgets.includes('dirs')) loadDirs();
@@ -364,7 +481,7 @@
     renderMessages(session.messages);
   }
 
-  // ── Config ────────────────────────────────────────────────────
+  // ── Config ───────────────────────────────────────────────
   async function loadConfig(root) {
     try {
       const r = await fetch('/api/ai/config');
@@ -373,7 +490,6 @@
       const provider = cfg.active_provider || 'anthropic';
       root.querySelector('#cfg-provider').value = provider;
 
-      // Anthropic 配置
       const ant = cfg.anthropic || {};
       root.querySelector('#cfg-anthropic-url').value = ant.base_url || '';
       root.querySelector('#cfg-anthropic-model').value = ant.model || '';
@@ -382,7 +498,6 @@
         antKeyEl.placeholder = '已配置（修改请重新输入）';
       }
 
-      // OpenAI 配置
       const oai = cfg.openai || {};
       root.querySelector('#cfg-openai-url').value = oai.base_url || '';
       root.querySelector('#cfg-openai-model').value = oai.model || '';
@@ -391,11 +506,10 @@
         oaiKeyEl.placeholder = '已配置（修改请重新输入）';
       }
 
-      // 当前 provider 未配置模型时显示警告
       const active = provider === 'openai' ? oai : ant;
       const warn = root.querySelector('#cfg-model-warning');
       if (warn) warn.style.display = (!active.model || !active.api_key) ? 'block' : 'none';
-      // 当前使用右侧状态文字颜色
+
       const hint = root.querySelector('#cfg-provider-hint');
       if (hint) {
         const hasKey = !!active.api_key;
@@ -414,8 +528,6 @@
   async function saveConfig(root) {
     const status = root.querySelector('#cfg-status');
     const activeProvider = root.querySelector('#cfg-provider').value;
-
-    // 收集两个 Provider 的配置
     const antModel = root.querySelector('#cfg-anthropic-model').value.trim();
     const antURL = root.querySelector('#cfg-anthropic-url').value.trim();
     const antKey = root.querySelector('#cfg-anthropic-key').value;
@@ -423,7 +535,6 @@
     const oaiURL = root.querySelector('#cfg-openai-url').value.trim();
     const oaiKey = root.querySelector('#cfg-openai-key').value;
 
-    // 保存主配置（不含 api_key）
     try {
       await fetch('/api/ai/config', {
         method: 'PUT',
@@ -438,7 +549,6 @@
       status.textContent = '❌ 保存失败: ' + err.message; status.style.color = 'red'; return;
     }
 
-    // 单独保存各 Provider 的 api_key
     const saves = [];
     if (antKey) saves.push(fetch('/api/ai/config/key', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -465,13 +575,13 @@
     clearTimeout(status._timer);
     const provider = root.querySelector('#cfg-provider').value;
     status.textContent = '🔬 测试连接中...'; status.style.color = 'blue';
+    const output = root.querySelector('#cfg-test-output');
     try {
       const r = await fetch('/api/ai/config/test?provider=' + encodeURIComponent(provider), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}) // 空 body，后端用已保存的 config
+        body: JSON.stringify({})
       });
-      const output = root.querySelector('#cfg-test-output');
       output.style.display = 'none';
       if (r.ok) {
         const data = await r.json().catch(() => ({}));
@@ -494,8 +604,5 @@
     }
     status._timer = setTimeout(() => { status.textContent = ''; if (output) output.style.display = 'none'; }, 6000);
   }
-
-
-  // （终端功能已移至 Web 终端 Tab）
 
 })();
