@@ -540,6 +540,31 @@ tr:last-child td { border-bottom: none; }
 .terminal-title { color: #94a3b8; font-size: 12px; margin-left: 8px; }
 #terminal { height: 400px; padding: 8px; }
 
+/* 终端会话列表 */
+#rterm-sidebar { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.rterm-session-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+  border-left: 2px solid transparent;
+}
+.rterm-session-item:hover { background: var(--hover); }
+.rterm-session-item .rterm-session-close {
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  opacity: 0;
+  line-height: 1;
+}
+.rterm-session-item:hover .rterm-session-close { opacity: 1; }
+.rterm-session-item .rterm-session-close:hover { color: var(--danger); }
+
 /* ===== v2 5 widget ===== */
 .widget-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 24px; }
 .dashboard-row { display: flex; gap: 16px; margin-top: 24px; }

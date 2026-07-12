@@ -1,26 +1,123 @@
 // terminal.js — Web 终端 Tab 专用终端模块
-// 支持：本地 Shell / 本地 Claude CLI / 本地 CBC CLI / 远程 SSH（xw-sshpass）
-// 依赖: api.js, xterm.js (via index.html CDN)
+// 支持：左侧会话列表 + 右侧终端区、多会话并存
 
 let term = null;         // xterm.js Terminal 实例
 let termWs = null;       // WebSocket 连接
 let termReady = false;
 let currentTabID = null;  // 当前 tab_id
-let initInProgress = false; // 防止 initTerminal 重复调用
+let initInProgress = false;
+let activeSession = null; // 当前活跃会话 ID
+
+// sessionIDFromParams 根据类型和 dirID 计算 session ID
+function sessionIDFromParams(type, dirID) {
+  if (type === 'remote') return 'remote_' + (dirID || '');
+  return type;
+}
+
+// renderSessionList 渲染左侧会话列表
+function renderSessionList() {
+  const localEl = document.getElementById('rterm-local-sessions');
+  const remoteEl = document.getElementById('rterm-remote-sessions');
+  if (!localEl || !remoteEl) return;
+
+  fetchJSON('/api/terminal/sessions').then(sessions => {
+    const locals = sessions.filter(s => s.type !== 'remote');
+    const remotes = sessions.filter(s => s.type === 'remote');
+
+    localEl.innerHTML = locals.length === 0
+      ? '<div style="font-size:10px;color:var(--text-secondary);padding:2px 8px">暂无</div>'
+      : locals.map(s => sessionItemHTML(s)).join('');
+
+    remoteEl.innerHTML = remotes.length === 0
+      ? '<div style="font-size:10px;color:var(--text-secondary);padding:2px 8px">暂无</div>'
+      : remotes.map(s => sessionItemHTML(s)).join('');
+
+    updateNavStatus(sessions);
+  }).catch(() => {});
+}
+
+function sessionItemHTML(s) {
+  const statusDot = s.status === 'connected'
+    ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0" title="已连接"></span>'
+    : s.status === 'connecting'
+    ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;flex-shrink:0" title="连接中"></span>'
+    : '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--text-secondary);flex-shrink:0" title="已断开"></span>';
+
+  const isActive = activeSession === s.id;
+  const bgStyle = isActive ? 'background:var(--hover);' : '';
+
+  const disconnectBtn = s.status === 'connected'
+    ? `<button class="rterm-session-close" onclick="event.stopPropagation();disconnectSession('${s.id}')" title="断开">×</button>`
+    : '';
+
+  return `<div class="rterm-session-item" style="${bgStyle}" onclick="switchSession('${s.id}', '${s.type}', '${s.dir_id || ''}')">
+    ${statusDot}
+    <span style="flex:1;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.label}</span>
+    ${disconnectBtn}
+  </div>`;
+}
+
+// switchSession 点击列表项切换会话
+function switchSession(id, type, dirID) {
+  activeSession = id;
+
+  // 更新下拉框
+  const typeSel = document.getElementById('rterm-type-select');
+  if (typeSel) typeSel.value = type;
+
+  const dirGroup = document.querySelector('.rterm-dir-group');
+  if (type === 'remote') {
+    if (dirGroup) dirGroup.style.display = '';
+    const dirSel = document.getElementById('rpty-dir-select');
+    if (dirSel && dirID) dirSel.value = dirID;
+  } else {
+    if (dirGroup) dirGroup.style.display = 'none';
+  }
+
+  // 如果该会话已连接且是当前活跃的，无需重连
+  if (termReady && currentTabID) {
+    // 如果当前 WebSocket 就是该会话的，直接复用
+    // 否则需要切换到该会话的 xterm 实例
+    const connectBtn = document.getElementById('rpty-connect-btn');
+    if (connectBtn) connectBtn.disabled = false;
+  }
+
+  renderSessionList();
+  updateTermStatus('disconnected'); // 提示用户点击连接
+}
+
+// disconnectSession 手动断开指定会话
+function disconnectSession(sessionID) {
+  fetch('/api/terminal/disconnect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionID })
+  }).then(() => {
+    if (activeSession === sessionID) {
+      activeSession = null;
+      disconnectTerminal();
+    }
+    renderSessionList();
+  }).catch(e => console.error('disconnect error:', e));
+}
+
+// updateNavStatus 更新导航栏终端状态点
+function updateNavStatus(sessions) {
+  const navStatus = document.getElementById('rterm-nav-status');
+  if (!navStatus) return;
+  const hasConnected = (sessions || []).some(s => s.status === 'connected');
+  navStatus.style.display = hasConnected ? '' : 'none';
+}
 
 // initTerminal 初始化 xterm.js 并连接 WebSocket
 function initTerminal(type, dirID) {
-  console.log('[terminal] initTerminal called', { type, dirID, initInProgress });
   const container = document.getElementById('rpty-container');
   if (!container) return;
-  if (initInProgress) {
-    console.log('[terminal] initTerminal already in progress, skipping');
-    return;
-  }
-  // 关闭旧的 WebSocket（如果存在）
+  if (initInProgress) return;
+
+  // 关闭旧的 WebSocket
   if (termWs) {
-    console.log('[terminal] closing existing termWs');
-    termWs.onclose = null; // 避免触发旧的 onclose
+    termWs.onclose = null;
     termWs.close();
     termWs = null;
   }
@@ -28,7 +125,6 @@ function initTerminal(type, dirID) {
   termReady = false;
   initInProgress = true;
 
-  // 控制远程目录选择框显隐（onRtermTypeChange 的显隐逻辑合并到这里，避免重复调用 disconnectTerminal）
   const dirGroup = document.querySelector('.rterm-dir-group');
   if (dirGroup) dirGroup.style.display = type === 'remote' ? '' : 'none';
 
@@ -46,19 +142,19 @@ function initTerminal(type, dirID) {
 
   const tabID = 'term-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   currentTabID = tabID;
+  activeSession = sessionIDFromParams(type, dirID);
 
   const wsUrl = buildWsUrl(tabID, type, dirID);
-  console.log('[terminal] connecting to', wsUrl);
   termWs = new WebSocket(wsUrl);
   termWs.binaryType = 'arraybuffer';
 
   termWs.onopen = () => {
-    console.log('[terminal] ws onopen fired');
     initInProgress = false;
     termReady = true;
     term.writeln('\x1b[32m[xworkbench] 连接就绪\x1b[0m\r\n');
     termWs.send('resize,' + term.cols + ',' + term.rows);
     updateTermStatus('connected');
+    renderSessionList();
     fitAddon.fit();
   };
 
@@ -85,21 +181,21 @@ function initTerminal(type, dirID) {
     initInProgress = false;
     term.writeln('\r\n\x1b[31m[WebSocket 错误]\x1b[0m\r\n');
     updateTermStatus('error');
+    renderSessionList();
   };
 
   termWs.onclose = (e) => {
     termReady = false;
     initInProgress = false;
-    console.log('[terminal] ws onclose', e.code, e.reason);
     if (e.reason) {
       term.writeln('\r\n\x1b[33m[连接已关闭: ' + e.reason + ']\x1b[0m\r\n');
     } else {
       term.writeln('\r\n\x1b[33m[连接已关闭]\x1b[0m\r\n');
     }
     updateTermStatus('disconnected');
+    renderSessionList();
   };
 
-  // PTY 自带回显，不需要前端 echo
   term.onData(data => {
     if (termWs && termWs.readyState === WebSocket.OPEN) termWs.send(data);
   });
@@ -112,7 +208,6 @@ function initTerminal(type, dirID) {
     updateColsDisplay();
   });
 
-  // ResizeObserver：容器大小变化时自动 fit（tab 隐藏时跳过，避免上报 0x0 尺寸）
   const ro = new ResizeObserver(() => {
     const pageRterm = document.getElementById('page-rterm');
     if (!pageRterm || pageRterm.classList.contains('hidden')) return;
@@ -129,26 +224,23 @@ function initTerminal(type, dirID) {
   updateColsDisplay();
 }
 
-// buildWsUrl 根据终端类型和 dirID 构建 WebSocket URL
+// buildWsUrl 构建 WebSocket URL
 function buildWsUrl(tabID, type, dirID) {
   const host = window.location.host;
   const base = '/api/pty?tab_id=' + encodeURIComponent(tabID);
   if (type === 'remote') {
     return 'ws://' + host + base + '&dir_id=' + encodeURIComponent(dirID);
   }
-  // 本地 shell/claude/cbc
   const cliMap = { local_shell: 'shell', local_claude: 'claude', local_cbc: 'cbc', local_powershell: 'powershell' };
   return 'ws://' + host + base + '&cli_type=' + encodeURIComponent(cliMap[type] || 'shell');
 }
 
-// updateColsDisplay 更新 header 列数显示
 function updateColsDisplay() {
   if (!term) return;
   const el = document.getElementById('rpty-cols-display');
   if (el) el.textContent = term.cols + ' 列 × ' + term.rows + ' 行';
 }
 
-// updateTermStatus 更新状态文本（使用 CSS 而非 ANSI 转义码，避免在 DOM 中显示乱码）
 function updateTermStatus(status) {
   const el = document.getElementById('rpty-status');
   if (!el) return;
@@ -161,20 +253,19 @@ function updateTermStatus(status) {
   el.innerHTML = labels[status] || status;
 }
 
-// showAuthPanel 显示授权响应框
 function showAuthPanel() {
   const panel = document.getElementById('rpty-auth-panel');
   if (panel) panel.style.display = 'flex';
 }
 
-// onRtermTypeChange 终端类型切换
+// onRtermTypeChange 终端类型切换（不自动连接，不中断现有连接）
 window.onRtermTypeChange = function(type) {
   const dirGroup = document.querySelector('.rterm-dir-group');
   if (dirGroup) dirGroup.style.display = type === 'remote' ? '' : 'none';
-  disconnectTerminal();
+  const connectBtn = document.getElementById('rpty-connect-btn');
+  if (connectBtn) connectBtn.disabled = false;
 };
 
-// onRptyDirChange 目录切换
 window.onRptyDirChange = function(dirID) {
   const btn = document.getElementById('rpty-connect-btn');
   if (btn) btn.disabled = !dirID;
@@ -189,6 +280,7 @@ window.onRptyConnect = function() {
 
   if (type === 'remote' && !dirID) {
     if (term) term.writeln('\x1b[31m[错误] 请先选择远程目录\x1b[0m\r\n');
+    renderSessionList();
     return;
   }
 
@@ -196,19 +288,19 @@ window.onRptyConnect = function() {
   initTerminal(type, dirID);
 };
 
-// disconnectTerminal 断开连接
 window.disconnectTerminal = function() {
   initInProgress = false;
   if (termWs) {
-    termWs.onclose = null; // 避免旧连接的 close 影响新连接
+    termWs.onclose = null;
     termWs.close();
     termWs = null;
   }
   termReady = false;
+  activeSession = null;
   updateTermStatus('disconnected');
+  renderSessionList();
 };
 
-// submitAuthInput 提交授权响应
 window.submitAuthInput = function(input) {
   if (!currentTabID || !termReady) {
     if (term) term.writeln('\x1b[31m[错误] 无活跃连接\x1b[0m\r\n');
@@ -227,9 +319,8 @@ window.submitAuthInput = function(input) {
   if (panel) panel.style.display = 'none';
 };
 
-// initTermOnFirstVisit 首次访问 Tab 时初始化
+// initTermOnFirstVisit 首次访问 Tab 时加载会话列表
 window.initRptyTabOnFirstVisit = function() {
-  // 加载远程目录列表
   fetchJSON('/api/dir-shortcuts').then(dirs => {
     const sel = document.getElementById('rpty-dir-select');
     if (!sel) return;
@@ -237,6 +328,5 @@ window.initRptyTabOnFirstVisit = function() {
     sel.innerHTML = '<option value="">— 选择远程目录 —</option>' +
       remote.map(d => '<option value="' + d.id + '">' + d.name + ' (' + d.remote_host + ')</option>').join('');
   }).catch(() => {});
-  // 初始化终端（不要在这里调用 onRtermTypeChange，它会触发 disconnectTerminal 关掉刚建的 WS）
-  initTerminal('local_shell', '');
+  renderSessionList();
 };

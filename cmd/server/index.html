@@ -60,6 +60,7 @@
     </div>
     <div class="nav-item" data-tab="rterm" onclick="switchTab('rterm')" data-tooltip="Web 终端&#10;Web 内嵌 SSH 交互式终端&#10;通过 dir shortcut 连接远程主机">
       <span class="nav-icon">🖥️</span><span class="nav-text">Web 终端</span>
+      <span id="rterm-nav-status" style="display:none;width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;margin-left:4px" title="有活跃连接"></span>
     </div>
     <div class="nav-item" data-tab="aichat" onclick="switchTab('aichat')" data-tooltip="AI 助手&#10;对话管理任务/目录/经验库&#10;终端式 Claude/CBC/shell 交互">
       <span class="nav-icon">🤖</span><span class="nav-text">AI 助手</span>
@@ -504,49 +505,58 @@
 
   <!-- Web 终端 Tab -->
   <div id="page-rterm" class="hidden">
-    <h1 class="page-title">🖥️ Web 终端 <span style="font-size:13px;color:var(--text-secondary);font-weight:normal;margin-left:8px">Web 内嵌交互式终端</span></h1>
-
-    <!-- 连接控制栏 -->
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      <!-- 终端类型选择 -->
-      <select id="rterm-type-select" onchange="onRtermTypeChange(this.value)"
-              style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text)">
-        <option value="local_shell">本地 Shell</option>
-        <option value="local_claude">本地 Claude CLI</option>
-        <option value="local_cbc">本地 CBC CLI</option>
-        <option value="local_powershell">本地 PowerShell</option>
-        <option value="remote">远程 SSH</option>
-      </select>
-      <!-- 远程目录选择（仅 remote 模式显示） -->
-      <div class="rterm-dir-group">
-        <select id="rpty-dir-select" onchange="onRptyDirChange(this.value)"
-                style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);min-width:200px">
-          <option value="">— 选择远程目录 —</option>
-        </select>
+    <div style="display:flex;height:calc(100vh - 120px);min-height:400px">
+      <!-- 左侧会话列表 -->
+      <div id="rterm-sidebar" style="width:160px;border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0;padding:8px 0">
+        <div style="padding:0 8px 6px;font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">会话</div>
+        <div id="rterm-local-sessions" style="display:flex;flex-direction:column"></div>
+        <div style="padding:4px 8px 4px;font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid var(--border);margin-top:4px">远程 SSH</div>
+        <div id="rterm-remote-sessions" style="display:flex;flex-direction:column"></div>
       </div>
-      <button class="btn btn-primary" id="rpty-connect-btn" onclick="onRptyConnect()" style="font-size:13px;padding:6px 16px">连接</button>
-      <button class="btn btn-secondary" id="rpty-disconnect-btn" onclick="disconnectTerminal()" style="font-size:13px;padding:6px 16px;display:none">断开</button>
-      <span id="rpty-status" class="rpty-status" style="font-size:12px;color:var(--text-secondary)">未连接</span>
-    </div>
 
-    <!-- Auth 响应框（auth_required 触发后显示） -->
-    <div id="rpty-auth-panel" style="display:none;margin-bottom:12px;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:6px">
-      <span style="font-size:12px;color:var(--text-secondary);margin-right:8px">授权响应:</span>
-      <input id="rpty-auth-input" placeholder="输入响应（yes/no/密码）后回车"
-             style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--text);flex:1;max-width:400px"
-             onkeydown="if(event.key==='Enter'){submitAuthInput(this.value);this.value='';document.getElementById('rpty-auth-panel').style.display='none'}">
-    </div>
+      <!-- 右侧终端区 -->
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <!-- 连接控制栏 -->
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;flex-wrap:wrap;border-bottom:1px solid var(--border);flex-shrink:0">
+          <select id="rterm-type-select" onchange="onRtermTypeChange(this.value)"
+                  style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card-bg);color:var(--text)">
+            <option value="local_shell">本地 Shell</option>
+            <option value="local_claude">本地 Claude</option>
+            <option value="local_cbc">本地 CBC</option>
+            <option value="local_powershell">本地 PowerShell</option>
+            <option value="remote">远程 SSH</option>
+          </select>
+          <div class="rterm-dir-group" style="display:none">
+            <select id="rpty-dir-select" onchange="onRptyDirChange(this.value)"
+                    style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card-bg);color:var(--text);min-width:160px">
+              <option value="">— 选择远程目录 —</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="rpty-connect-btn" onclick="onRptyConnect()" style="font-size:12px;padding:4px 12px">连接</button>
+          <button class="btn btn-secondary" id="rpty-disconnect-btn" onclick="disconnectTerminal()" style="font-size:12px;padding:4px 12px;display:none">断开</button>
+          <span id="rpty-status" style="font-size:11px;color:var(--text-secondary)">未连接</span>
+        </div>
 
-    <!-- 终端区 -->
-    <div class="terminal-wrap">
-      <div class="terminal-header">
-        <div class="terminal-dot red"></div>
-        <div class="terminal-dot yellow"></div>
-        <div class="terminal-dot green"></div>
-        <div class="terminal-title">xworkbench · Web 终端</div>
-        <div id="rpty-cols-display" style="margin-left:auto;font-size:11px;color:#94a3b8;font-family:monospace"></div>
+        <!-- Auth 响应框 -->
+        <div id="rpty-auth-panel" style="display:none;padding:6px 12px;background:var(--card-bg);border-bottom:1px solid var(--border);flex-shrink:0">
+          <span style="font-size:11px;color:var(--text-secondary);margin-right:8px">授权响应:</span>
+          <input id="rpty-auth-input" placeholder="输入响应（yes/no/密码）后回车"
+                 style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg);color:var(--text);flex:1;max-width:400px"
+                 onkeydown="if(event.key==='Enter'){submitAuthInput(this.value);this.value='';document.getElementById('rpty-auth-panel').style.display='none'}">
+        </div>
+
+        <!-- 终端区 -->
+        <div class="terminal-wrap" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+          <div class="terminal-header">
+            <div class="terminal-dot red"></div>
+            <div class="terminal-dot yellow"></div>
+            <div class="terminal-dot green"></div>
+            <div class="terminal-title">xworkbench · Web 终端</div>
+            <div id="rpty-cols-display" style="margin-left:auto;font-size:11px;color:#94a3b8;font-family:monospace"></div>
+          </div>
+          <div id="rpty-container" tabindex="0" style="flex:1;min-height:250px"></div>
+        </div>
       </div>
-      <div id="rpty-container" tabindex="0" style="height:calc(100vh - 180px);min-height:350px;width:100%"></div>
     </div>
   </div>
 
