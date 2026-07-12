@@ -507,7 +507,7 @@
   <div id="page-rterm" class="hidden">
     <div style="display:flex;height:calc(100vh - 120px);min-height:400px">
       <!-- 左侧会话列表 -->
-      <div id="rterm-sidebar" style="width:160px;border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0;background:var(--card-bg)">
+      <div id="rterm-sidebar" style="width:160px;border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0;background:var(--card-bg);transition:width 0.15s">
         <div id="rterm-local-sessions" style="display:flex;flex-direction:column">
           <div class="rterm-group-label" style="padding:6px 8px 2px;font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">本地终端</div>
         </div>
@@ -520,6 +520,7 @@
       <div style="flex:1;display:flex;flex-direction:column;min-width:0">
         <!-- 连接控制栏 -->
         <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;flex-wrap:wrap;border-bottom:1px solid var(--border);flex-shrink:0">
+          <button class="btn btn-small" onclick="toggleRtermSidebar()" title="收起/展开侧栏" style="font-size:14px;padding:1px 4px">◀</button>
           <select id="rterm-type-select" onchange="onRtermTypeChange(this.value)"
                   style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card-bg);color:var(--text)">
             <option value="local_shell">本地 Shell</option>

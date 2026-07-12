@@ -36,8 +36,12 @@ function renderSessionList() {
 }
 
 function sessionItemHTML(s) {
-  const isConnected = s.status === 'connected';
-  const isConnecting = s.status === 'connecting';
+  // 以前端 termPool 的实际连接状态为准（比后端 API 更实时）
+  const poolInfo = termPool[s.id];
+  const frontendConnected = poolInfo && poolInfo.ready;
+  const displayStatus = frontendConnected ? 'connected' : s.status;
+  const isConnected = displayStatus === 'connected';
+  const isConnecting = displayStatus === 'connecting';
   const isActive = activeSession === s.id;
   const dotColor = isConnected ? '#22c55e' : isConnecting ? '#f59e0b' : 'var(--text-secondary)';
   const borderStyle = isActive ? 'border-left:2px solid var(--primary);' : '';
@@ -50,7 +54,7 @@ function sessionItemHTML(s) {
   }
 
   return `<div class="rterm-session-item" style="${borderStyle}" onclick="switchSession('${s.id}', '${s.type}', '${s.dir_id || ''}')">
-    <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0" title="${s.status}"></span>
+    <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0" title="${displayStatus}"></span>
     <span style="flex:1;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.label}</span>
     ${actionBtn}
   </div>`;
@@ -317,6 +321,19 @@ function removeSession(sessionID) {
 }
 
 // ===== Window Hooks =====
+
+// toggleRtermSidebar 收起/展开左侧栏
+window.toggleRtermSidebar = function() {
+  const sidebar = document.getElementById('rterm-sidebar');
+  if (!sidebar) return;
+  const hidden = sidebar.style.width === '0px';
+  sidebar.style.width = hidden ? '160px' : '0px';
+  sidebar.style.borderRight = hidden ? '' : 'none';
+  sidebar.style.overflow = hidden ? '' : 'hidden';
+  // 更新按钮图标
+  const btn = document.querySelector('#page-rterm .btn-small');
+  if (btn) btn.textContent = hidden ? '◀' : '▶';
+};
 
 window.onRtermTypeChange = function(type) {
   const dirGroup = document.querySelector('.rterm-dir-group');
