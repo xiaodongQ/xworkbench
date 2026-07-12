@@ -1081,6 +1081,13 @@
       </label>
     </div>
     <div style="font-size:11px;color:var(--text-secondary);margin-top:8px">支持 <code>- [ ]</code> 和 <code>- [x]</code> 格式，点击勾选框会自动写回文件（先 .bak 再原子 rename）。</div>
+    <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">
+      新增/编辑时自动追加 <code>created:YYYY-MM-DD</code> 标签；可手动指定 <code>due:YYYY-MM-DD</code> 截止日；
+      勾选已完成项后从 ⋮ 菜单归档，<b>归档区</b> 以<br>
+      <code>--- archived (must exist for archived, do not delete) ---</code><br>
+      标记分隔，归档项追加 <code>archived:YYYY-MM-DD</code>。<br>
+      活跃区按 <code>### YYYY年MM月</code> 分组，空行分割。请勿移动或删除分隔标记。
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTodoPathModal()">取消</button>
       <button class="btn btn-primary" onclick="submitTodoPath()">保存</button>

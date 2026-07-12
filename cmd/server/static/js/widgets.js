@@ -785,13 +785,14 @@ async function loadTodo() {
     }
   });
 
-  // 渲染归档区
+  // 渲染归档区（仅展示顶级项，不展示子项）
   const archivedEl = document.getElementById('todo-archived-section');
   if (archivedEl) {
     if (_todoShowArchived && window._todoArchivedData.length > 0) {
       archivedEl.style.display = 'block';
-      const archivedFlat = flattenItems(window._todoArchivedData);
-      const groups = groupByMonth(archivedFlat, 'archived');
+      // 只取顶级归档项（无 _parent_line_no）
+      const topLevelArchived = window._todoArchivedData.filter(i => !i._parent_line_no);
+      const groups = groupByMonth(topLevelArchived, 'archived');
       let html = '';
       for (const group of groups) {
         const label = getMonthLabel(group.items[0].archived);
