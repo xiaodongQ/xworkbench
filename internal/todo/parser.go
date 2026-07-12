@@ -313,11 +313,7 @@ func AddAndWrite(path, text, dueDate string, tags []string, note string) (int, e
 	for i := 0; i < len(activeLines); i++ {
 		result += activeLines[i] + "\n"
 	}
-	// 清理末尾空行再追加新项
-	result = strings.TrimRight(result, "\n")
-	if result != "" && !strings.HasSuffix(result, "\n") {
-		result += "\n"
-	}
+	// 直接追加新项，保留活跃区末尾原有的空行（不再 TrimRight 吃掉分隔线前的空行）
 	result += newContent.String()
 	// 追加分隔线和归档区
 	result += archiveSeparator + "\n"

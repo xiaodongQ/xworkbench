@@ -28,8 +28,8 @@ func TestE2E_UserReportedScenario(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("1. AddAndWrite('测试新增') → lineNo=%d", parentLn)
-	if parentLn != 1 {
-		t.Errorf("first add: line_no = %d, want 1 (空活跃区新项到第一行)", parentLn)
+	if parentLn != 2 {
+		t.Errorf("first add: line_no = %d, want 2 (空活跃区新项在第2行，第1行为空行)", parentLn)
 	}
 
 	// 2. 添加子项 1, 2
@@ -48,10 +48,9 @@ func TestE2E_UserReportedScenario(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("4. AddAndWrite('测试新增2') → lineNo=%d", parentLn2)
-	// 孙项"4"在 line 6（gcLn2=6）。下一次 AddAndWrite 紧接其后：active 区尾空行被 TrimRight 让位，新项落 separator 之前的 1 行。
-	// 修复前这里是 off-by-one，修复后必须 == 真实行号 7。
-	if wantLn := gcLn2 + 1; parentLn2 != wantLn {
-		t.Errorf("lineNo 应该是 %d（孙项 4 之后 1 行），但返回 %d —— off-by-one bug 复发", wantLn, parentLn2)
+	// 孙项"4"在 line 6（gcLn2=6）。下一次 AddAndWrite 保留分隔线前空行，新项落其后。
+	if wantLn := gcLn2 + 2; parentLn2 != wantLn {
+		t.Errorf("lineNo 应该是 %d（孙项 4 后 + 空行），但返回 %d", wantLn, parentLn2)
 	}
 
 	// 5. 给"测试新增2"加子项

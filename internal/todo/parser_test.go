@@ -322,9 +322,9 @@ func TestAddAndWrite_WithArchive(t *testing.T) {
 	if len(sections.ArchivedItems) != 1 {
 		t.Errorf("ArchivedItems = %d, want 1", len(sections.ArchivedItems))
 	}
-	// 新任务的 line_no 应该在活跃区（分隔线之前，即第3行）
-	if lineNo != 3 {
-		t.Errorf("new item lineNo = %d, want 3 (before separator)", lineNo)
+	// 新任务的 line_no 应该在活跃区（分隔线之前，空行保留，故第4行）
+	if lineNo != 4 {
+		t.Errorf("new item lineNo = %d, want 4 (before separator)", lineNo)
 	}
 	// 验证新任务文本
 	found := false
@@ -577,18 +577,17 @@ func TestAddAndWrite_ConsecutiveReturnsCorrectLineNo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ln1 != 2 {
-		t.Errorf("first add: line_no = %d, want 2", ln1)
+	if ln1 != 3 {
+		t.Errorf("first add: line_no = %d, want 3", ln1)
 	}
 
-	// 第二次：separator 前已无空行可吃，新行应落在真实行号位置。
-	// 修复前 ln2 错为 separatorIdx (0-based)，修复后必须等于实际行号 3。
+	// 第二次：新项插入活跃区末尾，空行保留
 	ln2, err := AddAndWrite(path, "Second", "", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ln2 != 3 {
-		t.Errorf("second add: line_no = %d, want 3 (off-by-one bug exposed here pre-fix)", ln2)
+	if ln2 != 4 {
+		t.Errorf("second add: line_no = %d, want 4", ln2)
 	}
 
 	// 第三次再压一次，确认多次连续都正确
@@ -596,8 +595,8 @@ func TestAddAndWrite_ConsecutiveReturnsCorrectLineNo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ln3 != 4 {
-		t.Errorf("third add: line_no = %d, want 4 (off-by-one bug exposed here pre-fix)", ln3)
+	if ln3 != 5 {
+		t.Errorf("third add: line_no = %d, want 5", ln3)
 	}
 
 	// 给"Second"加一个子项 —— 这是用户报告的精确路径：
