@@ -112,8 +112,10 @@ function initTerminal(type, dirID) {
     updateColsDisplay();
   });
 
-  // ResizeObserver：容器大小变化时自动 fit
+  // ResizeObserver：容器大小变化时自动 fit（tab 隐藏时跳过，避免上报 0x0 尺寸）
   const ro = new ResizeObserver(() => {
+    const pageRterm = document.getElementById('page-rterm');
+    if (!pageRterm || pageRterm.classList.contains('hidden')) return;
     if (termReady) {
       fitAddon.fit();
       if (termWs && termWs.readyState === WebSocket.OPEN) {
@@ -146,15 +148,15 @@ function updateColsDisplay() {
   if (el) el.textContent = term.cols + ' 列 × ' + term.rows + ' 行';
 }
 
-// updateTermStatus 更新状态文本
+// updateTermStatus 更新状态文本（使用 CSS 而非 ANSI 转义码，避免在 DOM 中显示乱码）
 function updateTermStatus(status) {
   const el = document.getElementById('rpty-status');
   if (!el) return;
   const labels = {
-    connected: '\x1b[32m已连接\x1b[0m',
-    disconnected: '\x1b[33m未连接\x1b[0m',
-    error: '\x1b[31m错误\x1b[0m',
-    connecting: '\x1b[33m连接中...\x1b[0m',
+    connected: '<span style="color:#22c55e">已连接</span>',
+    disconnected: '<span style="color:#f59e0b">未连接</span>',
+    error: '<span style="color:#ef4444">错误</span>',
+    connecting: '<span style="color:#f59e0b">连接中...</span>',
   };
   el.innerHTML = labels[status] || status;
 }
