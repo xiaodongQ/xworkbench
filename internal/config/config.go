@@ -460,6 +460,8 @@ func mergeConfig(dst, src *Config) {
 	// bool 字段：直接覆盖（false 也是合法值）
 	dst.AILoopEnabled = src.AILoopEnabled
 	dst.SchedulerEnabled = src.SchedulerEnabled
+	dst.TodoShowArchived = src.TodoShowArchived
+	dst.DangerouslySkipPermissions = src.DangerouslySkipPermissions
 
 	// terminal（无 default_type，仅 types + detect_paths）
 	for k, v := range src.Terminal.DetectPaths {
