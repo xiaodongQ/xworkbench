@@ -737,9 +737,10 @@ async function loadTodo() {
   window._todoTreeData = data.items || [];
   window._todoArchivedData = data.archived_items || [];
 
-  // 归档显示状态：优先使用后端配置，否则用本地状态
-  if (data.show_archived !== undefined) {
+  // 归档显示状态：首次加载时用后端配置，后续 toggle 不再覆盖
+  if (!window._todoShowArchivedInited && data.show_archived !== undefined) {
     _todoShowArchived = data.show_archived;
+    window._todoShowArchivedInited = true;
   }
 
   // 过滤和排序活跃项：先过滤，再排序（树结构内排序），再扁平
@@ -1107,6 +1108,7 @@ function submitTodoPath() {
     fetch('/api/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({todo_show_archived: showArchived})})
   ]).then(() => {
     closeTodoPathModal();
+    _todoShowArchived = showArchived;
     loadTodo();
   });
 }
