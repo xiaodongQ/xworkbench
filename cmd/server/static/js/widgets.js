@@ -172,13 +172,24 @@ async function loadDirs() {
         ondragstart="widgetDragStart(event, 'dir-shortcuts')" ondragover="widgetDragOver(event)" ondrop="widgetDrop(event, 'dir-shortcuts', loadDirs)" ondragleave="widgetDragLeave(event)">
       <span class="drag-handle" title="拖动排序"></span>
       <span class="dir-icon" onclick="openDir('${d.id}')">${d.type === 'remote' ? '🌐' : '📁'}</span>
-      <span class="dir-term" onclick="event.stopPropagation();openDirTerminal('${d.id}')" title="打开外部终端">⬢</span>
       <span class="dir-text" onclick="openDir('${d.id}')">
         <span class="dir-name">${esc(d.name)}</span>
         <span class="dir-path" title="${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}">${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}</span>
       </span>
-      <span class="dir-edit" onclick="event.stopPropagation();editDir('${d.id}')" title="编辑">✎</span>
-      <span class="dir-del" onclick="event.stopPropagation();deleteDir('${d.id}')" title="删除">×</span>
+      <span class="todo-menu-wrap">
+        <button class="todo-menu-trigger" type="button" onclick="event.stopPropagation(); toggleDirMenu(event, '${d.id}')" title="更多操作" aria-label="更多操作">⋮</button>
+        <div class="todo-menu closed">
+          <button class="todo-menu-item" onclick="event.stopPropagation(); openDirTerminal('${d.id}'); closeAllDirMenus();">
+            <span class="todo-menu-icon">⬢</span><span>打开外部终端</span>
+          </button>
+          <button class="todo-menu-item" onclick="event.stopPropagation(); editDir('${d.id}'); closeAllDirMenus();">
+            <span class="todo-menu-icon">✎</span><span>编辑</span>
+          </button>
+          <button class="todo-menu-item danger" onclick="event.stopPropagation(); deleteDir('${d.id}'); closeAllDirMenus();">
+            <span class="todo-menu-icon">×</span><span>删除</span>
+          </button>
+        </div>
+      </span>
     </div>`).join('');
 }
 
@@ -987,6 +998,83 @@ loadLinks = async function () {
   return _origLoadLinks.apply(this, arguments);
 };
 
+// 目录的 ⋮ dropdown 菜单（共享 .todo-menu-trigger / .todo-menu 样式）
+let _openDirMenu = null;
+let _dirMenuDocListenersOn = false;
+
+function toggleDirMenu(event, dirId) {
+  event.stopPropagation();
+  const trigger = event.currentTarget;
+  const menu = trigger.parentElement.querySelector('.todo-menu');
+  if (!menu) return;
+  if (_openDirMenu === menu && !menu.classList.contains('closed')) {
+    closeAllDirMenus();
+    return;
+  }
+  closeAllDirMenus();
+  positionDirMenu(menu, trigger);
+  menu.classList.remove('closed');
+  trigger.classList.add('open');
+  _openDirMenu = menu;
+  installDirMenuDocListeners();
+}
+
+function closeAllDirMenus() {
+  if (_openDirMenu) {
+    _openDirMenu.classList.add('closed');
+    const trigger = _openDirMenu.parentElement.querySelector('.todo-menu-trigger');
+    if (trigger) trigger.classList.remove('open');
+    _openDirMenu = null;
+  }
+}
+
+function positionDirMenu(menu, trigger) {
+  const hadClosed = menu.classList.contains('closed');
+  if (hadClosed) menu.classList.remove('closed');
+  menu.style.visibility = 'hidden';
+  const mRect = menu.getBoundingClientRect();
+  const tRect = trigger.getBoundingClientRect();
+  let top = tRect.bottom + 4;
+  let left = tRect.right - mRect.width;
+  if (top + mRect.height > window.innerHeight - 8) {
+    top = tRect.top - mRect.height - 4;
+  }
+  if (left < 8) left = 8;
+  if (left + mRect.width > window.innerWidth - 8) {
+    left = window.innerWidth - mRect.width - 8;
+  }
+  menu.style.position = 'fixed';
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+  menu.style.visibility = '';
+  if (hadClosed) menu.classList.add('closed');
+}
+
+function installDirMenuDocListeners() {
+  if (_dirMenuDocListenersOn) return;
+  _dirMenuDocListenersOn = true;
+  document.addEventListener('click', (e) => {
+    if (!_openDirMenu) return;
+    if (e.target.closest('.todo-menu')) return;
+    if (e.target.closest('.todo-menu-trigger')) return;
+    closeAllDirMenus();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && _openDirMenu) closeAllDirMenus();
+  });
+  const container = document.getElementById('dirs-container') || document.getElementById('dir-shortcuts');
+  if (container) container.addEventListener('scroll', () => {
+    if (_openDirMenu) closeAllDirMenus();
+  });
+}
+
+// loadDirs 重新渲染时关闭 open menu
+const _origLoadDirs = loadDirs;
+loadDirs = async function () {
+  closeAllDirMenus();
+  return _origLoadDirs.apply(this, arguments);
+};
+
 
 async function deleteTodoItem(lineNo) {
   if (!confirm('删除该待办？')) return;
@@ -1698,13 +1786,24 @@ async function loadDirs() {
             ondragstart="dirCatDragStart(event, '${esc(cat.id)}')" ondragover="dirCatDragOver(event)" ondrop="dirCatDrop(event, '${esc(cat.id)}')" ondragleave="dirCatDragLeave(event)">
           <span class="drag-handle" title="拖动排序"></span>
           <span class="dir-icon" onclick="openDir('${d.id}')">${d.type === 'remote' ? '🌐' : '📁'}</span>
-          <span class="dir-term" onclick="event.stopPropagation();openDirTerminal('${d.id}')" title="打开外部终端">⬢</span>
           <span class="dir-text" onclick="openDir('${d.id}')">
             <span class="dir-name">${esc(d.name)}</span>
             <span class="dir-path" title="${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}">${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}</span>
           </span>
-          <span class="dir-edit" onclick="event.stopPropagation();editDir('${d.id}')" title="编辑">✎</span>
-          <span class="dir-del" onclick="event.stopPropagation();deleteDir('${d.id}')" title="删除">×</span>
+          <span class="todo-menu-wrap">
+            <button class="todo-menu-trigger" type="button" onclick="event.stopPropagation(); toggleDirMenu(event, '${d.id}')" title="更多操作" aria-label="更多操作">⋮</button>
+            <div class="todo-menu closed">
+              <button class="todo-menu-item" onclick="event.stopPropagation(); openDirTerminal('${d.id}'); closeAllDirMenus();">
+                <span class="todo-menu-icon">⬢</span><span>打开外部终端</span>
+              </button>
+              <button class="todo-menu-item" onclick="event.stopPropagation(); editDir('${d.id}'); closeAllDirMenus();">
+                <span class="todo-menu-icon">✎</span><span>编辑</span>
+              </button>
+              <button class="todo-menu-item danger" onclick="event.stopPropagation(); deleteDir('${d.id}'); closeAllDirMenus();">
+                <span class="todo-menu-icon">×</span><span>删除</span>
+              </button>
+            </div>
+          </span>
         </div>`;
       }
     }

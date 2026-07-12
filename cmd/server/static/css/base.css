@@ -488,10 +488,6 @@ tr:last-child td { border-bottom: none; }
 .dir-item .dir-name { font-size: 12px; font-weight: 500; color: var(--text-primary); white-space: nowrap; }
 .dir-item .dir-path { font-size: 9px; color: var(--text-secondary); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dir-item:hover .dir-path { opacity: 1; }
-.dir-item .dir-edit { cursor: pointer; padding: 0 1px; opacity: 0; font-size: 11px; align-self: center; margin-left: 2px; flex-shrink: 0; }
-.dir-item:hover .dir-edit { opacity: 1; }
-.dir-item .dir-del { color: var(--danger); cursor: pointer; padding: 0 1px; opacity: 0; font-size: 11px; align-self: center; flex-shrink: 0; }
-.dir-item:hover .dir-del { opacity: 1; }
 .dir-item.dir-remote { border-left-color: #22c55e; }
 .dir-item.dir-remote .dir-icon { color: #22c55e; }
 .dir-item.dir-remote .dir-name { color: #22c55e; font-weight: 500; }
@@ -649,30 +645,6 @@ tr:last-child td { border-bottom: none; }
 .s-status.cancelled   { background: rgba(139, 92, 246, 0.12); color: #8b5cf6; }
 .s-status.build_error { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-
-/* 终端按钮 */
-.dir-item .dir-term {
-  font-size: 12px;
-  flex-shrink: 0;
-  margin-right: 2px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.dir-item:hover .dir-term { opacity: 1; }
-.dir-item .dir-term:hover { color: var(--accent, #22d3ee); }
-
-/* Web 内嵌终端按钮 */
-.dir-item .dir-rterm {
-  font-size: 12px;
-  flex-shrink: 0;
-  margin-right: 2px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.dir-item:hover .dir-rterm { opacity: 1; }
-.dir-item .dir-rterm:hover { color: var(--accent, #22d3ee); }
 
 /* ===== AI Chat（单 Tab，无需多 Tab 样式） ===== */
 /* 注：之前这里有 #tab-bar / .tab-btn / .tab-add-btn 等多 Tab 样式，已移除。*/
@@ -1069,7 +1041,8 @@ tr:last-child td { border-bottom: none; }
   background: var(--bg-tertiary);
 }
 .todo-item:hover .todo-menu-trigger,
-.link-row:hover .todo-menu-trigger {
+.link-row:hover .todo-menu-trigger,
+.dir-item:hover .todo-menu-trigger {
   opacity: 1;
 }
 .todo-menu {
