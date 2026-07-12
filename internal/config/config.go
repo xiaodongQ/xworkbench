@@ -436,8 +436,9 @@ func loadFromFile(path string, cfg *Config) (*Config, error) {
 	if err := json.Unmarshal(data, &loaded); err != nil {
 		return cfg, err
 	}
-	mergeConfig(cfg, &loaded)
-	return cfg, nil
+	// 用 fillDefaults 合并：文件中已有的值覆盖默认值，文件缺失的字段用 DefaultConfig 补齐。
+	// 这样新增字段只需加到 DefaultConfig，无需手动维护 mergeConfig 字段列表。
+	return fillDefaults(&loaded, DefaultConfig()), nil
 }
 
 // mergeConfig 把 src 合并到 dst；src 中零值字段不动 dst。
