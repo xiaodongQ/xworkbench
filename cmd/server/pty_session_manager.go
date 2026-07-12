@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"sync"
 	"time"
 
@@ -119,7 +120,7 @@ type ListResponse struct {
 	LastActiveAt time.Time `json:"last_active_at"`
 }
 
-// List 返回所有会话的公开摘要。
+// List 返回所有会话的公开摘要（按创建时间升序，保证顺序稳定）。
 func (sm *sessionManager) List() []ListResponse {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -135,6 +136,9 @@ func (sm *sessionManager) List() []ListResponse {
 			LastActiveAt: s.LastActiveAt,
 		})
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
 	return result
 }
 
