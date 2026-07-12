@@ -798,7 +798,7 @@ async function loadTodo() {
         const label = getMonthLabel(group.items[0].archived);
         html += renderMonthGroup(label, group.items, true);
       }
-      archivedEl.innerHTML = html;
+      archivedEl.innerHTML = '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;font-weight:500">📦 归档区</div>' + html;
     } else {
       archivedEl.style.display = 'none';
       archivedEl.innerHTML = '';
@@ -812,6 +812,7 @@ function toggleTodo(lineNo, done) {
 }
 
 async function archiveTodoItem(lineNo) {
+  if (!confirm('确认归档该任务及其子项？')) return;
   const r = await fetch('/api/todo/' + lineNo + '/archive', {method:'PUT'});
   if (!r.ok) { const b = await r.json().catch(() => ({})); alert('归档失败：' + (b.error || r.statusText)); return; }
   loadTodo();
