@@ -1103,14 +1103,12 @@ function submitTodoPath() {
   const path = document.getElementById('todo-path-input').value.trim();
   if (!path) { alert('路径必填'); return; }
   const showArchived = document.getElementById('todo-show-archived-cb').checked;
-  Promise.all([
-    fetch('/api/todo/path', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path})}),
-    fetch('/api/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({todo_show_archived: showArchived})})
-  ]).then(() => {
-    closeTodoPathModal();
-    _todoShowArchived = showArchived;
-    loadTodo();
-  });
+  fetch('/api/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({todo_md_path: path, todo_show_archived: showArchived})})
+    .then(() => {
+      closeTodoPathModal();
+      _todoShowArchived = showArchived;
+      loadTodo();
+    });
 }
 
 // ===== 通用拖动重排（HTML5 drag/drop） =====
