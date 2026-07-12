@@ -17,9 +17,21 @@ import (
 
 // Message represents a chat message.
 type Message struct {
-	Role       string `json:"role"`                        // system | user | assistant | tool
-	Content    string `json:"content,omitempty"`           // text content (also used by tool result body)
-	ToolCallID string `json:"tool_call_id,omitempty"`      // OpenAI: required when Role=="tool"; Anthropic: tool_use_id stored here on tool result
+	Role       string     `json:"role"`                    // system | user | assistant | tool
+	Content    string     `json:"content,omitempty"`       // text content (also used by tool result body); or JSON array string of content blocks (Anthropic assistant alternation)
+	ToolCallID string     `json:"tool_call_id,omitempty"`  // OpenAI: required when Role=="tool"; Anthropic: tool_use_id stored here on tool result
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`    // OpenAI assistant message: tool_calls array required as parent of role="tool" messages
+}
+
+// ContentBlock represents one block in an Anthropic-style content array.
+// Used both for collecting assistant tool_use blocks (round-trip alternation)
+// and for encoding tool_result blocks (sent as user message content).
+type ContentBlock struct {
+	Type  string          `json:"type"`           // text | tool_use | tool_result
+	Text  string          `json:"text,omitempty"` // text block only
+	ID    string          `json:"id,omitempty"`   // tool_use_id (tool_use / tool_result blocks)
+	Name  string          `json:"name,omitempty"` // tool_use only
+	Input json.RawMessage `json:"input,omitempty"` // tool_use only
 }
 
 // ToolCall represents a tool call returned by the model.
@@ -39,8 +51,9 @@ type Tool struct {
 
 // ChatResponse is the response from a non-streaming chat call.
 type ChatResponse struct {
-	Message   Message    `json:"message"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Message         Message        `json:"message"`
+	ToolCalls       []ToolCall     `json:"tool_calls,omitempty"`
+	AssistantBlocks []ContentBlock `json:"-"` // Anthropic: collected content blocks (text + tool_use), required for round-trip alternation
 }
 
 // AIEvent is a streaming event from ChatStream.
@@ -293,8 +306,10 @@ func NewAnthropicProvider(baseURL, apiKey, model string, temperature float64, ma
 func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
 	anthropicMsgs := make([]map[string]any, len(messages))
 	for i, m := range messages {
-		// Tool result messages have Content as JSON array format for Anthropic
-		if m.Role == "user" && strings.HasPrefix(m.Content, "[{") {
+		// Assistant alternation: assistant message may carry a JSON array
+		// content of blocks (text + tool_use) to match Anthropic's strict
+		// alternation requirement. Tool result messages also use array form.
+		if (m.Role == "user" || m.Role == "assistant") && strings.HasPrefix(m.Content, "[") {
 			var contentArr []any
 			if err := json.Unmarshal([]byte(m.Content), &contentArr); err == nil {
 				anthropicMsgs[i] = map[string]any{"role": m.Role, "content": contentArr}
@@ -357,17 +372,27 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message, tools 
 
 	result := &ChatResponse{}
 	for _, c := range apiResp.Content {
+		// Collect every block (text + tool_use) so the caller can put the
+		// assistant's full content back into the next request — Anthropic
+		// requires strict alternation, so a follow-up tool_result's
+		// tool_use_id must be matchable to a tool_use block in history.
+		blk := ContentBlock{Type: c.Type, Text: c.Text, ID: c.ID, Name: c.Name}
+		if c.Input_ != nil {
+			switch v := c.Input_.(type) {
+			case string:
+				blk.Input = json.RawMessage(v)
+			case map[string]any:
+				blk.Input, _ = json.Marshal(v)
+			}
+		}
+		result.AssistantBlocks = append(result.AssistantBlocks, blk)
+
 		if c.Type == "text" {
 			result.Message = Message{Role: "assistant", Content: c.Text}
 		} else if c.Type == "tool_use" {
-			var inputJSON []byte
 			var argsStr string
-			switch v := c.Input_.(type) {
-			case string:
-				argsStr = v
-			case map[string]any:
-				inputJSON, _ = json.Marshal(v)
-				argsStr = string(inputJSON)
+			if len(blk.Input) > 0 {
+				argsStr = string(blk.Input)
 			}
 			result.ToolCalls = append(result.ToolCalls, ToolCall{
 				ID:   c.ID, // use Anthropic-provided tool_use_id so tool_result can be correlated back

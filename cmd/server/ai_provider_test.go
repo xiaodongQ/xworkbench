@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -299,4 +300,205 @@ func TestOpenAIProviderPropagatesContextCancel(t *testing.T) {
 		!strings.Contains(err.Error(), "deadline") {
 		t.Errorf("expected context/deadline error, got: %v", err)
 	}
+}
+
+// TestAnthropicProviderCollectsBlocks — assistant content blocks (text + tool_use)
+// must be collected so the next request can re-send them as alternation.
+func TestAnthropicProviderCollectsBlocks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":   "msg_test",
+			"type": "message",
+			"content": []map[string]any{
+				{"type": "text", "text": "I'll create the task."},
+				{"type": "tool_use", "id": "toolu_01A", "name": "create_task", "input": map[string]any{"title": "demo"}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(server.URL, "sk-ant-test", "claude-sonnet-test", 0.7, 4096)
+	resp, err := provider.Chat(context.Background(), []Message{{Role: "user", Content: "create a task"}}, nil)
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(resp.AssistantBlocks) != 2 {
+		t.Fatalf("expected 2 blocks (text + tool_use), got %d", len(resp.AssistantBlocks))
+	}
+	if resp.AssistantBlocks[0].Type != "text" || resp.AssistantBlocks[0].Text != "I'll create the task." {
+		t.Errorf("block[0] text mismatch: %+v", resp.AssistantBlocks[0])
+	}
+	if resp.AssistantBlocks[1].Type != "tool_use" || resp.AssistantBlocks[1].ID != "toolu_01A" {
+		t.Errorf("block[1] tool_use mismatch: %+v", resp.AssistantBlocks[1])
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].ID != "toolu_01A" {
+		t.Errorf("ToolCalls not derived from blocks: %+v", resp.ToolCalls)
+	}
+}
+
+// TestAppendAssistantAnthropicRoundTrip — assistant turn with tool_use must be
+// serialized back as a JSON array of blocks, so the next Anthropic call has
+// matching alternation for tool_result.
+func TestAppendAssistantAnthropicRoundTrip(t *testing.T) {
+	resp := &ChatResponse{
+		Message: Message{Role: "assistant", Content: "I'll create the task."},
+		AssistantBlocks: []ContentBlock{
+			{Type: "text", Text: "I'll create the task."},
+			{Type: "tool_use", ID: "toolu_01A", Name: "create_task", Input: json.RawMessage(`{"title":"demo"}`)},
+		},
+		ToolCalls: []ToolCall{{ID: "toolu_01A", Name: "create_task", Args: `{"title":"demo"}`}},
+	}
+	var msgs []Message
+	appendAssistantForToolRoundTrip(&msgs, resp, "anthropic")
+
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Role != "assistant" {
+		t.Errorf("role: %q", msgs[0].Role)
+	}
+	// Content must be a JSON array, not plain text — required for alternation
+	var blocks []ContentBlock
+	if err := json.Unmarshal([]byte(msgs[0].Content), &blocks); err != nil {
+		t.Fatalf("assistant content not JSON array: %v (raw=%q)", err, msgs[0].Content)
+	}
+	if len(blocks) != 2 || blocks[1].Type != "tool_use" || blocks[1].ID != "toolu_01A" {
+		t.Errorf("blocks don't include tool_use: %+v", blocks)
+	}
+}
+
+// TestAppendAssistantOpenAIToolCalls — OpenAI assistant turn must carry
+// tool_calls array so subsequent role="tool" messages attach to a parent.
+func TestAppendAssistantOpenAIToolCalls(t *testing.T) {
+	resp := &ChatResponse{
+		Message:   Message{Role: "assistant", Content: ""},
+		ToolCalls: []ToolCall{{ID: "call_abc", Name: "create_task", Args: `{"title":"demo"}`}},
+	}
+	var msgs []Message
+	appendAssistantForToolRoundTrip(&msgs, resp, "openai")
+
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Role != "assistant" {
+		t.Errorf("role: %q", msgs[0].Role)
+	}
+	if len(msgs[0].ToolCalls) != 1 || msgs[0].ToolCalls[0].ID != "call_abc" {
+		t.Errorf("tool_calls not carried: %+v", msgs[0].ToolCalls)
+	}
+	// Round-trip JSON serialize should include tool_calls for OpenAI
+	data, _ := json.Marshal(msgs[0])
+	if !strings.Contains(string(data), `"tool_calls"`) {
+		t.Errorf("expected tool_calls field in JSON: %s", data)
+	}
+}
+
+// TestAnthropicRoundTripAssistantBlocksSerialized — full chat round-trip: first
+// response includes text + tool_use; subsequent request body must contain
+// assistant message with content as JSON array containing tool_use id.
+func TestAnthropicRoundTripAssistantBlocksSerialized(t *testing.T) {
+	var secondReqBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		// First request: no tool_use_id yet → return tool_use block.
+		// Second request: carries tool_use_id → capture body for assertion,
+		// return text-only final answer.
+		isSecond := strings.Contains(string(body), `"tool_use_id":"toolu_01A"`)
+		if isSecond {
+			secondReqBody = body
+		}
+		var content []map[string]any
+		if isSecond {
+			content = []map[string]any{{"type": "text", "text": "Task created."}}
+		} else {
+			content = []map[string]any{
+				{"type": "text", "text": "I'll create the task."},
+				{"type": "tool_use", "id": "toolu_01A", "name": "create_task", "input": map[string]any{"title": "demo"}},
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":      "msg_round",
+			"type":    "message",
+			"content": content,
+		})
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(server.URL, "sk-ant-test", "claude-sonnet-test", 0.7, 4096)
+	// Step 1: first chat with assistant having tool_use blocks
+	resp, err := provider.Chat(context.Background(),
+		[]Message{
+			{Role: "user", Content: "create a task"},
+		}, nil)
+	if err != nil {
+		t.Fatalf("first Chat: %v", err)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].ID != "toolu_01A" {
+		t.Fatalf("first response should carry tool_use; got %+v", resp.ToolCalls)
+	}
+	// Step 2: assistant content synthesized via helper
+	var msgs []Message
+	msgs = append(msgs, Message{Role: "user", Content: "create a task"})
+	appendAssistantForToolRoundTrip(&msgs, resp, "anthropic")
+	// Step 3: tool_result appended
+	tc := resp.ToolCalls[0]
+	block, _ := json.Marshal(map[string]any{
+		"type":        "tool_result",
+		"tool_use_id": tc.ID,
+		"content":     "task created",
+	})
+	msgs = append(msgs, Message{Role: "user", Content: "[" + string(block) + "]"})
+
+	// Second chat
+	_, err = provider.Chat(context.Background(), msgs, nil)
+	if err != nil {
+		t.Fatalf("second Chat: %v", err)
+	}
+	if len(secondReqBody) == 0 {
+		t.Fatal("second request body not captured")
+	}
+	// Verify assistant message in second request carries tool_use id
+	var parsed map[string]any
+	if err := json.Unmarshal(secondReqBody, &parsed); err != nil {
+		t.Fatalf("parse second req: %v", err)
+	}
+	msgs2 := parsed["messages"].([]any)
+	if len(msgs2) != 3 {
+		t.Fatalf("expected 3 messages (user/assistant/user), got %d", len(msgs2))
+	}
+	asst := msgs2[1].(map[string]any)
+	content := asst["content"]
+	if strContent, isStr := content.(string); isStr {
+		// For comparison reference: AnthropicProvider also accepts JSON-array
+		// string form via Unmarshal fallback. We tolerate either.
+		var blocks []map[string]any
+		if err := json.Unmarshal([]byte(strContent), &blocks); err != nil {
+			t.Fatalf("assistant content not parseable as array: %v raw=%q", err, strContent)
+		}
+		assertAssistantHasToolUse(t, blocks, "toolu_01A")
+	} else if arrContent, isArr := content.([]any); isArr {
+		// Preferred form: AnthropicProvider turns the JSON-array string into
+		// an actual array on the wire.
+		blocks := make([]map[string]any, 0, len(arrContent))
+		for _, c := range arrContent {
+			if m, ok := c.(map[string]any); ok {
+				blocks = append(blocks, m)
+			}
+		}
+		assertAssistantHasToolUse(t, blocks, "toolu_01A")
+	} else {
+		t.Errorf("assistant content unexpected type: %T (value=%v)", content, content)
+	}
+}
+
+// assertAssistantHasToolUse verifies the assistant content blocks array carries
+// a tool_use with the given id — i.e. the alternation round-trip is correct.
+func assertAssistantHasToolUse(t *testing.T, blocks []map[string]any, wantID string) {
+	t.Helper()
+	for _, b := range blocks {
+		if b["type"] == "tool_use" && b["id"] == wantID {
+			return
+		}
+	}
+	t.Errorf("assistant blocks missing tool_use id %s: %v", wantID, blocks)
 }

@@ -21,6 +21,40 @@ const (
 	aiChatMaxRounds   = 20               // hard cap on consecutive tool-call iterations
 )
 
+// appendAssistantForToolRoundTrip 在多轮 tool call 流程中,把上一轮
+// assistant turn 序列化为符合协议的形式并加入 msgs,使下一轮的 tool_result
+// 能正确 alternation 上轮 assistant:
+//
+//   - Anthropic: assistant content 必须是 JSON array,内含 text + tool_use blocks,
+//     这样后续 tool_result 的 tool_use_id 才能向上匹配
+//   - OpenAI: assistant message 携带 tool_calls 数组(role="tool" 的父消息),
+//     帮助 OpenAI 把 role="tool" 消息关联回原 tool_call
+//
+// 单轮对话(无 tool calls)不会进此 helper.
+func appendAssistantForToolRoundTrip(msgs *[]Message, resp *ChatResponse, provider string) {
+	switch provider {
+	case "anthropic":
+		if len(resp.AssistantBlocks) == 0 {
+			return
+		}
+		blocksJSON, _ := json.Marshal(resp.AssistantBlocks)
+		*msgs = append(*msgs, Message{
+			Role:    "assistant",
+			Content: string(blocksJSON),
+		})
+	default: // openai
+		msg := Message{
+			Role:    "assistant",
+			Content: resp.Message.Content,
+		}
+		if len(resp.ToolCalls) > 0 {
+			// copy to keep assistant history independent of resp mutation
+			msg.ToolCalls = append([]ToolCall(nil), resp.ToolCalls...)
+		}
+		*msgs = append(*msgs, msg)
+	}
+}
+
 // handleAIChat is the main AI chat endpoint.
 func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -112,6 +146,12 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Multi-round tool call: 把上一轮 assistant 加进 messages 保持 alternation,
+	// 否则下一轮 tool_result 找不到对应的 tool_use block,Anthropic 会报
+	// "tool id not found"; OpenAI 则 tool_calls 数组缺失.
+	if len(resp.ToolCalls) > 0 {
+		appendAssistantForToolRoundTrip(&req.Messages, resp, cfg.AIChat.ActiveProvider)
+	}
 	logger.Infow("handleAIChat: response received", "provider", cfg.AIChat.ActiveProvider, "contentLen", len(resp.Message.Content), "toolCalls", len(resp.ToolCalls))
 
 	// Multi-round tool calling: keep looping until AI stops calling tools.
@@ -196,6 +236,10 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 			logger.Errorw("handleAIChat: tool result feedback failed", "round", round+1, "err", err)
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		// 同样按协议补 assistant alternation
+		if len(resp.ToolCalls) > 0 {
+			appendAssistantForToolRoundTrip(&req.Messages, resp, cfg.AIChat.ActiveProvider)
 		}
 		logger.Infow("handleAIChat: round end", "round", round+1, "contentLen", len(resp.Message.Content), "toolCalls", len(resp.ToolCalls))
 	}
