@@ -1676,25 +1676,29 @@ document.getElementById('run-task-model').innerHTML = buildModelOptions('claude'
   if (!handle || !dirSection) return;
 
   const savedH = parseInt(localStorage.getItem('sf-dir-h'), 10);
-  if (savedH && savedH >= 60 && savedH <= 500) dirSection.style.maxHeight = savedH + 'px';
+  if (savedH && savedH >= 60 && savedH <= 500) {
+    dirSection.style.height = savedH + 'px';
+    dirSection.style.maxHeight = 'none';
+  }
 
   let startY = null, startH = 0;
   handle.addEventListener('mousedown', e => {
     startY = e.clientY;
-    const m = dirSection.style.maxHeight.match(/(\d+)/);
-    startH = m ? parseInt(m[1]) : dirSection.offsetHeight;
+    startH = dirSection.offsetHeight;
+    dirSection.style.height = startH + 'px';
+    dirSection.style.maxHeight = 'none';
     handle.classList.add('dragging'); document.body.style.cursor = 'row-resize';
     e.preventDefault();
   });
   document.addEventListener('mousemove', e => {
     if (startY == null) return;
-    dirSection.style.maxHeight = Math.max(60, Math.min(500, startH + e.clientY - startY)) + 'px';
+    const newH = Math.max(60, Math.min(500, startH + e.clientY - startY));
+    dirSection.style.height = newH + 'px';
   });
   document.addEventListener('mouseup', () => {
     if (startY == null) return;
     startY = null; handle.classList.remove('dragging'); document.body.style.cursor = '';
-    const m = dirSection.style.maxHeight.match(/(\d+)/);
-    if (m) localStorage.setItem('sf-dir-h', parseInt(m[1]));
+    localStorage.setItem('sf-dir-h', dirSection.offsetHeight);
   });
 })();
 </script>
