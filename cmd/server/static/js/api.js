@@ -361,9 +361,6 @@ if (document.readyState === 'loading') {
   bindFastTooltips();
 }
 // 自动化 widget 重新渲染后也需要重绑
-const _origLoadLinks = window.loadLinks;
-const _origLoadDirs = window.loadDirs;
-const _origLoadTodo = window.loadTodo;
 
 // 重新渲染后自动 rebind 快速 tooltip
 new MutationObserver(() => bindFastTooltips()).observe(document.body, {childList: true, subtree: true});
