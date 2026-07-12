@@ -1082,11 +1082,15 @@
     </div>
     <div style="font-size:11px;color:var(--text-secondary);margin-top:8px">支持 <code>- [ ]</code> 和 <code>- [x]</code> 格式，点击勾选框会自动写回文件（先 .bak 再原子 rename）。</div>
     <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">
-      新增/编辑时自动追加 <code>created:YYYY-MM-DD</code> 标签；可手动指定 <code>due:YYYY-MM-DD</code> 截止日；
-      勾选已完成项后从 ⋮ 菜单归档，<b>归档区</b> 以<br>
-      <code>--- archived (must exist for archived, do not delete) ---</code><br>
-      标记分隔，归档项追加 <code>archived:YYYY-MM-DD</code>。<br>
-      活跃区按 <code>### YYYY年MM月</code> 分组，空行分割。请勿移动或删除分隔标记。
+      <div style="margin-bottom:2px"><b>格式说明：</b></div>
+      <div>- 新增/编辑时 <b>自动追加</b> <code>created:YYYY-MM-DD</code> 创建日期</div>
+      <div>- 可手动指定 <code>due:YYYY-MM-DD</code> 截止日（截止日过期行会标红）</div>
+      <div>- 已完成顶级项可用 ⋮ 菜单归档，追加 <code>archived:YYYY-MM-DD</code> 归档日期</div>
+      <div>- <b>归档分隔线</b>（请勿移动或删除）：<br>
+      <code>&nbsp;&nbsp;--- archived (must exist for archived, do not delete) ---</code></div>
+      <div>- 活跃区按 <code>### YYYY年MM月</code> 分组，空行分割</div>
+      <div>- 子任务用 2 空格缩进：<code>&nbsp;&nbsp;- [ ] 子任务</code></div>
+      <div>- <code>&gt; 备注</code> 可跟在任务项下方（缩进 2 空格）</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeTodoPathModal()">取消</button>
