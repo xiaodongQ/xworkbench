@@ -64,8 +64,17 @@ async function loadLinks() {
         <div class="link-name">${esc(l.name)}</div>
         <div class="link-url">${esc(l.url)}</div>
       </div>
-      <div class="link-edit" onclick="event.stopPropagation();editLink('${l.id}')" title="编辑">✎</div>
-      <div class="link-del" onclick="event.stopPropagation();deleteLink('${l.id}')" title="删除">×</div>
+      <span class="todo-menu-wrap">
+        <button class="todo-menu-trigger" type="button" onclick="event.stopPropagation(); toggleLinkMenu(event, '${l.id}')" title="更多操作" aria-label="更多操作">⋮</button>
+        <div class="todo-menu closed">
+          <button class="todo-menu-item" onclick="event.stopPropagation(); editLink('${l.id}'); closeAllLinkMenus();">
+            <span class="todo-menu-icon">✎</span><span>编辑</span>
+          </button>
+          <button class="todo-menu-item danger" onclick="event.stopPropagation(); deleteLink('${l.id}'); closeAllLinkMenus();">
+            <span class="todo-menu-icon">×</span><span>删除</span>
+          </button>
+        </div>
+      </span>
     </div>`;
   }).join('');
 }
@@ -901,6 +910,83 @@ loadTodo = async function () {
   return _origLoadTodo.apply(this, arguments);
 };
 
+// 链接的 ⋮ dropdown 菜单（共享 .todo-menu-trigger / .todo-menu 样式）
+let _openLinkMenu = null;
+let _linkMenuDocListenersOn = false;
+
+function toggleLinkMenu(event, linkId) {
+  event.stopPropagation();
+  const trigger = event.currentTarget;
+  const menu = trigger.parentElement.querySelector('.todo-menu');
+  if (!menu) return;
+  if (_openLinkMenu === menu && !menu.classList.contains('closed')) {
+    closeAllLinkMenus();
+    return;
+  }
+  closeAllLinkMenus();
+  positionLinkMenu(menu, trigger);
+  menu.classList.remove('closed');
+  trigger.classList.add('open');
+  _openLinkMenu = menu;
+  installLinkMenuDocListeners();
+}
+
+function closeAllLinkMenus() {
+  if (_openLinkMenu) {
+    _openLinkMenu.classList.add('closed');
+    const trigger = _openLinkMenu.parentElement.querySelector('.todo-menu-trigger');
+    if (trigger) trigger.classList.remove('open');
+    _openLinkMenu = null;
+  }
+}
+
+function positionLinkMenu(menu, trigger) {
+  const hadClosed = menu.classList.contains('closed');
+  if (hadClosed) menu.classList.remove('closed');
+  menu.style.visibility = 'hidden';
+  const mRect = menu.getBoundingClientRect();
+  const tRect = trigger.getBoundingClientRect();
+  let top = tRect.bottom + 4;
+  let left = tRect.right - mRect.width;
+  if (top + mRect.height > window.innerHeight - 8) {
+    top = tRect.top - mRect.height - 4;
+  }
+  if (left < 8) left = 8;
+  if (left + mRect.width > window.innerWidth - 8) {
+    left = window.innerWidth - mRect.width - 8;
+  }
+  menu.style.position = 'fixed';
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+  menu.style.visibility = '';
+  if (hadClosed) menu.classList.add('closed');
+}
+
+function installLinkMenuDocListeners() {
+  if (_linkMenuDocListenersOn) return;
+  _linkMenuDocListenersOn = true;
+  document.addEventListener('click', (e) => {
+    if (!_openLinkMenu) return;
+    if (e.target.closest('.todo-menu')) return;
+    if (e.target.closest('.todo-menu-trigger')) return;
+    closeAllLinkMenus();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && _openLinkMenu) closeAllLinkMenus();
+  });
+  const container = document.getElementById('links-container') || document.getElementById('web-links');
+  if (container) container.addEventListener('scroll', () => {
+    if (_openLinkMenu) closeAllLinkMenus();
+  });
+}
+
+// loadLinks 重新渲染时关闭 open menu
+const _origLoadLinks = loadLinks;
+loadLinks = async function () {
+  closeAllLinkMenus();
+  return _origLoadLinks.apply(this, arguments);
+};
+
 
 async function deleteTodoItem(lineNo) {
   if (!confirm('删除该待办？')) return;
@@ -1273,8 +1359,17 @@ async function loadLinks() {
             <div class="link-name">${esc(l.name)}</div>
             <div class="link-url">${esc(l.url)}</div>
           </div>
-          <div class="link-edit" onclick="event.stopPropagation();editLink('${l.id}')" title="编辑">✎</div>
-          <div class="link-del" onclick="event.stopPropagation();deleteLink('${l.id}')" title="删除">×</div>
+          <span class="todo-menu-wrap">
+            <button class="todo-menu-trigger" type="button" onclick="event.stopPropagation(); toggleLinkMenu(event, '${l.id}')" title="更多操作" aria-label="更多操作">⋮</button>
+            <div class="todo-menu closed">
+              <button class="todo-menu-item" onclick="event.stopPropagation(); editLink('${l.id}'); closeAllLinkMenus();">
+                <span class="todo-menu-icon">✎</span><span>编辑</span>
+              </button>
+              <button class="todo-menu-item danger" onclick="event.stopPropagation(); deleteLink('${l.id}'); closeAllLinkMenus();">
+                <span class="todo-menu-icon">×</span><span>删除</span>
+              </button>
+            </div>
+          </span>
         </div>`;
       }
     }

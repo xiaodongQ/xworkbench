@@ -570,10 +570,6 @@ tr:last-child td { border-bottom: none; }
 .link-row .link-text { flex: 1; min-width: 0; }
 .link-row .link-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .link-row .link-url { display: none; }  /* 窄列下隐藏 URL，只显名 */
-.link-row .link-edit { cursor: pointer; padding: 0 2px; opacity: 0; font-size: 12px; }
-.link-row:hover .link-edit { opacity: 1; }
-.link-row .link-del { color: var(--danger); cursor: pointer; padding: 0 2px; opacity: 0; font-size: 12px; }
-.link-row:hover .link-del { opacity: 1; }
 
 .dir-list { display: flex; flex-direction: column; gap: 2px; }
 
@@ -1072,7 +1068,8 @@ tr:last-child td { border-bottom: none; }
   opacity: 1;
   background: var(--bg-tertiary);
 }
-.todo-item:hover .todo-menu-trigger {
+.todo-item:hover .todo-menu-trigger,
+.link-row:hover .todo-menu-trigger {
   opacity: 1;
 }
 .todo-menu {
