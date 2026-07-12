@@ -1629,6 +1629,26 @@ func (r *ExecutionRepo) ListRecent(limit int) ([]*Execution, error) {
 	return out, rows.Err()
 }
 
+// CountSince 按天统计 started_at >= since 的执行次数，返回 date -> count 的 map。
+func (r *ExecutionRepo) CountSince(since time.Time) (map[string]int, error) {
+	q := `SELECT DATE(started_at) as day, COUNT(*) FROM executions WHERE started_at >= ? GROUP BY day`
+	rows, err := r.db.Query(q, since.Format("2006-01-02 00:00:00"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := make(map[string]int)
+	for rows.Next() {
+		var day string
+		var cnt int
+		if err := rows.Scan(&day, &cnt); err != nil {
+			return nil, err
+		}
+		m[day] = cnt
+	}
+	return m, rows.Err()
+}
+
 func ExportExperienceMD(e *Experience) string {
 	var sb strings.Builder
 	sb.WriteString("# Experience: ")

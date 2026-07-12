@@ -8,7 +8,7 @@ let currentChartRange = '7d';
 window.showChartTooltip = function(e, el) {
   const tt = document.getElementById('chart-tooltip');
   if (!tt) return;
-  tt.innerHTML = '<b>' + el.dataset.date + '</b> 新建 <b>' + el.dataset.count + '</b> 个任务';
+  tt.innerHTML = '<b>' + el.dataset.date + '</b> 执行 <b>' + el.dataset.count + '</b> 次任务';
   tt.classList.remove('hidden');
   const wrap = document.querySelector('.chart-wrap');
   if (!wrap) return;

@@ -15,6 +15,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -644,28 +645,30 @@ func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 			st.ExceptionTasks++
 		}
 	}
-	// 按 range 计算每日/每周统计
+	// 按 range 计算每日/每周执行次数统计
 	now := time.Now()
 	var daily map[string]int
 	switch range_ {
 	case "1m":
+		since := now.AddDate(0, 0, -30)
+		execCounts, _ := s.execDB.CountSince(since)
 		daily = make(map[string]int)
 		for i := 29; i >= 0; i-- {
 			d := now.AddDate(0, 0, -i)
 			daily[d.Format("2006-01-02")] = 0
 		}
-		for _, t := range all {
-			dateStr := t.CreatedAt.Format("2006-01-02")
-			if _, ok := daily[dateStr]; ok {
-				daily[dateStr]++
+		for day, cnt := range execCounts {
+			if _, ok := daily[day]; ok {
+				daily[day] = cnt
 			}
 		}
 	case "6m":
+		since := now.AddDate(0, 0, -182)
+		execCounts, _ := s.execDB.CountSince(since)
 		daily = make(map[string]int)
 		// 按周分组（周一为起始）
 		for i := 25; i >= 0; i-- {
 			d := now.AddDate(0, 0, -i*7)
-			// 调整到本周一
 			weekday := int(d.Weekday())
 			if weekday == 0 {
 				weekday = 7
@@ -674,36 +677,42 @@ func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 			key := monday.Format("2006-01-02")
 			daily[key] = 0
 		}
-		for _, t := range all {
-			tDate := t.CreatedAt
-			weekday := int(tDate.Weekday())
+		for day, cnt := range execCounts {
+			t, _ := time.Parse("2006-01-02", day)
+			weekday := int(t.Weekday())
 			if weekday == 0 {
 				weekday = 7
 			}
-			monday := tDate.AddDate(0, 0, -(weekday - 1))
+			monday := t.AddDate(0, 0, -(weekday - 1))
 			key := monday.Format("2006-01-02")
 			if _, ok := daily[key]; ok {
-				daily[key]++
+				daily[key] += cnt
 			}
 		}
 	default: // "7d"
+		since := now.AddDate(0, 0, -7)
+		execCounts, _ := s.execDB.CountSince(since)
 		daily = make(map[string]int)
 		for i := 6; i >= 0; i-- {
 			d := now.AddDate(0, 0, -i)
 			daily[d.Format("2006-01-02")] = 0
 		}
-		for _, t := range all {
-			dateStr := t.CreatedAt.Format("2006-01-02")
-			if _, ok := daily[dateStr]; ok {
-				daily[dateStr]++
+		for day, cnt := range execCounts {
+			if _, ok := daily[day]; ok {
+				daily[day] = cnt
 			}
 		}
 	}
-	for dateStr, count := range daily {
+	dates := make([]string, 0, len(daily))
+	for d := range daily {
+		dates = append(dates, d)
+	}
+	sort.Strings(dates)
+	for _, d := range dates {
 		st.DailyStats = append(st.DailyStats, struct {
 			Date  string `json:"date"`
 			Count int    `json:"count"`
-		}{Date: dateStr, Count: count})
+		}{Date: d, Count: daily[d]})
 	}
 	exps, _ := s.expDB.Search("")
 	st.TotalExp = len(exps)
