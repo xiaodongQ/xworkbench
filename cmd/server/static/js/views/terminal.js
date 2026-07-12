@@ -4,7 +4,6 @@
 const termPool = {};  // sessionID → { term, termWs, fitAddon, ready, tabID, container }
 let activeSession = null;
 let initInProgress = false;
-let _sessionListTimer = null;
 
 function sessionIDFromParams(type, dirID) {
   if (type === 'remote') return 'remote_' + (dirID || '');
@@ -19,20 +18,6 @@ function renderSessionList() {
   if (!localEl || !remoteEl) return;
 
   fetchJSON('/api/terminal/sessions').then(sessions => {
-    // 清理 termPool 中后端已删除的 session + 同步 ready 状态
-    const backendIDs = new Set(sessions.map(s => s.id));
-    Object.keys(termPool).forEach(id => {
-      if (!backendIDs.has(id)) {
-        if (termPool[id].termWs) { termPool[id].termWs.onclose = null; termPool[id].termWs.close(); }
-        if (termPool[id].term) termPool[id].term.dispose();
-        if (termPool[id].container) termPool[id].container.remove();
-        delete termPool[id];
-      }
-    });
-    sessions.forEach(s => {
-      if (termPool[s.id] && s.status !== 'connected') termPool[s.id].ready = false;
-    });
-
     const locals = sessions.filter(s => s.type !== 'remote');
     const remotes = sessions.filter(s => s.type === 'remote');
 
@@ -330,20 +315,6 @@ function removeSession(sessionID) {
   }).catch(e => console.error('remove error:', e));
 }
 
-// 定时轮询会话状态（tab 可见时每 5s 刷新）
-function startSessionListPolling() {
-  stopSessionListPolling();
-  _sessionListTimer = setInterval(() => {
-    const pageRterm = document.getElementById('page-rterm');
-    if (!pageRterm || pageRterm.classList.contains('hidden')) return;
-    renderSessionList();
-  }, 5000);
-}
-
-function stopSessionListPolling() {
-  if (_sessionListTimer) { clearInterval(_sessionListTimer); _sessionListTimer = null; }
-}
-
 // ===== Window Hooks =====
 
 window.onRtermTypeChange = function(type) {
@@ -351,7 +322,6 @@ window.onRtermTypeChange = function(type) {
   if (dirGroup) dirGroup.style.display = type === 'remote' ? '' : 'none';
   const connectBtn = document.getElementById('rpty-connect-btn');
   if (connectBtn) connectBtn.disabled = false;
-  renderSessionList();
 };
 
 window.onRptyDirChange = function(dirID) {
@@ -373,8 +343,8 @@ window.onRptyConnect = function() {
   }
 
   updateTermStatus('connecting');
-  renderSessionList(); // 立即刷新
   initTerminal(type, dirID);
+  setTimeout(() => renderSessionList(), 100);
 };
 
 window.disconnectTerminal = function() {
@@ -420,5 +390,4 @@ window.initRptyTabOnFirstVisit = function() {
       remote.map(d => '<option value="' + d.id + '">' + d.name + ' (' + d.remote_host + ')</option>').join('');
   }).catch(() => {});
   renderSessionList();
-  startSessionListPolling();
 };
