@@ -163,7 +163,8 @@ function initTerminal(type, dirID) {
     term.writeln('\x1b[32m[xworkbench] 连接就绪\x1b[0m\r\n');
     termWs.send('resize,' + term.cols + ',' + term.rows);
     updateTermStatus('connected');
-    renderSessionList();
+    // 延迟刷新：后端 CreateOrReplace 在 onopen 后执行，等 200ms
+    setTimeout(() => renderSessionList(), 200);
     fitAddon.fit();
   };
 
@@ -322,6 +323,7 @@ window.onRtermTypeChange = function(type) {
   if (dirGroup) dirGroup.style.display = type === 'remote' ? '' : 'none';
   const connectBtn = document.getElementById('rpty-connect-btn');
   if (connectBtn) connectBtn.disabled = false;
+  renderSessionList();
 };
 
 window.onRptyDirChange = function(dirID) {
@@ -344,6 +346,7 @@ window.onRptyConnect = function() {
 
   updateTermStatus('connecting');
   initTerminal(type, dirID);
+  setTimeout(() => renderSessionList(), 100);
   setTimeout(() => renderSessionList(), 100);
 };
 
