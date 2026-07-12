@@ -332,7 +332,7 @@ window.toggleRtermSidebar = function() {
   sidebar.style.overflow = hidden ? '' : 'hidden';
   // 更新按钮图标
   const btn = document.querySelector('#page-rterm .btn-small');
-  if (btn) btn.textContent = hidden ? '◀' : '▶';
+  if (btn) btn.textContent = hidden ? '☰' : '☰';
 };
 
 window.onRtermTypeChange = function(type) {
