@@ -57,7 +57,7 @@ function sessionItemHTML(s) {
   </div>`;
 }
 
-// switchSession 点击列表项切换会话
+// switchSession 点击列表项切换到该会话
 function switchSession(id, type, dirID) {
   activeSession = id;
 
@@ -74,16 +74,23 @@ function switchSession(id, type, dirID) {
     if (dirGroup) dirGroup.style.display = 'none';
   }
 
-  // 如果该会话已连接且是当前活跃的，无需重连
-  if (termReady && currentTabID) {
-    // 如果当前 WebSocket 就是该会话的，直接复用
-    // 否则需要切换到该会话的 xterm 实例
-    const connectBtn = document.getElementById('rpty-connect-btn');
-    if (connectBtn) connectBtn.disabled = false;
-  }
-
   renderSessionList();
-  updateTermStatus('disconnected'); // 提示用户点击连接
+
+  // 如果该会话已连接，当前终端显示的不是它，则自动重连到此会话
+  const sessions = fetchJSON('/api/terminal/sessions');
+  sessions.then(list => {
+    const s = list.find(item => item.id === id);
+    if (s && s.status === 'connected') {
+      // 会话已连接：直接初始化终端连过去（后台会 CreateOrReplace 复用到同 ID）
+      updateTermStatus('connecting');
+      initTerminal(type, dirID);
+    } else {
+      // 会话未连接：更新状态提示用户点击连接
+      updateTermStatus('disconnected');
+    }
+  }).catch(() => {
+    updateTermStatus('disconnected');
+  });
 }
 
 // disconnectSession 手动断开指定会话
