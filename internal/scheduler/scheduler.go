@@ -329,12 +329,15 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 	resumeSessionID := extractSessionID(out)
 	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
 
-	// 更新任务的 session 信息：成功后更新 session_id 和 resume_count
-	// 失败时也继续（不重置 resume_count），让下次执行还有机会继续
+	// 更新任务的 session 信息：
+	// - 解析到 session_id：更新并递增 resume_count
+	// - 解析失败（resumeSessionID 为空）：清空 LastSessionID，下次重新建立会话
 	newResumeCount := t.ResumeCount
 	if resumeSessionID != "" {
 		newResumeCount = t.ResumeCount + 1
 		_ = s.repo.UpdateSessionInfo(t.ID, resumeSessionID, newResumeCount)
+	} else {
+		_ = s.repo.UpdateSessionInfo(t.ID, "", 0)
 	}
 
 	_ = s.repo.UpdateAfterRun(t.ID, status, exec.ID)
