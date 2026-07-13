@@ -437,7 +437,7 @@ tr:last-child td { border-bottom: none; }
 .dir-section-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 4px 8px;
-  font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
   text-transform: uppercase; letter-spacing: 0.5px;
   border-bottom: 1px solid var(--border);
   background: var(--hover);
@@ -485,8 +485,8 @@ tr:last-child td { border-bottom: none; }
 .dir-item:hover { color: var(--text-primary); background: var(--hover); }
 .dir-item .dir-icon { font-size: 12px; flex-shrink: 0; margin-right: 2px; }
 .dir-item .dir-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.dir-item .dir-name { font-size: 11px; font-weight: 500; color: var(--text-primary); white-space: nowrap; }
-.dir-item .dir-path { font-size: 9px; color: var(--text-secondary); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dir-item .dir-name { font-size: 12px; font-weight: 500; color: var(--text-primary); white-space: nowrap; }
+.dir-item .dir-path { font-size: 10px; color: var(--text-secondary); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dir-item:hover .dir-path { opacity: 1; }
 .dir-item.dir-remote { border-left-color: #22c55e; }
 .dir-item.dir-remote .dir-icon { color: #22c55e; }
@@ -589,13 +589,13 @@ tr:last-child td { border-bottom: none; }
 .link-row .link-icon { width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--primary); color: #fff; font-size: 10px; font-weight: 600; overflow: hidden; }
 .link-row .link-icon img { width: 100%; height: 100%; object-fit: contain; }
 .link-row .link-text { flex: 1; min-width: 0; }
-.link-row .link-name { font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.link-row .link-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .link-row .link-url { display: none; }  /* 窄列下隐藏 URL，只显名 */
 
 .dir-list { display: flex; flex-direction: column; gap: 4px; }
 
 .todo-list { }
-.todo-item { display: flex; align-items: center; gap: 3px; padding: 2px 4px; font-size: 11px; position: relative; min-height: 22px; }
+.todo-item { display: flex; align-items: center; gap: 3px; padding: 2px 4px; font-size: 12px; position: relative; min-height: 22px; }
 .todo-item.has-children { cursor: pointer; }
 .todo-item input[type="checkbox"] { cursor: pointer; flex-shrink: 0; margin: 0; }
 .todo-item .todo-indent { display: inline-block; }
@@ -1020,11 +1020,11 @@ tr:last-child td { border-bottom: none; }
   margin-left: 2px;
 }
 .todo-due.overdue {
-  color: #e53e3e;
-  background: #fed7d7;
+  color: #fc8181;
+  background: rgba(252, 129, 129, 0.15);
 }
 .overdue-row {
-  background: #fff5f5;
+  background: rgba(252, 129, 129, 0.08);
 }
 .todo-tag {
   font-size: 11px;
@@ -1352,11 +1352,11 @@ tr:last-child td { border-bottom: none; }
 .floating-chat-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.4);
   z-index: 1100;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.25s ease;
+  transition: opacity 0.15s ease;
 }
 .floating-chat-backdrop.open {
   opacity: 1;
@@ -1366,19 +1366,24 @@ tr:last-child td { border-bottom: none; }
 /* 面板容器 */
 .floating-chat-panel {
   position: fixed;
-  top: 0;
-  right: 0;
+  top: 8px;
+  right: 8px;
   width: 500px;
   max-width: 92vw;
-  height: 100vh;
+  height: calc(100vh - 16px);
   z-index: 1200;
   background: var(--card-bg, #1e293b);
-  border-left: 1px solid var(--border, #334155);
-  box-shadow: -4px 0 32px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border, #334155);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.03),
+    -8px 0 40px rgba(0, 0, 0, 0.35),
+    0 20px 60px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
-  transform: translateX(100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateX(calc(100% + 8px));
+  transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1);
+  overflow: hidden;
 }
 .floating-chat-panel.open {
   transform: translateX(0);
@@ -1387,27 +1392,26 @@ tr:last-child td { border-bottom: none; }
 /* 高度拖拽把手 */
 .floating-chat-resize-handle {
   width: 100%;
-  height: 6px;
+  height: 5px;
   cursor: ns-resize;
   flex-shrink: 0;
-  background: var(--border, #334155);
+  background: transparent;
   position: relative;
+  border-radius: 14px 14px 0 0;
 }
 .floating-chat-resize-handle::after {
   content: '';
   position: absolute;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  width: 32px;
+  width: 36px;
   height: 3px;
   border-radius: 2px;
-  background: var(--text-secondary, #94a3b8);
-}
-.floating-chat-resize-handle:hover {
-  background: var(--primary, #2563eb);
+  background: var(--border, #334155);
+  transition: background 0.15s;
 }
 .floating-chat-resize-handle:hover::after {
-  background: #fff;
+  background: var(--primary, #2563eb);
 }
 
 /* 面板头部 */
@@ -1415,9 +1419,10 @@ tr:last-child td { border-bottom: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--border, #334155);
   flex-shrink: 0;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.02), transparent);
 }
 .floating-chat-header-title {
   font-size: 15px;
@@ -1502,22 +1507,23 @@ tr:last-child td { border-bottom: none; }
 }
 .floating-chat-body .aichat-input-area {
   flex-shrink: 0;
-  padding: 10px 16px;
+  padding: 12px 16px;
   border-top: 1px solid var(--border, #334155);
-  background: var(--card-bg, #1e293b);
+  background: linear-gradient(to top, rgba(0,0,0,0.15), transparent);
 }
 .floating-chat-body .aichat-input-area textarea {
   width: 100%;
   min-height: 60px;
   max-height: 150px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   font-size: 13px;
   background: var(--bg-secondary, #0f172a);
   border: 1px solid var(--border, #334155);
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--text, #e2e8f0);
   resize: vertical;
   box-sizing: border-box;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
 }
 .floating-chat-body .aichat-input-area textarea:focus {
   outline: none;

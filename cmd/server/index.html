@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>个人工作台 · Workbench</title>
+<title>xWorkbench</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
 <script src="/static/js/addon-fit.js"></script>
@@ -38,7 +38,7 @@
     <span class="logo-icon">⚡</span>
     <div>
       <div class="logo-main">个人工作台</div>
-      <div class="logo-sub">Workbench</div>
+      <div class="logo-sub">xWorkbench</div>
     </div>
   </div>
   <div class="toggle-sidebar" onclick="toggleSidebar()" title="收起/展开">☰ <span class="toggle-label">收起</span></div>
@@ -591,6 +591,7 @@
       [data-theme="dark"] .relay-panel .panel-doc-body { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
       .relay-panel .panel-doc.open .panel-doc-body { display: block; }
       .relay-panel .result-box { margin-top: 10px; padding: 10px; border-radius: 4px; background: rgba(0,0,0,0.05); font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow-y: auto; display: none; font-family: monospace; }
+      [data-theme="dark"] .relay-panel .result-box { background: rgba(0,0,0,0.3); color: #e2e8f0; border: 1px solid #334155; }
       /* 终端风格代码块（xwcli 安装命令等），自适应明暗主题 */
       .cmd-terminal { background: #f8fafc; color: #1d4ed8; font-family: monospace; font-size: 11px; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; cursor: pointer; min-height: 40px; border: 1px solid #cbd5e1; }
       [data-theme="dark"] .cmd-terminal { background: #1e293b; color: #67e8f9; border-color: #334155; }
