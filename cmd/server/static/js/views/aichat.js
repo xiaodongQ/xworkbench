@@ -381,12 +381,61 @@
     const container = document.getElementById('aichat-messages');
     if (!container) return;
     if (!messages || !messages.length) { container.innerHTML = welcomeHTML(); return; }
-    container.innerHTML = messages.map(m => `
+    bindCopyButtons();
+    container.innerHTML = messages.map(m => {
+      // assistant 消息加 md-output 类,让 markdown 渲染样式生效(code-block/pre 等)
+      const contentClass = m.role === 'assistant' ? 'aichat-msg-content md-output' : 'aichat-msg-content';
+      // assistant 消息额外加复制按钮(hover 时显示),把原始 markdown 存在 data-markdown 上
+      const copyBtn = m.role === 'assistant'
+        ? `<button class="aichat-msg-copy" data-markdown="${escHtml(m.content)}" title="复制原始 markdown">📋</button>`
+        : '';
+      return `
       <div class="aichat-msg aichat-msg-${escHtml(m.role)}">
         <div class="aichat-msg-role">${m.role === 'user' ? '你' : 'AI'}</div>
-        <div class="aichat-msg-content">${formatContent(m.content)}</div>
-      </div>`).join('');
+        ${copyBtn}
+        <div class="${contentClass}">${formatContent(m.content, m.role)}</div>
+      </div>`;
+    }).join('');
     container.scrollTop = container.scrollHeight;
+  }
+
+  // 复制按钮点击(事件代理,只绑定一次)
+  function bindCopyButtons() {
+    const container = document.getElementById('aichat-messages');
+    if (!container || container._copyBound) return;
+    container._copyBound = true;
+    container.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.aichat-msg-copy');
+      if (!btn) return;
+      const md = btn.getAttribute('data-markdown') || '';
+      try {
+        await navigator.clipboard.writeText(md);
+        const orig = btn.textContent;
+        btn.textContent = '✅';
+        btn.classList.add('aichat-msg-copy-done');
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.classList.remove('aichat-msg-copy-done');
+        }, 1500);
+      } catch (err) {
+        // 剪贴板 API 失败(可能是非 https 或权限拒绝),退化用 textarea+execCommand
+        const ta = document.createElement('textarea');
+        ta.value = md;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          btn.textContent = '✅';
+          setTimeout(() => { btn.textContent = '📋'; }, 1500);
+        } catch (_) {
+          btn.textContent = '❌';
+          setTimeout(() => { btn.textContent = '📋'; }, 1500);
+        }
+        document.body.removeChild(ta);
+      }
+    });
   }
 
   function welcomeHTML() {
@@ -419,8 +468,13 @@
     </div>`;
   }
 
-  function formatContent(content) {
+  function formatContent(content, role) {
     if (!content) return '';
+    // AI 回复走 markdown 渲染(marked + DOMPurify + 嵌套 fence 归一化)
+    // 用户消息保留纯文本(用户输入通常不需要 markdown,且避免意外的代码执行)
+    if (role === 'assistant' && window.Markdown && typeof window.Markdown.render === 'function') {
+      return window.Markdown.render(content);
+    }
     return escHtml(content).replace(/\n/g, '<br>');
   }
 
