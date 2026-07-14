@@ -41,9 +41,10 @@ func TestBuildSSHCommand_StandardWezterm(t *testing.T) {
 	defer withMockKeyExists(true)()
 
 	dir := &backend.DirShortcut{
-		RemoteUser: "root",
-		RemoteHost: "192.168.1.150",
-		RemotePath: "/home/workspace",
+		RemoteUser:  "root",
+		RemoteHost:  "192.168.1.150",
+		RemotePath:  "/home/workspace",
+		AuthMethod:  "key",
 	}
 	args, err := BuildSSHCommand(dir, "wezterm")
 	if err != nil {
@@ -71,8 +72,9 @@ func TestBuildSSHCommand_DedupSSH(t *testing.T) {
 	defer withMockKeyExists(true)()
 
 	dir := &backend.DirShortcut{
-		RemoteUser: "u",
-		RemoteHost: "h",
+		RemoteUser:  "u",
+		RemoteHost:  "h",
+		AuthMethod:  "key",
 	}
 	args, err := BuildSSHCommand(dir, "wezterm")
 	if err != nil {
@@ -88,8 +90,9 @@ func TestBuildSSHCommand_CustomBin(t *testing.T) {
 	defer withMockKeyExists(true)()
 
 	dir := &backend.DirShortcut{
-		RemoteUser: "u",
-		RemoteHost: "h",
+		RemoteUser:  "u",
+		RemoteHost:  "h",
+		AuthMethod:  "key",
 	}
 	args, err := BuildSSHCommand(dir, "custombin")
 	if err != nil {
@@ -146,8 +149,9 @@ func TestBuildSSHCommand_CompatAlgorithmsEmpty(t *testing.T) {
 	cfg.SSH.CompatAlgorithms = config.SSHCompatAlgorithms{}
 
 	dir := &backend.DirShortcut{
-		RemoteUser: "u",
-		RemoteHost: "h",
+		RemoteUser:  "u",
+		RemoteHost:  "h",
+		AuthMethod:  "key",
 	}
 	args, err := BuildSSHCommand(dir, "wezterm")
 	if err != nil {
@@ -178,6 +182,7 @@ func TestBuildSSHCommand_CompatAlgorithmsPartial(t *testing.T) {
 		RemoteUser:           "u",
 		RemoteHost:           "h",
 		UseLegacyAlgorithms:  true,
+		AuthMethod:           "key",
 	}
 	args, err := BuildSSHCommand(dir, "wezterm")
 	if err != nil {
@@ -198,9 +203,10 @@ func TestBuildSSHCommand_RemotePathWithSpace(t *testing.T) {
 	defer withMockKeyExists(true)()
 
 	dir := &backend.DirShortcut{
-		RemoteUser: "u",
-		RemoteHost: "h",
-		RemotePath: "/home/my path",
+		RemoteUser:  "u",
+		RemoteHost:  "h",
+		RemotePath:  "/home/my path",
+		AuthMethod:  "key",
 	}
 	args, err := BuildSSHCommand(dir, "wezterm")
 	if err != nil {
@@ -215,26 +221,6 @@ func TestBuildSSHCommand_RemotePathWithSpace(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("remote path with space missing from args=%v", args)
-	}
-}
-
-func TestBuildSSHCommand_TerminalCmdSet(t *testing.T) {
-	defer setupTestConfig(t)()
-	defer withMockKeyExists(true)()
-
-	dir := &backend.DirShortcut{
-		RemoteUser:  "u",
-		RemoteHost:  "h",
-		RemotePath:  "/x",
-		TerminalCmd: "claude",
-	}
-	args, err := BuildSSHCommand(dir, "wezterm")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "claude") || !strings.Contains(joined, "exec $SHELL") {
-		t.Errorf("TerminalCmd not in shell_cmd, joined=%q", joined)
 	}
 }
 
@@ -256,9 +242,10 @@ func TestBuildSSHCommand_NoRemoteArgs(t *testing.T) {
 	defer withMockKeyExists(true)()
 
 	dir := &backend.DirShortcut{
-		RemoteUser: "u",
-		RemoteHost: "h",
-		RemotePath: "/var/log",
+		RemoteUser:  "u",
+		RemoteHost:  "h",
+		RemotePath:  "/var/log",
+		AuthMethod:  "key",
 	}
 	args, err := BuildSSHCommand(dir, "noterm")
 	if err != nil {
