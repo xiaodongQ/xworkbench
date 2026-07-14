@@ -4,6 +4,69 @@
 
 ---
 
+## v2.5 · 7.12-7.15 新增/调整的能力
+
+> 跨 Terminal / AI Chat / Markdown 渲染基础设施 / CI 等多条线，按功能组织。
+
+### 10.1 终端体验优化
+
+- `be97579` 终端侧栏可收起 + 列表状态以前端 termPool 为准（多会话管理）
+- `9244e18` 终端会话列表按创建时间排序，避免刷新时跳位置
+- `ce6f06f` 连接后延迟刷新会话列表 + 多处增加 `renderSessionList`
+- `8845ab0` 终端会话列表状态同步（revert 后再修回）
+- `024787f` 终端侧栏切换图标 `◀/▶` → `☰`
+- `0f5905c` 终端左侧标题字号 `9px → 10px`
+
+### 10.2 总览页改进
+
+- `cdf04b6` 总览页紧凑化 + UI 优化
+- `c13cc25` 总览统计改用**执行次数**替代运行时长 + 每日统计按日期排序
+- `e13edc0` `substr` 替代 `DATE()` 修复 SQLite monotonic clock 格式解析失败问题
+
+### 10.3 AI Chat 对话增强（73d9926）
+
+`ai_tools.go` + `aichat.js` 大幅重构，AI 可直接操作 Todo / 任务 / 远程 Agent：
+
+- **Todo 操作**：新增 `edit_todo`（编辑内容）、`archive_todo`（归档）、`add_todo_child`（添加子任务）三个工具
+- **任务管理**：新增 `delete_task`（需二次确认）、`reevaluate_task`（重评上一次执行）、`get_task_eval_history`（评历史）
+- **远程 Agent**：新增 `list_agents`（列出所有工作节点）
+- `e756afd` AI 对话多轮协议 alternation 修复（Anthropic + OpenAI）
+- `3ec9ab7` AI 对话 `tool_result` 协议错误 + 无超时/无限轮 bug
+
+### 10.4 Markdown 渲染基础设施
+
+- `c26e0bc` 引入 markdown 渲染基础设施（vendor + 整合层 + 单测 + 复用文档），打通 AI Chat 和 Automation 两处渲染
+
+### 10.5 AI 助手 & 执行详情 Markdown 支持
+
+- `622a9fc` 侧边 AI 助手支持 markdown 渲染 + 复制原文按钮
+- `079efd6` 执行详情卡片 markdown 渲染 + 原文切换
+- `3f3c170` execution detail markdown section cards + tooltip 样式
+
+### 10.6 Windows PTY 全面补齐
+
+- `b874e29` 移除 `pty_session_manager.go` 的 `!windows` build tag，Windows 构建不再跳过
+- `8ffa938` 补齐 Windows PTY 会话管理、auth 检测和资源清理
+- `93a09b6` Windows `stop()` 先 graceful 再 force kill，避免 `SIGKILL` 绕过 Go 清理
+
+### 10.7 调度器 & 样式修复
+
+- `e2b21f4` 解析不到 `session_id` 时清空 `LastSessionID`，下次调度重建会话
+- `519985f` 字体/样式优化 + 修复 xwcli 安装命令不显示
+
+### 10.8 CI/CD 多平台构建
+
+- `38556c8` 新增 `cross-platform build` workflow，支持 linux/macos/windows 三平台手动触发
+- `df2e858` Windows PowerShell build step 兼容（加 `shell: bash`）
+- `beaf97f` macOS release target 明确指定 `amd64`（darwin x86_64）
+- `452cbaa` 配置文件模板路径从 `.conf` 改为 `.json`
+- `d1f0362` v3.0-stable release notes 准备
+- `92a9057` release workflow 加 `contents:write` permission + glob pattern 上传产物
+- `ede8fa5` build/release job 拆分，消除多平台并发写 release 的 race condition
+- `9cf4137` SSH command builder 测试补全缺失的 `AuthMethod` 字段
+
+---
+
 ## v2.4 · 6.25 之后新增特性
 
 > 与博客 [9 节](https://xiaodongq.github.io/2026/06/19/assistant-all-in-one-advance-feature/#9) 不重复的部分，6.25 之后接入的新能力。
