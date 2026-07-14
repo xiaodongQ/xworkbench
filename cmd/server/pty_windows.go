@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"unicode"
+	"time"
 
 	"github.com/charmbracelet/x/xpty"
 	"github.com/gorilla/websocket"
@@ -27,6 +30,34 @@ var upgrader = websocket.Upgrader{
 	},
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+}
+
+// authRequiredPatterns 检测需要授权的输出模式（SSH 特有，Windows ConPTY 也适用）。
+var authRequiredPatterns = []string{
+	"Password:",
+	"Enter passphrase for key",
+	"Passphrase for key",
+	"Are you sure you want to continue connecting",
+	"continue anyway",
+	"是否确认",
+	"请确认",
+}
+
+func detectAuthRequired(line string) bool {
+	for _, p := range authRequiredPatterns {
+		if strings.Contains(line, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func sendNotify(conn *websocket.Conn, tabID, notifyType, extra string) {
+	if conn == nil {
+		return
+	}
+	data, _ := json.Marshal(map[string]string{"type": notifyType, "tab_id": tabID, "extra": extra})
+	conn.WriteMessage(websocket.TextMessage, data)
 }
 
 // handlePty 启动一个 ConPTY + WebSocket 终端会话。
@@ -85,10 +116,10 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 			[]byte("\r\n\x1b[31m[xworkbench] ConPTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
 		return
 	}
-	defer pty.Close()
 
 	if err := pty.Start(cmd); err != nil {
 		logger.Errorf("pty: xpty.Start error tab_id=%q err=%v", tabID, err)
+		pty.Close()
 		conn.WriteMessage(websocket.TextMessage,
 			[]byte("\r\n\x1b[31m[xworkbench] ConPTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
 		return
@@ -98,6 +129,28 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 		pid = cmd.Process.Pid
 	}
 	logger.Infof("pty: xpty started tab_id=%q pid=%d", tabID, pid)
+
+	sid := sessionIDFromCliType(cliType)
+
+	terminalSessions.CreateOrReplace(&SessionInfo{
+		ID:           sid,
+		Type:         "local_" + cliType,
+		Label:        labelForCliType(cliType),
+		Status:       "connected",
+		CreatedAt:    time.Now(),
+		LastActiveAt: time.Now(),
+		wsConn:       conn,
+		cmd:          cmd,
+	})
+
+	defer func() {
+		pty.Close()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		terminalSessions.MarkDisconnected(sid)
+		logger.Infof("pty: cleanup done tab_id=%q pid=%d", tabID, pid)
+	}()
 
 	banner := fmt.Sprintf("\x1b[36m[xworkbench] ConPTY 启动 (cli=%s)\x1b[0m\r\n", cliType)
 	conn.WriteMessage(websocket.TextMessage, []byte(banner))
@@ -123,6 +176,8 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		var lineBuf strings.Builder
+		authNotified := false
 		buf := make([]byte, 1024)
 		totalBytes := 0
 		reads := 0
@@ -131,9 +186,24 @@ func (s *APIServer) handlePty(w http.ResponseWriter, r *http.Request) {
 			reads++
 			if n > 0 {
 				totalBytes += n
+				terminalSessions.MarkActive(sid)
 				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
 					logger.Infof("pty: ws write error tab_id=%q err=%v", tabID, werr)
 					return
+				}
+				if !authNotified {
+					for _, b := range buf[:n] {
+						if b == '\n' || b == '\r' {
+							line := strings.TrimRight(lineBuf.String(), "\r\n")
+							if detectAuthRequired(line) {
+								sendNotify(conn, tabID, "auth_required", line)
+								authNotified = true
+							}
+							lineBuf.Reset()
+						} else if unicode.IsPrint(rune(b)) || b == '\t' {
+							lineBuf.WriteByte(b)
+						}
+					}
 				}
 			}
 			if rerr != nil {
@@ -311,10 +381,10 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 			[]byte("\r\n\x1b[31m[xworkbench] ConPTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
 		return
 	}
-	defer pty.Close()
 
 	if err := pty.Start(cmd); err != nil {
 		logger.Errorf("pty: remote xpty.Start error tab_id=%q err=%v", tabID, err)
+		pty.Close()
 		conn.WriteMessage(websocket.TextMessage,
 			[]byte("\r\n\x1b[31m[xworkbench] ConPTY 启动失败: "+err.Error()+"\x1b[0m\r\n"))
 		return
@@ -324,6 +394,29 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 		pid = cmd.Process.Pid
 	}
 	logger.Infof("pty: remote pty started tab_id=%q pid=%d", tabID, pid)
+
+	remoteSessionID := "remote_" + dirID
+
+	terminalSessions.CreateOrReplace(&SessionInfo{
+		ID:           remoteSessionID,
+		Type:         "remote",
+		DirID:        dirID,
+		Label:        dir.Name + " (" + dir.RemoteHost + ")",
+		Status:       "connected",
+		CreatedAt:    time.Now(),
+		LastActiveAt: time.Now(),
+		wsConn:       conn,
+		cmd:          cmd,
+	})
+
+	defer func() {
+		pty.Close()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		terminalSessions.MarkDisconnected(remoteSessionID)
+		logger.Infof("pty: remote cleanup done tab_id=%q pid=%d", tabID, pid)
+	}()
 
 	banner := fmt.Sprintf("\x1b[36m[xworkbench] SSH 已连接: %s\x1b[0m\r\n", userHost)
 	conn.WriteMessage(websocket.TextMessage, []byte(banner))
@@ -346,27 +439,46 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 
 	var wg sync.WaitGroup
 
-	// PTY 输出 → WebSocket
+	// PTY 输出 → WebSocket + auth 检测
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		var lineBuf strings.Builder
+		authNotified := false
 		buf := make([]byte, 4096)
 		totalBytes := 0
+		reads := 0
 		for {
 			n, rerr := pty.Read(buf)
+			reads++
 			if n > 0 {
 				totalBytes += n
+				terminalSessions.MarkActive(remoteSessionID)
 				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
 					logger.Infof("pty: remote ws write error tab_id=%q err=%v", tabID, werr)
 					return
 				}
+				if !authNotified {
+					for _, b := range buf[:n] {
+						if b == '\n' || b == '\r' {
+							line := strings.TrimRight(lineBuf.String(), "\r\n")
+							if detectAuthRequired(line) {
+								sendNotify(conn, tabID, "auth_required", line)
+								authNotified = true
+							}
+							lineBuf.Reset()
+						} else if unicode.IsPrint(rune(b)) || b == '\t' {
+							lineBuf.WriteByte(b)
+						}
+					}
+				}
 			}
 			if rerr != nil {
 				if rerr == io.EOF {
-					logger.Infof("pty: remote read EOF tab_id=%q bytes=%d", tabID, totalBytes)
+					logger.Infof("pty: remote read EOF tab_id=%q bytes=%d reads=%d", tabID, totalBytes, reads)
 				} else {
-					logger.Errorf("pty: remote read error tab_id=%q err=%v bytes=%d",
-						tabID, rerr, totalBytes)
+					logger.Errorf("pty: remote read error tab_id=%q err=%v bytes=%d reads=%d",
+						tabID, rerr, totalBytes, reads)
 				}
 				break
 			}
@@ -445,6 +557,38 @@ func resolveXwSshpassBin() string {
 		return bin
 	}
 	return ""
+}
+
+// sessionIDFromCliType 将 cli_type 转为会话管理器 ID。
+func sessionIDFromCliType(cliType string) string {
+	switch cliType {
+	case "shell":
+		return "local_shell"
+	case "claude":
+		return "local_claude"
+	case "cbc":
+		return "local_cbc"
+	case "powershell":
+		return "local_powershell"
+	default:
+		return "local_shell"
+	}
+}
+
+// labelForCliType 返回前端显示用的类型标签。
+func labelForCliType(cliType string) string {
+	switch cliType {
+	case "shell":
+		return "cmd"
+	case "claude":
+		return "Claude"
+	case "cbc":
+		return "CBC"
+	case "powershell":
+		return "PowerShell"
+	default:
+		return cliType
+	}
 }
 
 // FindPTY stub for Windows — PTY sessions not yet implemented.

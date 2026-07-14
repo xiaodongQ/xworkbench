@@ -183,7 +183,8 @@ stop() {
   printf "  SIGTERM → ... "
   local term_ok=0
   if [ "$os" = "windows" ]; then
-    cmd.exe //c "taskkill /F /PID $pid" >/dev/null 2>&1 && term_ok=1
+    # Windows: 先尝试正常终止（SIGTERM 等价），Go 的 signal.Notify 会捕获
+    cmd.exe //c "taskkill /PID $pid" >/dev/null 2>&1 && term_ok=1
   else
     kill "$pid" 2>/dev/null && term_ok=1
   fi
@@ -206,7 +207,8 @@ stop() {
       echo "  ${YELLOW}SIGKILL ($i/3) →${NC}  pids=$all_pids"
       for p in $all_pids; do
         if [ "$os" = "windows" ]; then
-          cmd.exe //c "taskkill /F /PID $p" >/dev/null 2>&1
+          # /F = force kill, /T = also kill child processes (orphaned PTY/subprocs)
+          cmd.exe //c "taskkill /F /T /PID $p" >/dev/null 2>&1
         else
           kill -9 "$p" 2>/dev/null
         fi
