@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: build (${{ matrix.os }}/${{ matrix.arch }})
@@ -35,8 +38,8 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
         run: |
-          VERSION_TAG="${GITHUB_REF#refs/tags/}" ./scripts/make_pack.sh
-          echo "PKG_DIR=xworkbench_${VERSION_TAG#v}" >> $GITHUB_ENV
+          VERSION_TAG="${GITHUB_REF#refs/tags/}"
+          ./scripts/make_pack.sh
 
       - name: upload asset
         uses: softprops/action-gh-release@v2
@@ -46,6 +49,6 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            ./dist/${{ env.PKG_DIR }}-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}
+            ./dist/xworkbench_*-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
