@@ -17,7 +17,7 @@ jobs:
             arch: amd64
             ext: tar.gz
           - os: darwin
-            arch: arm64
+            arch: amd64
             ext: tar.gz
           - os: windows
             arch: amd64
