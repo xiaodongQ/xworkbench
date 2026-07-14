@@ -41,14 +41,30 @@ jobs:
           VERSION_TAG="${GITHUB_REF#refs/tags/}"
           ./scripts/make_pack.sh
 
-      - name: upload asset
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xworkbench-${{ matrix.os }}-${{ matrix.arch }}
+          path: ./dist/xworkbench_*-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: xworkbench-*
+          merge-multiple: true
+
+      - name: upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref }}
           name: ${{ github.ref }}
           draft: false
           prerelease: false
-          files: |
-            ./dist/xworkbench_*-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}
+          files: ./artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
