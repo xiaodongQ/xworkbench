@@ -134,7 +134,7 @@ html.windows { zoom: 1.11; }
 /* 自定义 tooltip：用真实 DOM 元素（不用 ::after，因为 attr() 不解析 \n 换行） */
 .custom-tooltip {
   position: fixed; z-index: 1000;
-  background: #1e293b; color: #f1f5f9;
+  background: #1e293b; color: #fff;
   padding: 8px 12px; border-radius: 4px;
   font-size: 12px; line-height: 1.5;
   max-width: 400px;
@@ -150,8 +150,24 @@ html.windows { zoom: 1.11; }
 /* 输出 stdout ⓘ 的 tooltip 宽度较窄 */
 .custom-tooltip.tooltip-narrow { max-width: 280px; }
 .custom-tooltip .tt-line { display: block; word-break: break-word; overflow-wrap: break-word; }
-.custom-tooltip .tt-head { font-weight: 600; color: #60a5fa; margin-bottom: 4px; }
-[data-theme="dark"] .custom-tooltip { background: #475569; color: #f1f5f9; }
+/* 段头(=== xxx === / --- xxx --- 风格的 section 分隔线):弱化处理
+   - 字号略小 + 字间距,跟正文区分但不过度抢眼
+   - opacity 0.85 视觉上"轻于"正文
+   - 顶部加 4px 间距拉开段落,首条不顶头 */
+.custom-tooltip .tt-section-head {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: #fff;
+  opacity: 0.85;
+  margin-top: 4px;
+  word-break: break-word;
+}
+.custom-tooltip .tt-section-head:first-child { margin-top: 0; }
+/* 空行 → 段落间距(避免文字挤一起) */
+.custom-tooltip .tt-spacer { display: block; height: 5px; }
+[data-theme="dark"] .custom-tooltip { background: #475569; color: #fff; }
 
 /* ===== Widget 侧栏（链接+目录 上下排） ===== */
 .widget-sidebar {
@@ -1729,5 +1745,106 @@ tr:last-child td { border-bottom: none; }
   background: var(--hover-bg, #f1f5f9);
   border-radius: 4px;
   line-height: 1.5;
+}
+
+/* ===== Execution Markdown 分段卡片 =====
+   把 renderExecOutput 的三段(reply / meta / actions)渲染成视觉区分的卡片。
+   - reply: 蓝色左线,主内容区
+   - meta: 灰色信息条,monospace key=value
+   - actions: 琥珀色左线,辅助评估提示 */
+.exec-md-section {
+  margin: 0 0 8px 0;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--card-bg, #fff);
+}
+.exec-md-section:last-child { margin-bottom: 0; }
+
+.exec-md-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+  background: var(--hover-bg, #f1f5f9);
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  letter-spacing: 0.2px;
+}
+.exec-md-section-tag {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-secondary, #64748b);
+  letter-spacing: 0.3px;
+}
+[data-theme="dark"] .exec-md-section-tag { background: rgba(255, 255, 255, 0.08); }
+
+.exec-md-section-body {
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary, #1e293b);
+}
+/* 让 body 内的 md-output 跟 section body 视觉合一(去掉自身的 margin 跳变) */
+.exec-md-section-body.md-output { padding: 0; }
+.exec-md-section-body.md-output > :first-child { margin-top: 0; }
+.exec-md-section-body.md-output > :last-child { margin-bottom: 0; }
+
+/* 1) AI 答复 - 主内容,蓝色左边线强调 */
+.exec-md-section-reply {
+  border-left: 3px solid var(--primary, #2563eb);
+}
+.exec-md-section-reply > .exec-md-section-header {
+  background: rgba(37, 99, 235, 0.06);
+  color: var(--primary, #2563eb);
+}
+
+/* 2) CLI 执行信息 - 信息卡片,monospace key=value */
+.exec-md-section-meta > .exec-md-section-body {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--text-secondary, #64748b);
+  word-break: break-all;
+}
+.exec-md-meta-item {
+  display: inline-block;
+  margin-right: 14px;
+  white-space: nowrap;
+}
+.exec-md-meta-item:last-child { margin-right: 0; }
+.exec-md-meta-key {
+  color: var(--text-primary, #1e293b);
+  font-weight: 600;
+}
+.exec-md-meta-eq {
+  color: var(--text-secondary, #94a3b8);
+  margin: 0 2px;
+}
+.exec-md-meta-value {
+  color: var(--text-secondary, #475569);
+}
+/* 暗主题下 meta 卡片背景更暗一点,key 颜色提亮 */
+[data-theme="dark"] .exec-md-section-meta > .exec-md-section-body {
+  background: rgba(255, 255, 255, 0.02);
+}
+[data-theme="dark"] .exec-md-meta-value { color: #cbd5e1; }
+
+/* 3) 自评动作清单 - 辅助评估,琥珀色左边线 */
+.exec-md-section-actions {
+  border-left: 3px solid #f59e0b;
+}
+.exec-md-section-actions > .exec-md-section-header {
+  background: rgba(245, 158, 11, 0.07);
+  color: #b45309;
+}
+[data-theme="dark"] .exec-md-section-actions > .exec-md-section-header {
+  color: var(--warning, #fbbf24);
 }
 

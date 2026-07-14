@@ -1109,20 +1109,20 @@ function _startExecAutoRefresh() {
 }
 _startExecAutoRefresh(); // 启动一次，30s 兜底
 
-// renderExecOutput 解析 `claude -p --output-format json` 的输出，提取 result 字段。
-// 非 JSON 格式 fallback 原样返回。
-// 输出结构重排：AI 答复 → 执行信息 → 辅助评估（动作清单）
+// renderExecOutput 解析 `claude -p --output-format json` 的输出,提取 result 字段。
+// 返回结构化对象 { reply, meta:[{key,value}], actions } 供 renderExecOutputAsMarkdown
+// 按段渲染出三个不同样式的卡片。非 JSON / 解析失败 fallback 返回 { raw }。
 function renderExecOutput(raw) {
-  if (!raw) return '(无输出)';
+  if (!raw) return { raw: '(无输出)' };
   const trimmed = raw.trim();
   const sessionId = extractSessionId(trimmed);
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return raw;
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return { raw };
   let obj;
-  try { obj = JSON.parse(trimmed); } catch { return raw; }
-  // claude json 输出结构（单对象）
+  try { obj = JSON.parse(trimmed); } catch { return { raw }; }
+  // claude json 输出结构(单对象)
   if (typeof obj.result === 'string') {
     const resultText = obj.result || '';
-    // 动作清单从 "## 动作清单" 标记开始，后面是 AI 自评内容
+    // 动作清单从 "## 动作清单" 标记开始,后面是 AI 自评内容
     const actionReportIdx = resultText.indexOf('## 动作清单');
     let aiReply = resultText;
     let actionReport = '';
@@ -1131,34 +1131,23 @@ function renderExecOutput(raw) {
       actionReport = resultText.slice(actionReportIdx);
     }
 
-    const sections = [];
-
-    // 1. AI 答复（最上面，用户最关心）
-    if (aiReply) {
-      sections.push('=== AI 答复 ===\n' + aiReply);
-    }
-
-    // 2. AI CLI 执行信息
+    // 2. AI CLI 执行信息(数组形式,key/value 分开,渲染时高亮 key)
     const meta = [];
-    if (sessionId) meta.push(`sessionId=${sessionId}`);
-    if (typeof obj.num_turns === 'number') meta.push(`num_turns=${obj.num_turns}`);
-    if (obj.is_error) meta.push('is_error=true');
-    if (obj.stop_reason) meta.push(`stop_reason=${obj.stop_reason}`);
+    if (sessionId) meta.push({ key: 'sessionId', value: sessionId });
+    if (typeof obj.num_turns === 'number') meta.push({ key: 'num_turns', value: String(obj.num_turns) });
+    if (obj.is_error) meta.push({ key: 'is_error', value: 'true' });
+    if (obj.stop_reason) meta.push({ key: 'stop_reason', value: obj.stop_reason });
     if (obj.permission_denials && obj.permission_denials.length) {
-      meta.push(`permission_denials=[${obj.permission_denials.join(',')}]`);
-    }
-    if (meta.length) {
-      sections.push('--- AI CLI 执行信息 ---\n' + meta.join(' | '));
+      meta.push({ key: 'permission_denials', value: '[' + obj.permission_denials.join(',') + ']' });
     }
 
-    // 3. AI 自评动作清单（辅助评估）
-    if (actionReport) {
-      sections.push('--- AI 自评动作清单（辅助评估） ---\n' + actionReport);
-    }
-
-    return sections.join('\n\n');
+    return {
+      reply: aiReply || null,
+      meta,
+      actions: actionReport || null,
+    };
   }
-  // cbc 最终输出也是 {type:"result", result:"..."}，与 claude 结构一致
+  // cbc 最终输出也是 {type:"result", result:"..."},与 claude 结构一致
   if (Array.isArray(obj)) {
     for (const item of obj) {
       if (item.type === 'result' && typeof item.result === 'string') {
@@ -1170,18 +1159,18 @@ function renderExecOutput(raw) {
           aiReply = resultText.slice(0, actionReportIdx).trim();
           actionReport = resultText.slice(actionReportIdx);
         }
-        const sections = [];
-        if (aiReply) sections.push('=== AI 答复 ===\n' + aiReply);
         const meta = [];
-        if (item.num_turns != null) meta.push(`num_turns=${item.num_turns}`);
-        if (item.is_error) meta.push('is_error=true');
-        if (item.session_id) meta.push(`sessionId=${item.session_id}`);
-        if (meta.length) sections.push('--- AI CLI 执行信息 ---\n' + meta.join(' | '));
-        if (actionReport) sections.push('--- AI 自评动作清单（辅助评估） ---\n' + actionReport);
-        return sections.join('\n\n');
+        if (item.num_turns != null) meta.push({ key: 'num_turns', value: String(item.num_turns) });
+        if (item.is_error) meta.push({ key: 'is_error', value: 'true' });
+        if (item.session_id) meta.push({ key: 'sessionId', value: item.session_id });
+        return {
+          reply: aiReply || null,
+          meta,
+          actions: actionReport || null,
+        };
       }
     }
-    // 兜底：流式中间数组，找 assistant 消息
+    // 兜底:流式中间数组,找 assistant 消息
     let resultText = '';
     for (const item of obj) {
       if (item.type === 'message' && item.role === 'assistant' && Array.isArray(item.content)) {
@@ -1199,15 +1188,15 @@ function renderExecOutput(raw) {
       aiReply = resultText.slice(0, actionReportIdx).trim();
       actionReport = resultText.slice(actionReportIdx);
     }
-    const sections = [];
-    if (aiReply) sections.push('=== AI 答复 ===\n' + aiReply);
     const meta = [];
-    if (sessionId) meta.push(`sessionId=${sessionId}`);
-    if (meta.length) sections.push('--- AI CLI 执行信息 ---\n' + meta.join(' | '));
-    if (actionReport) sections.push('--- AI 自评动作清单（辅助评估） ---\n' + actionReport);
-    return sections.join('\n\n');
+    if (sessionId) meta.push({ key: 'sessionId', value: sessionId });
+    return {
+      reply: aiReply || null,
+      meta,
+      actions: actionReport || null,
+    };
   }
-  return raw;
+  return { raw };
 }
 
 // toggleExecOutput 在"markdown 渲染视图"和"原始 JSON 文本"之间切换。
@@ -1232,21 +1221,84 @@ function toggleExecOutput(link) {
   }
 }
 
-// renderExecOutputAsMarkdown 把 renderExecOutput 的纯文本用 markdown 渲染到 div。
-// 调 window.Markdown.render(marked + DOMPurify),自动处理嵌套 fence / XSS。
-function renderExecOutputAsMarkdown(el, renderedOutput) {
+// renderExecOutputAsMarkdown 把 renderExecOutput 的结构化对象渲染成三段样式化卡片:
+// 1) AI 答复(reply)- 主内容,蓝色左边线
+// 2) AI CLI 执行信息(meta)- 信息卡片,monospace key=value
+// 3) AI 自评动作清单(actions)- 辅助评估,琥珀色左边线
+// raw 字段(非 JSON 兜底)走纯文本展示。
+function renderExecOutputAsMarkdown(el, sections) {
   if (!el) return;
-  if (!renderedOutput || renderedOutput === '(无输出)') {
-    el.textContent = renderedOutput || '(无输出)';
+  if (!sections) {
+    el.textContent = '(无输出)';
     return;
   }
-  if (window.Markdown && typeof window.Markdown.render === 'function') {
-    el.innerHTML = window.Markdown.render(renderedOutput);
-  } else {
-    // vendor JS 未加载时的 fallback:用纯文本 + 简单换行
-    el.style.whiteSpace = 'pre-wrap';
-    el.textContent = renderedOutput;
+  // 非 JSON 兜底:直接当纯文本展示
+  if (sections.raw) {
+    if (sections.raw === '(无输出)') {
+      el.textContent = '(无输出)';
+    } else {
+      el.style.whiteSpace = 'pre-wrap';
+      el.textContent = sections.raw;
+    }
+    return;
   }
+  const md = window.Markdown;
+  const renderBody = (text) => {
+    if (!text) return '';
+    let html;
+    if (md && typeof md.render === 'function') {
+      html = md.render(text);
+    } else {
+      // vendor JS 未加载时的 fallback
+      return '<pre style="white-space:pre-wrap;margin:0;font:inherit">' + esc(text) + '</pre>';
+    }
+    // normalizeFences 补的尾部空行经 marked 变成 <p></p> 空段,
+    // trim 两端空白(不去除内容中间的合法空白,也不影响 code block 内的空白)
+    return html.trim();
+  };
+  const parts = [];
+  // 1) AI 答复
+  if (sections.reply) {
+    parts.push(
+      '<div class="exec-md-section exec-md-section-reply">' +
+        '<div class="exec-md-section-header">💬 AI 答复</div>' +
+        '<div class="exec-md-section-body md-output">' + renderBody(sections.reply) + '</div>' +
+      '</div>'
+    );
+  }
+  // 2) AI CLI 执行信息
+  if (sections.meta && sections.meta.length) {
+    const items = sections.meta.map(m =>
+      '<span class="exec-md-meta-item">' +
+        '<span class="exec-md-meta-key">' + esc(m.key) + '</span>' +
+        '<span class="exec-md-meta-eq">=</span>' +
+        '<span class="exec-md-meta-value">' + esc(m.value) + '</span>' +
+      '</span>'
+    ).join('');
+    parts.push(
+      '<div class="exec-md-section exec-md-section-meta">' +
+        '<div class="exec-md-section-header">⚙️ CLI 执行信息</div>' +
+        '<div class="exec-md-section-body">' + items + '</div>' +
+      '</div>'
+    );
+  }
+  // 3) AI 自评动作清单(辅助评估)
+  if (sections.actions) {
+    parts.push(
+      '<div class="exec-md-section exec-md-section-actions">' +
+        '<div class="exec-md-section-header">' +
+          '📋 AI 自评动作清单' +
+          '<span class="exec-md-section-tag">辅助评估</span>' +
+        '</div>' +
+        '<div class="exec-md-section-body md-output">' + renderBody(sections.actions) + '</div>' +
+      '</div>'
+    );
+  }
+  if (!parts.length) {
+    el.textContent = '(无输出)';
+    return;
+  }
+  el.innerHTML = parts.join('');
 }
 
 // extractSessionId 从原始输出中提取 session_id（claude）或 sessionId（cbc）。

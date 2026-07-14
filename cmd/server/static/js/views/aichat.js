@@ -387,7 +387,7 @@
       const contentClass = m.role === 'assistant' ? 'aichat-msg-content md-output' : 'aichat-msg-content';
       // assistant 消息额外加复制按钮(hover 时显示),把原始 markdown 存在 data-markdown 上
       const copyBtn = m.role === 'assistant'
-        ? `<button class="aichat-msg-copy" data-markdown="${escHtml(m.content)}" title="复制原始 markdown">📋</button>`
+        ? `<button class="aichat-msg-copy" data-markdown="${escHtml(m.content)}" title="可复制">📋</button>`
         : '';
       return `
       <div class="aichat-msg aichat-msg-${escHtml(m.role)}">

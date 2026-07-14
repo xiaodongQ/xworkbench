@@ -259,11 +259,20 @@ function showTooltip(target) {
   const tip = ensureTooltip();
   // 继承触发元素的类（如 tooltip-narrow），便于 CSS 控制宽度等样式
   tip.className = 'custom-tooltip' + (target.className ? ' ' + target.className : '');
-  // 按真换行拆行
+  // 拆行并按内容分类:
+  //   - 空行 → 段落间距
+  //   - === xxx === / --- xxx --- → 段头(辅助说明里 section 分隔线)
+  //   - 其他 → 正文
+  // 这样多 section 的 tooltip(比如输出 stdout ⓘ)有清晰视觉层级,不再是"一坨文字"
   const lines = text.split('\n');
-  tip.innerHTML = lines.map((l, i) =>
-    i === 0 ? `<span class="tt-line tt-head">${esc(l)}</span>` : `<span class="tt-line">${esc(l)}</span>`
-  ).join('');
+  tip.innerHTML = lines.map(l => {
+    const t = l.trim();
+    if (!t) return '<span class="tt-spacer"></span>';
+    if (/^={3,}\s+.+\s+={3,}$/.test(t) || /^-{3,}\s+.+\s+-{3,}$/.test(t)) {
+      return `<span class="tt-section-head">${esc(t)}</span>`;
+    }
+    return `<span class="tt-line">${esc(l)}</span>`;
+  }).join('');
   positionTooltip(tip, target.getBoundingClientRect());
 }
 function hideTooltip() {
