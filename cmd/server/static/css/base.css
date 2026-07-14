@@ -841,8 +841,38 @@ tr:last-child td { border-bottom: none; }
   padding: 24px;
   font-size: 13px;
 }
-.aichat-msg { margin-bottom: 8px; }
+.aichat-msg { margin-bottom: 8px; position: relative; }
 .aichat-msg-user { text-align: right; }
+/* 复制原始 markdown 按钮:默认透明,hover 消息时显示,绝对定位到右上角 */
+.aichat-msg-copy {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  background: var(--hover-bg, #f1f5f9);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.aichat-msg:hover .aichat-msg-copy { opacity: 1; }
+.aichat-msg-copy:hover {
+  background: var(--primary, #2563eb);
+  color: #fff;
+  border-color: var(--primary, #2563eb);
+}
+.aichat-msg-copy-done {
+  opacity: 1 !important;
+  background: #16a34a !important;
+  color: #fff !important;
+  border-color: #16a34a !important;
+}
 .aichat-msg-role {
   font-size: 10px;
   color: var(--text-secondary);
@@ -867,6 +897,8 @@ tr:last-child td { border-bottom: none; }
 .aichat-msg-assistant .aichat-msg-content {
   background: var(--hover-bg);
   color: var(--text);
+  /* assistant 走 markdown 渲染时,白空间由 markdown 规则决定,不能再 pre-wrap */
+  white-space: normal;
 }
 
 /* Input area */
@@ -1574,6 +1606,8 @@ tr:last-child td { border-bottom: none; }
   background: var(--bg-secondary, #0f172a);
   border-radius: 10px 10px 10px 0;
   border: 1px solid var(--border, #334155);
+  /* markdown 渲染需要 normal 白空间,不能 pre-wrap */
+  white-space: normal;
 }
 
 /* 欢迎页微调 */
@@ -1587,3 +1621,113 @@ tr:last-child td { border-bottom: none; }
 .floating-chat-body .aichat-welcome-card {
   padding: 10px;
 }
+
+/* ===== Markdown 渲染 (.md-output) =====
+   适配执行输出卡片,基于 marked + highlight.js。
+   基础排版 + 代码块高亮 + 表格 + 链接,亮/暗主题双适配。
+   字号与改前保持一致(13px 正文 / 1.45 行高),标题用 em 相对缩放,
+   避免 markdown 默认的 18/15/14 px 出现"突然变大"的视觉跳变。 */
+.md-output {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary, #1e293b);
+  word-break: break-word;
+}
+.md-output > :first-child { margin-top: 0; }
+.md-output > :last-child { margin-bottom: 0; }
+.md-output h1, .md-output h2, .md-output h3, .md-output h4 {
+  margin: 8px 0 4px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary, #1e293b);
+}
+/* 标题全部跟正文同字号,用 font-weight + border-bottom 区分 h1 */
+.md-output h1 { font-size: 1em; border-bottom: 1px solid var(--border, #e2e8f0); padding-bottom: 2px; }
+.md-output h2 { font-size: 1em; }
+.md-output h3 { font-size: 1em; font-weight: 500; }
+.md-output h4 { font-size: 1em; font-weight: 500; color: var(--text-secondary, #64748b); }
+.md-output p { margin: 4px 0; }
+.md-output ul, .md-output ol { margin: 4px 0; padding-left: 20px; }
+.md-output li { margin: 1px 0; }
+.md-output blockquote {
+  margin: 4px 0;
+  padding: 3px 8px;
+  border-left: 3px solid var(--primary, #2563eb);
+  color: var(--text-secondary, #64748b);
+  background: var(--hover-bg, #f1f5f9);
+  border-radius: 0 4px 4px 0;
+}
+.md-output hr {
+  border: 0;
+  border-top: 1px solid var(--border, #e2e8f0);
+  margin: 8px 0;
+}
+.md-output a {
+  color: var(--primary, #2563eb);
+  text-decoration: none;
+}
+.md-output a:hover { text-decoration: underline; }
+.md-output table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12px;
+  width: auto;
+  max-width: 100%;
+}
+.md-output th, .md-output td {
+  border: 1px solid var(--border, #e2e8f0);
+  padding: 3px 6px;
+  text-align: left;
+}
+.md-output th {
+  background: var(--hover-bg, #f1f5f9);
+  font-weight: 600;
+}
+.md-output code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  padding: 1px 4px;
+  background: var(--hover-bg, #f1f5f9);
+  border-radius: 3px;
+  color: #c7254e;
+}
+.md-output pre {
+  margin: 6px 0;
+  padding: 6px 8px;
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 5px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.md-output pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+/* highlight.js token 配色(简洁适配,亮/暗主题统一深色背景) */
+.md-output .hljs-comment, .md-output .hljs-quote { color: #94a3b8; font-style: italic; }
+.md-output .hljs-keyword, .md-output .hljs-selector-tag, .md-output .hljs-built_in { color: #f472b6; }
+.md-output .hljs-string, .md-output .hljs-attr, .md-output .hljs-template-tag { color: #a5e88a; }
+.md-output .hljs-number, .md-output .hljs-literal { color: #fbbf24; }
+.md-output .hljs-title, .md-output .hljs-function .hljs-title, .md-output .hljs-section { color: #93c5fd; }
+.md-output .hljs-type, .md-output .hljs-class .hljs-title { color: #fde68a; }
+.md-output .hljs-tag, .md-output .hljs-name { color: #f87171; }
+.md-output .hljs-meta, .md-output .hljs-meta .hljs-keyword { color: #94a3b8; }
+.md-output .hljs-deletion { color: #fca5a5; background: #7f1d1d33; }
+.md-output .hljs-addition { color: #a5e88a; background: #14532d33; }
+
+/* 原始 JSON 模式(去掉 markdown 排版,显示为纯文本) */
+.md-output.md-output-raw {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 8px 10px;
+  background: var(--hover-bg, #f1f5f9);
+  border-radius: 4px;
+  line-height: 1.5;
+}
+

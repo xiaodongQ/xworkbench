@@ -1200,8 +1200,8 @@
       </div>
       <div class="form-group" style="margin-bottom:8px">
         <label style="margin-bottom:4px;font-size:12px">输出 <span class="field-hint">stdout</span> <span class="info-icon tooltip-narrow" data-tooltip="=== AI 答复 ===&#10;AI 实际回复内容（核心）&#10;&#10;--- Claude 执行信息 ---&#10;sessionId: 会话唯一标识符，用于 --resume 继续对话&#10;num_turns: AI 执行总轮次（每调用一次工具算一个 turn）&#10;stop_reason: 结束原因（end_turn=正常/max_turns=达到轮次限制/stop_sequence=遇到停止序列/timeout=超时）&#10;&#10;--- AI 自评动作清单（辅助评估） ---&#10;AI 自报的：执行了哪些命令、退出码、用了什么工具、如何验证">ⓘ</span></label>
-        <textarea id="exec-detail-output" readonly class="code" rows="8" style="font-size:12px;white-space:pre-wrap;word-break:break-all;padding:6px 8px;line-height:1.5"></textarea>
-        <a id="exec-output-toggle" href="#" onclick="toggleExecOutput(this);return false" style="font-size:11px;color:var(--primary);text-decoration:none;display:none"></a>
+        <div id="exec-detail-output" class="md-output code" style="font-size:12px;padding:6px 8px;line-height:1.5;min-height:40px;max-height:600px;overflow-y:auto"></div>
+        <a id="exec-output-toggle" href="#" onclick="toggleExecOutput(this);return false" style="font-size:11px;color:var(--primary);text-decoration:none;display:none">原文</a>
       </div>
       <div class="form-group" style="margin-bottom:8px">
         <label style="margin-bottom:4px;font-size:12px">错误 <span class="field-hint">stderr</span></label>
@@ -1495,6 +1495,11 @@
 
 <!-- 共享 + widgets + 5 view JS（顺序：api → widgets → 5 view） -->
 <script src="/static/js/api.js"></script>
+<!-- markdown 渲染 vendor:marked → dompurify → hljs → markdown.js (顺序敏感,后者依赖前者暴露的 window 全局) -->
+<script src="/static/js/vendor/marked.umd.min.js"></script>
+<script src="/static/js/vendor/dompurify.min.js"></script>
+<script src="/static/js/vendor/hljs.bundle.min.js"></script>
+<script src="/static/js/markdown.js"></script>
 <script src="/static/js/widgets.js"></script>
 <script src="/static/js/views/dashboard.js"></script>
 <script src="/static/js/views/tasks.js"></script>

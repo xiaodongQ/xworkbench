@@ -690,17 +690,17 @@ async function viewExecutionDetail(id) {
     document.getElementById('exec-detail-cmd').value = exec.command || '';
     // 解析 claude -p --output-format json：取 result 字段，附带 num_turns 元数据
     const renderedOutput = renderExecOutput(exec.output);
-    // 默认只显示 AI 答复部分，辅助信息可切换展开
-    const aiReplyOnly = extractAIReplyOnly(renderedOutput);
     const outputEl = document.getElementById('exec-detail-output');
-    outputEl.value = aiReplyOnly;
-    outputEl._fullOutput = renderedOutput;       // 存完整版
-    outputEl._showingFull = false;               // 当前状态
+    // 默认渲染 markdown 视图(完整),toggle 切换"原文"
+    renderExecOutputAsMarkdown(outputEl, renderedOutput);
+    outputEl._renderedOutput = renderedOutput;   // 存原始解析结果
+    outputEl._rawOutput = exec.output;           // 存未解析的原始 JSON(用于 toggle "原文")
+    outputEl._mode = 'markdown';                 // 'markdown' | 'raw'
     const toggle = document.getElementById('exec-output-toggle');
     if (toggle) {
-      const hasExtra = renderedOutput !== aiReplyOnly;
-      toggle.style.display = hasExtra ? 'inline' : 'none';
-      toggle.textContent = hasExtra ? '▼ 显示全部输出（含 CLI 元数据 + 动作清单的完整输出）' : '';
+      toggle.style.display = 'inline';
+      toggle.textContent = '📋 原文';
+      toggle.title = '查看原始 JSON 输出(未解析)';
     }
     document.getElementById('exec-detail-error').value = exec.error || '';
     const isRunning = !exec.completed_at;
@@ -1210,27 +1210,42 @@ function renderExecOutput(raw) {
   return raw;
 }
 
-// extractAIReplyOnly 从 renderExecOutput 的输出中只提取 AI 答复部分，
-// 用于默认折叠显示。
-function extractAIReplyOnly(rendered) {
-  if (!rendered) return rendered;
-  // 第一个 "=== AI 答复 ===\n" 到第一个 "\n\n---" 之前是 AI 答复
-  const match = rendered.match(/^=== AI 答复 ===\n([\s\S]*?)(?=\n\n---)/);
-  return match ? match[0] : rendered;
-}
-
-// toggleExecOutput 切换执行输出的完整/简洁视图。
+// toggleExecOutput 在"markdown 渲染视图"和"原始 JSON 文本"之间切换。
+// 默认渲染视图,点 toggle 看原文(JSON),再点回渲染。
 function toggleExecOutput(link) {
   const el = document.getElementById('exec-detail-output');
-  if (!el || !el._fullOutput) return;
-  if (el._showingFull) {
-    el.value = extractAIReplyOnly(el._fullOutput);
-    el._showingFull = false;
-    link.textContent = '▶ 显示全部输出（含 CLI 元数据 + 动作清单的完整输出）';
+  if (!el || !el._renderedOutput) return;
+  if (el._mode === 'markdown') {
+    // 切到原始 JSON 视图
+    el.classList.add('md-output-raw');
+    el.textContent = el._rawOutput || '(无原始输出)';
+    el._mode = 'raw';
+    link.textContent = '🎨 渲染';
+    link.title = '切回 markdown 渲染视图';
   } else {
-    el.value = el._fullOutput;
-    el._showingFull = true;
-    link.textContent = '▼ 收起辅助信息';
+    // 切回 markdown 渲染视图
+    el.classList.remove('md-output-raw');
+    renderExecOutputAsMarkdown(el, el._renderedOutput);
+    el._mode = 'markdown';
+    link.textContent = '📋 原文';
+    link.title = '查看原始 JSON 输出(未解析)';
+  }
+}
+
+// renderExecOutputAsMarkdown 把 renderExecOutput 的纯文本用 markdown 渲染到 div。
+// 调 window.Markdown.render(marked + DOMPurify),自动处理嵌套 fence / XSS。
+function renderExecOutputAsMarkdown(el, renderedOutput) {
+  if (!el) return;
+  if (!renderedOutput || renderedOutput === '(无输出)') {
+    el.textContent = renderedOutput || '(无输出)';
+    return;
+  }
+  if (window.Markdown && typeof window.Markdown.render === 'function') {
+    el.innerHTML = window.Markdown.render(renderedOutput);
+  } else {
+    // vendor JS 未加载时的 fallback:用纯文本 + 简单换行
+    el.style.whiteSpace = 'pre-wrap';
+    el.textContent = renderedOutput;
   }
 }
 
