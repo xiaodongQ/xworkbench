@@ -40,8 +40,11 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
         run: |
-          BIN_NAME="xworkbench-${{ matrix.os }}-${{ matrix.arch }}"
-          [ "${{ matrix.os }}" = "windows" ] && BIN_NAME="${BIN_NAME}.exe"
+          ext=""
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            ext=".exe"
+          fi
+          BIN_NAME="xworkbench-${{ matrix.os }}-${{ matrix.arch }}${ext}"
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w" -trimpath -o "./bin/${BIN_NAME}" ./cmd/server
 
       - uses: actions/upload-artifact@v4
