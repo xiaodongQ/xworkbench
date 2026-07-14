@@ -36,6 +36,7 @@ jobs:
           cache: true
 
       - name: build
+        shell: bash
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
