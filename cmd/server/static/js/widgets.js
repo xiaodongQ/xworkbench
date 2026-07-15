@@ -1477,8 +1477,8 @@ async function loadLinks() {
 
     html += `<div class="link-category-group">`;
     if (hasOthers) {
-      // 默认分类作为「其他」的子项
-      html += `<div class="link-category-header" onclick="toggleLinkCategory('${esc(defaultCat.id)}')" style="padding-left:24px">`;
+      // 默认分类作为「其他」的子项，但缩进与普通分类保持一致
+      html += `<div class="link-category-header" onclick="toggleLinkCategory('${esc(defaultCat.id)}')">`;
       html += `<span style="color:var(--text-secondary)">${arrow}</span>`;
       html += `<span>${esc(defaultCat.icon || '')} ${esc(defaultCat.name)}</span>`;
       html += `<span style="color:var(--text-secondary);margin-left:auto">${items.length}</span>`;
@@ -1891,8 +1891,8 @@ async function loadDirs() {
 
     html += `<div class="dir-category-group">`;
     if (hasOthers) {
-      // 默认分类作为「其他」的子项
-      html += `<div class="dir-category-header" onclick="toggleDirCategory('${esc(defaultCat.id)}')" style="padding-left:24px">`;
+      // 默认分类作为「其他」的子项，但缩进与普通分类保持一致
+      html += `<div class="dir-category-header" onclick="toggleDirCategory('${esc(defaultCat.id)}')">`;
       html += `<span style="color:var(--text-secondary)">${arrow}</span>`;
       html += `<span>${esc(defaultCat.icon || '')} ${esc(defaultCat.name)}</span>`;
       html += `<span style="color:var(--text-secondary);margin-left:auto">${items.length}</span>`;
