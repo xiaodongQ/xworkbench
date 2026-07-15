@@ -330,10 +330,11 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 	_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
 
 	// 更新任务的 session 信息：
-	// - 解析到 session_id：更新并递增 resume_count
-	// - 解析失败（resumeSessionID 为空）：清空 LastSessionID，下次重新建立会话
+	// - 解析到 session_id 且输出中无 session 失效提示：更新并递增 resume_count
+	// - 解析失败 或 session 已失效（No conversation found）：清空 LastSessionID，下次重建会话
+	sessionInvalid := strings.Contains(out, "No conversation found with session ID:")
 	newResumeCount := t.ResumeCount
-	if resumeSessionID != "" {
+	if resumeSessionID != "" && !sessionInvalid {
 		newResumeCount = t.ResumeCount + 1
 		_ = s.repo.UpdateSessionInfo(t.ID, resumeSessionID, newResumeCount)
 	} else {
