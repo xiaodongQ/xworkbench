@@ -1410,8 +1410,15 @@ async function loadLinks() {
   const grid = document.getElementById('links-grid');
   if (!grid) return;
 
+  // 分离默认分类和其他分类
+  const defaultCat = allCats.find(c => c.is_default);
+  const otherCats = allCats.filter(c => !c.is_default);
+  const hasOthers = otherCats.length > 0;
+
   let html = '';
-  for (const cat of allCats) {
+
+  // 如果有其他分类，先渲染其他分类
+  for (const cat of otherCats) {
     const items = byCat[cat.id] || [];
     const isExpanded = isLinkCategoryExpanded(cat.id);
     const arrow = isExpanded ? '▼' : '▶';
@@ -1439,6 +1446,68 @@ async function loadLinks() {
 	        }
         html += `<div class="link-row" draggable="true" data-id="${l.id}" data-cat-id="${esc(cat.id)}"
             ondragstart="linkCatDragStart(event, '${esc(cat.id)}')" ondragover="linkCatDragOver(event)" ondrop="linkCatDrop(event, '${esc(cat.id)}')" ondragleave="linkCatDragLeave(event)">
+          <span class="drag-handle" title="拖动排序">⋮⋮</span>
+          <div class="link-icon" onclick="openLink('${esc(l.url)}')">${icon}</div>
+          <div class="link-text" onclick="openLink('${esc(l.url)}')" title="${esc(l.url)}">
+            <div class="link-name">${esc(l.name)}</div>
+            <div class="link-url">${esc(l.url)}</div>
+          </div>
+          <span class="todo-menu-wrap">
+            <button class="todo-menu-trigger" type="button" onclick="event.stopPropagation(); toggleLinkMenu(event, '${l.id}')" title="更多操作" aria-label="更多操作">⋮</button>
+            <div class="todo-menu closed">
+              <button class="todo-menu-item" onclick="event.stopPropagation(); editLink('${l.id}'); closeAllLinkMenus();">
+                <span class="todo-menu-icon">✎</span><span>编辑</span>
+              </button>
+              <button class="todo-menu-item danger" onclick="event.stopPropagation(); deleteLink('${l.id}'); closeAllLinkMenus();">
+                <span class="todo-menu-icon">×</span><span>删除</span>
+              </button>
+            </div>
+          </span>
+        </div>`;
+      }
+    }
+    html += `</div></div>`;
+  }
+
+  // 如果有其他分类，把默认分类放到「其他」分组下
+  if (defaultCat) {
+    const items = byCat[defaultCat.id] || [];
+    const isExpanded = isLinkCategoryExpanded(defaultCat.id);
+    const arrow = isExpanded ? '▼' : '▶';
+
+    html += `<div class="link-category-group">`;
+    if (hasOthers) {
+      // 默认分类作为「其他」的子项
+      html += `<div class="link-category-header" onclick="toggleLinkCategory('${esc(defaultCat.id)}')" style="padding-left:24px">`;
+      html += `<span style="color:var(--text-secondary)">${arrow}</span>`;
+      html += `<span>${esc(defaultCat.icon || '')} ${esc(defaultCat.name)}</span>`;
+      html += `<span style="color:var(--text-secondary);margin-left:auto">${items.length}</span>`;
+      html += `</div>`;
+    } else {
+      // 只有一个分类（默认），直接显示
+      html += `<div class="link-category-header" onclick="toggleLinkCategory('${esc(defaultCat.id)}')">`;
+      html += `<span style="color:var(--text-secondary)">${arrow}</span>`;
+      html += `<span>${esc(defaultCat.icon || '')} ${esc(defaultCat.name)}</span>`;
+      html += `<span style="color:var(--text-secondary);margin-left:auto">${items.length}</span>`;
+      html += `</div>`;
+    }
+    html += `<div class="link-category-items${isExpanded ? '' : ' hidden'}" data-cat-id="${esc(defaultCat.id)}">`;
+    if (items.length === 0) {
+      html += `<div style="padding:8px 16px;color:var(--text-secondary);font-size:12px">暂无链接</div>`;
+    } else {
+	      for (const l of sortByOrder(items)) {
+	        const initial = (l.name || '?')[0].toUpperCase();
+	        const iconUrl = l.icon_url || '';
+	        let icon;
+	        if (iconUrl && !iconUrl.startsWith('http') && !iconUrl.startsWith('file://') && !iconUrl.startsWith('/')) {
+	          icon = `<span style="font-size:14px">${esc(iconUrl)}</span>`;
+	        } else if (iconUrl) {
+	          icon = `<img src="${esc(iconUrl)}" onerror="this.outerHTML='${initial}'">`;
+	        } else {
+	          icon = initial;
+	        }
+        html += `<div class="link-row" draggable="true" data-id="${l.id}" data-cat-id="${esc(defaultCat.id)}"
+            ondragstart="linkCatDragStart(event, '${esc(defaultCat.id)}')" ondragover="linkCatDragOver(event)" ondrop="linkCatDrop(event, '${esc(defaultCat.id)}')" ondragleave="linkCatDragLeave(event)">
           <span class="drag-handle" title="拖动排序">⋮⋮</span>
           <div class="link-icon" onclick="openLink('${esc(l.url)}')">${icon}</div>
           <div class="link-text" onclick="openLink('${esc(l.url)}')" title="${esc(l.url)}">
@@ -1763,8 +1832,15 @@ async function loadDirs() {
   const el = document.getElementById('dir-list');
   if (!el) return;
 
+  // 分离默认分类和其他分类
+  const defaultCat = allCats.find(c => c.is_default);
+  const otherCats = allCats.filter(c => !c.is_default);
+  const hasOthers = otherCats.length > 0;
+
   let html = '';
-  for (const cat of allCats) {
+
+  // 如果有其他分类，先渲染其他分类
+  for (const cat of otherCats) {
     const items = byCat[cat.id] || [];
     const isExpanded = isDirCategoryExpanded(cat.id);
     const arrow = isExpanded ? '▼' : '▶';
@@ -1782,6 +1858,60 @@ async function loadDirs() {
       for (const d of sortByOrder(items)) {
         html += `<div class="dir-item${d.type === 'remote' ? ' dir-remote' : ''}" draggable="true" data-id="${d.id}" data-cat-id="${esc(cat.id)}"
             ondragstart="dirCatDragStart(event, '${esc(cat.id)}')" ondragover="dirCatDragOver(event)" ondrop="dirCatDrop(event, '${esc(cat.id)}')" ondragleave="dirCatDragLeave(event)">
+          <span class="drag-handle" title="拖动排序"></span>
+          <span class="dir-text" onclick="openDir('${d.id}')">
+            <span class="dir-name">${esc(d.name)}</span>
+            <span class="dir-path" title="${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}">${esc(d.type === 'remote' ? d.remote_user + '@' + d.remote_host : d.path)}</span>
+          </span>
+          <span class="todo-menu-wrap">
+            <button class="todo-menu-trigger" type="button" onclick="event.stopPropagation(); toggleDirMenu(event, '${d.id}')" title="更多操作" aria-label="更多操作">⋮</button>
+            <div class="todo-menu closed">
+              <button class="todo-menu-item" onclick="event.stopPropagation(); openDirTerminal('${d.id}'); closeAllDirMenus();">
+                <span class="todo-menu-icon">⬢</span><span>打开外部终端</span>
+              </button>
+              <button class="todo-menu-item" onclick="event.stopPropagation(); editDir('${d.id}'); closeAllDirMenus();">
+                <span class="todo-menu-icon">✎</span><span>编辑</span>
+              </button>
+              <button class="todo-menu-item danger" onclick="event.stopPropagation(); deleteDir('${d.id}'); closeAllDirMenus();">
+                <span class="todo-menu-icon">×</span><span>删除</span>
+              </button>
+            </div>
+          </span>
+        </div>`;
+      }
+    }
+    html += `</div></div>`;
+  }
+
+  // 如果有其他分类，把默认分类放到「其他」分组下
+  if (defaultCat) {
+    const items = byCat[defaultCat.id] || [];
+    const isExpanded = isDirCategoryExpanded(defaultCat.id);
+    const arrow = isExpanded ? '▼' : '▶';
+
+    html += `<div class="dir-category-group">`;
+    if (hasOthers) {
+      // 默认分类作为「其他」的子项
+      html += `<div class="dir-category-header" onclick="toggleDirCategory('${esc(defaultCat.id)}')" style="padding-left:24px">`;
+      html += `<span style="color:var(--text-secondary)">${arrow}</span>`;
+      html += `<span>${esc(defaultCat.icon || '')} ${esc(defaultCat.name)}</span>`;
+      html += `<span style="color:var(--text-secondary);margin-left:auto">${items.length}</span>`;
+      html += `</div>`;
+    } else {
+      // 只有一个分类（默认），直接显示
+      html += `<div class="dir-category-header" onclick="toggleDirCategory('${esc(defaultCat.id)}')">`;
+      html += `<span style="color:var(--text-secondary)">${arrow}</span>`;
+      html += `<span>${esc(defaultCat.icon || '')} ${esc(defaultCat.name)}</span>`;
+      html += `<span style="color:var(--text-secondary);margin-left:auto">${items.length}</span>`;
+      html += `</div>`;
+    }
+    html += `<div class="dir-category-items${isExpanded ? '' : ' hidden'}" data-cat-id="${esc(defaultCat.id)}">`;
+    if (items.length === 0) {
+      html += `<div style="padding:8px 16px;color:var(--text-secondary);font-size:12px">暂无目录</div>`;
+    } else {
+      for (const d of sortByOrder(items)) {
+        html += `<div class="dir-item${d.type === 'remote' ? ' dir-remote' : ''}" draggable="true" data-id="${d.id}" data-cat-id="${esc(defaultCat.id)}"
+            ondragstart="dirCatDragStart(event, '${esc(defaultCat.id)}')" ondragover="dirCatDragOver(event)" ondrop="dirCatDrop(event, '${esc(defaultCat.id)}')" ondragleave="dirCatDragLeave(event)">
           <span class="drag-handle" title="拖动排序"></span>
           <span class="dir-text" onclick="openDir('${d.id}')">
             <span class="dir-name">${esc(d.name)}</span>
