@@ -278,11 +278,17 @@ async function loadDirSettingsCategories() {
   }
 
   list.innerHTML = sortByOrder(cats).map(c => `
-    <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">
+    <div class="cat-row" draggable="true" data-id="${esc(c.id)}"
+         ondragstart="catRowDragStart(event, 'dir')"
+         ondragover="catRowDragOver(event)"
+         ondragleave="catRowDragLeave(event)"
+         ondrop="catRowDrop(event, 'dir', loadDirSettingsCategories)"
+         style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;cursor:move">
+      <span class="drag-handle" title="拖动排序"></span>
       <span>${esc(c.icon || '')} ${esc(c.name)}</span>
       <span style="flex:1"></span>
       ${c.is_default ? '<span style="color:var(--text-secondary)">默认</span>' :
-        `<button class="btn btn-small" onclick="void deleteDirCategory('${esc(c.id)}').then(() => loadDirSettingsCategories())">删除</button>`}
+        `<button class="btn btn-small" onclick="event.stopPropagation(); void deleteDirCategory('${esc(c.id)}').then(() => loadDirSettingsCategories())">删除</button>`}
     </div>
   `).join('');
 }
@@ -1641,11 +1647,17 @@ async function loadLinkSettingsCategories() {
   }
 
   list.innerHTML = sortByOrder(cats).map(c => `
-    <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">
+    <div class="cat-row" draggable="true" data-id="${esc(c.id)}"
+         ondragstart="catRowDragStart(event, 'link')"
+         ondragover="catRowDragOver(event)"
+         ondragleave="catRowDragLeave(event)"
+         ondrop="catRowDrop(event, 'link', loadLinkSettingsCategories)"
+         style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;cursor:move">
+      <span class="drag-handle" title="拖动排序"></span>
       <span>${esc(c.icon || '')} ${esc(c.name)}</span>
       <span style="flex:1"></span>
       ${c.is_default ? '<span style="color:var(--text-secondary)">默认</span>' :
-        `<button class="btn btn-small" onclick="void deleteLinkCategory('${esc(c.id)}').then(() => loadLinkSettingsCategories())">删除</button>`}
+        `<button class="btn btn-small" onclick="event.stopPropagation(); void deleteLinkCategory('${esc(c.id)}').then(() => loadLinkSettingsCategories())">删除</button>`}
     </div>
   `).join('');
 }
