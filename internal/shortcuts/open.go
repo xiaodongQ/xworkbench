@@ -23,7 +23,7 @@ func OpenDir(path string) error {
 	case "linux":
 		cmd = exec.Command("xdg-open", path)
 	case "windows":
-		cmd = exec.Command("explorer", path)
+		cmd = exec.Command("explorer", "/select,", path)
 	default:
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
