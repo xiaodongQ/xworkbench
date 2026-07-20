@@ -552,10 +552,7 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 		logger.Infof("pty: remote cleanup done tab_id=%q pid=%d", tabID, pid)
 	}()
 
-	banner := fmt.Sprintf("\x1b[36m[xworkbench] SSH 已连接: %s\x1b[0m\r\n", userHost)
-	conn.WriteMessage(websocket.TextMessage, []byte(banner))
-
-	logger.Infof("pty: remote banner sent, ptmx fd=%v tab_id=%q", ptmx.Fd(), tabID)
+	// 不再立即发 "SSH 已连接"——等 PTY 输出第一行后再判断是否真的连上了
 
 	// 监听子进程退出
 	go func() {
@@ -581,6 +578,7 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 		defer wg.Done()
 		var lineBuf strings.Builder
 		authNotified := false
+		connectedNotified := false
 		buf := make([]byte, 4096)
 		totalBytes := 0
 		reads := 0
@@ -597,18 +595,34 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 				logger.Errorf("pty: remote ws write error tab_id=%q err=%v", tabID, werr)
 					return
 				}
-				if !authNotified {
-					for _, b := range buf[:n] {
-						if b == '\n' || b == '\r' {
-							line := strings.TrimRight(lineBuf.String(), "\r\n")
+				for _, b := range buf[:n] {
+					if b == '\n' || b == '\r' {
+						line := strings.TrimRight(lineBuf.String(), "\r\n")
+						// 首次输出：检测连接失败
+						if !connectedNotified {
+							if detectSSHConnectFailure(line) {
+								errMsg := fmt.Sprintf("\r\n\x1b[31m[xworkbench] SSH 连接失败: %s\x1b[0m\r\n", line)
+								conn.WriteMessage(websocket.TextMessage, []byte(errMsg))
+								logger.Warnf("pty: SSH connect failure tab_id=%q line=%q", tabID, line)
+								conn.Close()
+								return
+							}
+						}
+						if !authNotified {
 							if detectAuthRequired(line) {
 								sendNotify(conn, tabID, "auth_required", line)
 								authNotified = true
 							}
-							lineBuf.Reset()
-						} else if unicode.IsPrint(rune(b)) || b == '\t' {
-							lineBuf.WriteByte(b)
 						}
+						// 收到 PTY 输出且未发过连接成功 banner → 发 "SSH 已连接"
+						if !connectedNotified {
+							banner := fmt.Sprintf("\x1b[36m[xworkbench] SSH 已连接: %s\x1b[0m\r\n", userHost)
+							conn.WriteMessage(websocket.TextMessage, []byte(banner))
+							connectedNotified = true
+						}
+						lineBuf.Reset()
+					} else if unicode.IsPrint(rune(b)) || b == '\t' {
+						lineBuf.WriteByte(b)
 					}
 				}
 			}
