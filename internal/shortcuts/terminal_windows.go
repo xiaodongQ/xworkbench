@@ -15,7 +15,7 @@ import (
 func openTerminalCmd(bin string, args []string, dir string) *exec.Cmd {
 	parts := []string{bin}
 	parts = append(parts, args...)
-	rawCmd := fmt.Sprintf(`cmd /C start "" /D "%s" %s`, dir, strings.Join(parts, " "))
+	rawCmd := fmt.Sprintf(`cmd /C start "" /D "%s" /F %s`, dir, strings.Join(parts, " "))
 	cmd := exec.Command("cmd")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CmdLine: rawCmd,
