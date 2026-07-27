@@ -550,10 +550,16 @@ async function showScheduledModal() {
   document.getElementById('sched-prompt').value = '';
   document.getElementById('sched-timeout').value = '';
   document.getElementById('sched-enabled').checked = true;
-	  const schedCats = await fetchJSON('/api/scheduled-task-categories');
-	  schedCategories = schedCats || [];
-	  updateSchedCategoryFilter();
-	  document.getElementById('sched-category').value = '';  document.getElementById('sched-submit-btn').textContent = '创建';
+  const schedCats = await fetchJSON('/api/scheduled-task-categories');
+  schedCategories = schedCats || [];
+  updateSchedCategoryFilter();
+  // 填充模态框中的分类下拉
+  const schedCatSel = document.getElementById('sched-category');
+  if (schedCatSel) {
+    schedCatSel.innerHTML = '<option value="">默认分类</option>' +
+      schedCategories.map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
+  }
+  document.getElementById('sched-category').value = '';  document.getElementById('sched-submit-btn').textContent = '创建';
   document.getElementById('scheduled-modal').classList.remove('hidden');
   onSchedTypeChange();
   setTimeout(() => document.getElementById('sched-name').focus(), 50);
@@ -589,7 +595,16 @@ async function editScheduled(id) {
   document.getElementById('sched-prompt').value = s.prompt;
   document.getElementById('sched-timeout').value = s.timeout_sec || '';
   document.getElementById('sched-enabled').checked = s.enabled;
-	  document.getElementById('sched-category').value = s.category_id || '';  document.getElementById('sched-submit-btn').textContent = '保存';
+  // 加载分类下拉
+  const schedCats2 = await fetchJSON('/api/scheduled-task-categories');
+  schedCategories = schedCats2 || [];
+  updateSchedCategoryFilter();
+  const schedCatSel2 = document.getElementById('sched-category');
+  if (schedCatSel2) {
+    schedCatSel2.innerHTML = '<option value="">默认分类</option>' +
+      schedCategories.map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
+  }
+  document.getElementById('sched-category').value = s.category_id || '';  document.getElementById('sched-submit-btn').textContent = '保存';
   document.getElementById('scheduled-modal').classList.remove('hidden');
   // 编辑时：先设置已有模型值，再更新下拉框选项，最后恢复已有值（避免被全局默认值覆盖）
   const savedModel = s.model || '';

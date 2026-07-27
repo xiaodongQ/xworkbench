@@ -662,10 +662,16 @@ async function showTaskModal(task) {
 
   document.getElementById('task-submit-btn').classList.remove('hidden');
 	  // 加载分类下拉
-	  const cats = await fetchJSON('/api/task-categories');
-	  taskCategories = cats || [];
-	  updateTaskCategoryFilter();
-	  document.getElementById('task-category').value = task ? (task.category_id || '') : '';  // 经验库：编辑模式从 task.experience_id 解析
+  const cats = await fetchJSON('/api/task-categories');
+  taskCategories = cats || [];
+  updateTaskCategoryFilter();
+  // 填充模态框中的分类下拉
+  const taskCatSel = document.getElementById('task-category');
+  if (taskCatSel) {
+    taskCatSel.innerHTML = '<option value="">默认分类</option>' +
+      taskCategories.map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
+  }
+  document.getElementById('task-category').value = task ? (task.category_id || '') : '';  // 经验库：编辑模式从 task.experience_id 解析
   _selectedExps = [];
   if (task && task.experience_id) {
     const ids = task.experience_id.split(',').map(s => s.trim()).filter(Boolean);
