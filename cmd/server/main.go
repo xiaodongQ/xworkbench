@@ -334,10 +334,11 @@ func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) handleTasks(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 	taskType := r.URL.Query().Get("task_type")
+	category := r.URL.Query().Get("category")
 	offset := parseInt(r.URL.Query().Get("offset"), 0)
 	limit := parseInt(r.URL.Query().Get("limit"), 50)
 
-	tasks, err := s.db.List(backend.TaskFilter{Status: status, TaskType: taskType, Offset: offset, Limit: limit})
+	tasks, err := s.db.List(backend.TaskFilter{Status: status, TaskType: taskType, Category: category, Offset: offset, Limit: limit})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -359,6 +360,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Prompt           string   `json:"prompt"`             // 执行用 prompt
 		GoalMode         bool     `json:"goal_mode"`           // 是否启用 Goal 目标模式
 		AssignedAgentID  string   `json:"assigned_agent_id"`   // 指定的远程 agent（task_type=remote）
+		Category         string   `json:"category"`            // 逗号分隔的多分类
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -380,6 +382,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Prompt:           req.Prompt,
 		GoalMode:         req.GoalMode,
 		AssignedAgentID:  req.AssignedAgentID,
+		Category:         req.Category,
 	}
 	if err := s.db.Create(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -421,6 +424,7 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		Model        string   `json:"model"`
 		Prompt       string   `json:"prompt"`
 		GoalMode     *bool    `json:"goal_mode"` // 指针：nil=未传，保持原值
+		Category     string   `json:"category"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -444,6 +448,7 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.GoalMode != nil {
 		task.GoalMode = *req.GoalMode
 	}
+	task.Category = req.Category
 	if err := s.db.Update(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

@@ -406,6 +406,7 @@ func migrateTasksColumns(db *sql.DB) error {
 		{"model", "model TEXT"},
 		{"prompt", "prompt TEXT"},
 		{"goal_mode", "goal_mode INTEGER DEFAULT 0"},
+		{"category", "category TEXT"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
@@ -785,11 +786,11 @@ func (r *TaskRepo) Create(t *Task) error {
 	if t.GoalMode {
 		goalMode = 1
 	}
-	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type,assigned_agent_id,priority,command_type,model,prompt,goal_mode)
-	        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type,assigned_agent_id,priority,command_type,model,prompt,goal_mode,category)
+	        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, t.ID, t.Title, t.Description, t.Status,
 		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt, t.TaskType, t.AssignedAgentID, t.Priority,
-		t.CommandType, t.Model, t.Prompt, goalMode)
+		t.CommandType, t.Model, t.Prompt, goalMode, t.Category)
 	if err != nil {
 		logger.Logger.Errorw("tasks create failed", "id", t.ID, "error", err.Error())
 		return err
@@ -803,7 +804,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 		claimed_at,maintainer,repo_address,archived_at,completed_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
 		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
-		command_type,model,prompt,goal_mode
+		command_type,model,prompt,goal_mode,category
 		FROM tasks WHERE id=?`
 	var t Task
 	var claimedAt, archivedAt, completedAt sql.NullTime
@@ -812,7 +813,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	var iterCount, maxIter int
 	var improvThresh, evalScore sql.NullFloat64
 	var lastHeartbeat sql.NullTime
-	var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
+	var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt, category sql.NullString
 	var priority int
 	var goalMode int
 	err := r.db.QueryRow(q, id).Scan(&t.ID, &t.Title, &t.Description, &t.Status,
@@ -820,7 +821,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 		&claimedAt, &maintainer, &repoAddr, &archivedAt, &completedAt, &res,
 		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
 		&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
-		&cmdType, &mdl, &prompt, &goalMode)
+		&cmdType, &mdl, &prompt, &goalMode, &category)
 	t.Acceptance = acc.String
 	t.Result = res.String
 	t.Maintainer = maintainer.String
@@ -836,6 +837,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	t.ResultOutput = resultOutput.String
 	t.Priority = priority
 	t.GoalMode = goalMode != 0
+	t.Category = category.String
 	if claimedAt.Valid {
 		t.ClaimedAt = &claimedAt.Time
 	}
@@ -873,10 +875,10 @@ func (r *TaskRepo) Update(t *Task) error {
 	}
 	q := `UPDATE tasks SET title=?,description=?,experience_id=?,resources=?,acceptance=?,
 		task_type=?,assigned_agent_id=?,claimer_agent_id=?,result_output=?,evaluation_score=?,priority=?,
-		command_type=?,model=?,prompt=?,goal_mode=? WHERE id=?`
+		command_type=?,model=?,prompt=?,goal_mode=?,category=? WHERE id=?`
 	_, err := r.db.Exec(q, t.Title, t.Description, t.ExperienceID, t.Resources, t.Acceptance,
 		t.TaskType, t.AssignedAgentID, t.ClaimerAgentID, t.ResultOutput, t.EvaluationScore, t.Priority,
-		t.CommandType, t.Model, t.Prompt, goalMode, t.ID)
+		t.CommandType, t.Model, t.Prompt, goalMode, t.Category, t.ID)
 	if err != nil {
 		logger.Logger.Errorw("tasks update failed", "id", t.ID, "error", err.Error())
 		return err
@@ -1054,7 +1056,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		claimed_at,maintainer,repo_address,archived_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
 		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
-		command_type,model,prompt,goal_mode
+		command_type,model,prompt,goal_mode,category
 		FROM tasks`
 	var args []any
 	var where []string
@@ -1065,6 +1067,10 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 	if filter.TaskType != "" {
 		where = append(where, "task_type=?")
 		args = append(args, filter.TaskType)
+	}
+	if filter.Category != "" {
+		where = append(where, "category LIKE ?")
+		args = append(args, "%"+filter.Category+"%")
 	}
 	if len(where) > 0 {
 		q += " WHERE " + where[0]
@@ -1088,7 +1094,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		var iterCount, maxIter int
 		var improvThresh, evalScore sql.NullFloat64
 		var lastHeartbeat sql.NullTime
-		var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
+		var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt, category sql.NullString
 		var priority int
 		var goalMode int
 		err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status,
@@ -1096,7 +1102,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 			&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 			&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
 			&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
-			&cmdType, &mdl, &prompt, &goalMode)
+			&cmdType, &mdl, &prompt, &goalMode, &category)
 		t.Acceptance = acc.String
 		t.Result = res.String
 		t.Maintainer = maintainer.String
@@ -1112,6 +1118,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		t.ResultOutput = resultOutput.String
 		t.Priority = priority
 		t.GoalMode = goalMode != 0
+		t.Category = category.String
 		if claimedAt.Valid {
 			t.ClaimedAt = &claimedAt.Time
 		}

@@ -111,7 +111,7 @@ if (document.readyState === 'loading') {
 }
 
 function statusTag(status) {
-  const labels = {pending: '待认领', in_progress: '待执行', running: '执行中', archived: '已完成', exception: '异常', waiting_input: '待交互'};
+  const labels = {pending: '🔴 待处理', in_progress: '🟡 进行中', running: '🟡 进行中', waiting_input: '🔵 等待输入', archived: '✅ 已完成', exception: '⚠️ 异常'};
   return `<span class="status-pill status-${status}">${labels[status] || status}</span>`;
 }
 

@@ -62,6 +62,7 @@ type Task struct {
 	EvaluationScore *float64 `json:"evaluation_score,omitempty"`
 	WaitingInput     string   `json:"waiting_input,omitempty"`   // 待交互的提示内容
 	ExecutionID      string   `json:"execution_id,omitempty"`    // 当前执行的 execution id
+	Category        string   `json:"category,omitempty"`         // 逗号分隔的多分类，如 "前端,需求"
 }
 
 type Experience struct {
@@ -87,10 +88,11 @@ type SkillVersion struct {
 }
 
 type TaskFilter struct {
-	Status   string
-	TaskType string
-	Offset   int
-	Limit    int
+	Status    string
+	TaskType  string
+	Category  string
+	Offset    int
+	Limit     int
 }
 
 type TaskResult struct {

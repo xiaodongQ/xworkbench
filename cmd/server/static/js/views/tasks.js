@@ -124,10 +124,10 @@ function sortIcon(field) {
 
 async function loadTasks() {
   const status = document.getElementById('filter-status').value;
-  const taskType = document.getElementById('filter-task-type').value;
+  const category = document.getElementById('filter-category').value.trim();
   const params = [];
-  if (status) params.push('status=' + status);
-  if (taskType) params.push('task_type=' + taskType);
+  if (status) params.push('status=' + encodeURIComponent(status));
+  if (category) params.push('category=' + encodeURIComponent(category));
   const url = API + '/api/tasks' + (params.length ? '?' + params.join('&') : '');
   try {
     tasks = await fetchJSON(url);
@@ -135,56 +135,107 @@ async function loadTasks() {
   } catch(e) { console.error('[loadTasks] err:', e); }
 }
 
+// 分类筛选实时过滤
+document.getElementById('filter-category').addEventListener('input', debounce(loadTasks, 300));
+
+// 分类折叠状态管理
+var _taskGroupState = JSON.parse(localStorage.getItem('task_group_collapsed') || '{}');
+
+function toggleTaskGroup(cat) {
+  _taskGroupState[cat] = !_taskGroupState[cat];
+  localStorage.setItem('task_group_collapsed', JSON.stringify(_taskGroupState));
+  renderTaskTable(window._tasks || []);
+}
+
 function renderTaskTable(list) {
+  window._tasks = list;
   const el = document.getElementById('task-list');
   if (!list || list.length === 0) {
     el.innerHTML = '<div class="empty">暂无任务</div>';
     document.getElementById('task-count').textContent = '0 条任务';
     return;
   }
-  // 排序
-  const sorted = [...list].sort((a, b) => {
-    let va = a[_taskSortField], vb = b[_taskSortField];
-    if (_taskSortField === 'created_at') { va = new Date(va); vb = new Date(vb); }
-    if (va < vb) return _taskSortDir === 'asc' ? -1 : 1;
-    if (va > vb) return _taskSortDir === 'asc' ? 1 : -1;
-    return 0;
-  });
   document.getElementById('task-count').textContent = list.length + ' 条任务';
-  el.innerHTML = `<table class="task-table">
-    <thead><tr>
-      <th class="col-title" style="text-align:left">标题</th>
-      <th class="col-status" style="cursor:pointer" onclick="setTaskSort('status')">状态${sortIcon('status')}</th>
-      <th class="col-type">类型</th>
-      <th class="col-loop">优化</th>
-      <th class="col-time" style="cursor:pointer" onclick="setTaskSort('created_at')">创建时间${sortIcon('created_at')}</th>
-      <th class="col-ops" style="text-align:left">操作</th>
-    </tr></thead>
-    <tbody>${sorted.map(t => {
-      const ops = taskOpsByStatus(t);
-      return `
-      <tr>
-        <td class="col-title">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span class="title" onclick="editTask('${t.id}')" title="编辑：${esc(t.title)}" style="cursor:pointer;color:var(--text-secondary);font-size:13px;white-space:nowrap">✏️</span>
-            <div class="task-title-cell">
-              <div class="title">${esc(t.title)}</div>
-              ${t.description ? `<div class="desc" title="${esc(t.description)}">${esc(t.description)}</div>` : ''}
-            </div>
-          </div>
-        </td>
-        <td class="col-status">${statusTag(t.status)}</td>
-        <td class="col-type">${taskTypeTag(t.task_type)}</td>
-        <td class="col-loop">${loopStatusTag(t)}</td>
-        <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
-        <td class="col-ops">
-          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
-            ${ops}
-          </div>
-        </td>
-      </tr>`;
-    }).join('')}</tbody>
-  </table>`;
+
+  // 按分类分组
+  const groups = {};
+  for (const t of list) {
+    const cats = (t.category || '').split(',').map(c => c.trim()).filter(Boolean);
+    if (cats.length === 0) cats.push('');
+    for (const c of cats) {
+      if (!groups[c]) groups[c] = [];
+      groups[c].push(t);
+    }
+  }
+
+  // 分类排序：空分类放最后
+  const sortedCats = Object.keys(groups).sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)));
+
+  const html = sortedCats.map(cat => {
+    const tasks = groups[cat];
+    const collapsed = !!_taskGroupState[cat];
+    const label = cat === '' ? '未分类' : cat;
+    const chipColor = cat === '' ? '#64748b' : _hashColor(cat);
+    return `
+    <div style="margin-bottom:12px">
+      <div onclick="toggleTaskGroup('${esc(cat)}')" style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--hover);border-radius:8px;cursor:pointer;user-select:none;margin-bottom:${collapsed ? '0' : '8px'}">
+        <span style="font-size:11px;color:var(--text-secondary);transition:transform 0.15s;display:inline-block;width:12px;text-align:center;transform:rotate(${collapsed ? '0' : '90'}deg)">▶</span>
+        <span style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:12px;background:${chipColor}22;color:${chipColor};border:1px solid ${chipColor}44">${esc(label)}</span>
+        <span style="font-size:12px;color:var(--text-secondary)">${tasks.length} 条</span>
+      </div>
+      ${collapsed ? '' : `<div style="display:flex;flex-direction:column;gap:6px;padding-left:8px">
+        ${tasks.map(t => _renderTaskCard(t)).join('')}
+      </div>`}
+    </div>`;
+  }).join('');
+
+  el.innerHTML = html;
+}
+
+function _hashColor(s) {
+  const colors = ['#3b82f6','#8b5cf6','#ec4899','#f59e0b','#10b981','#06b6d4','#ef4444','#6366f1'];
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffffffff;
+  return colors[Math.abs(h) % colors.length];
+}
+
+function _renderTaskCard(t) {
+  const ops = taskOpsByStatus(t);
+  const cats = (t.category || '').split(',').map(c => c.trim()).filter(Boolean);
+  const displayCats = cats.slice(0, 2);
+  const extraCats = cats.length > 2 ? cats.length - 2 : 0;
+  const statusBadge = _simpleStatusTag(t.status);
+  const editBtn = `<span onclick="editTask('${t.id}')" title="编辑：${esc(t.title)}" style="cursor:pointer;color:var(--text-secondary);font-size:13px;padding:2px 4px;line-height:1">✏️</span>`;
+  return `
+  <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
+        ${editBtn}
+        <span style="font-size:14px;font-weight:500;word-break:break-word">${esc(t.title)}</span>
+        ${statusBadge}
+      </div>
+      ${t.description ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.description)}">${esc(t.description)}</div>` : ''}
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        ${displayCats.map(c => `<span style="font-size:10px;padding:1px 6px;border-radius:10px;background:${_hashColor(c)}22;color:${_hashColor(c)};border:1px solid ${_hashColor(c)}44">${esc(c)}</span>`).join('')}
+        ${extraCats > 0 ? `<span style="font-size:10px;color:var(--text-secondary)">+${extraCats}</span>` : ''}
+        <span style="font-size:11px;color:var(--text-secondary);margin-left:auto">${fmt(t.created_at)}</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;align-items:center">${ops}</div>
+  </div>`;
+}
+
+function _simpleStatusTag(status) {
+  const map = {
+    pending: {label: '🔴 待处理', color: '#ef4444'},
+    in_progress: {label: '🟡 进行中', color: '#eab308'},
+    running: {label: '🟡 进行中', color: '#eab308'},
+    waiting_input: {label: '🔵 等待输入', color: '#0ea5e9'},
+    archived: {label: '✅ 已完成', color: '#22c55e'},
+    exception: {label: '⚠️ 异常', color: '#f97316'},
+  };
+  const s = map[status] || {label: status, color: '#6b7280'};
+  return `<span style="font-size:11px;padding:2px 6px;border-radius:10px;background:${s.color}22;color:${s.color};border:1px solid ${s.color}44;white-space:nowrap">${s.label}</span>`;
 }
 
 // 按状态返回操作按钮 HTML（返回按钮列表，td 本身已是 flex 容器）
@@ -519,6 +570,7 @@ async function showTaskModal(task) {
   document.getElementById('task-acceptance').value = task ? (task.acceptance || '') : '';
   document.getElementById('task-acceptance').readOnly = false;
   document.getElementById('task-type').value = task ? (task.task_type || 'manual') : 'manual';
+  document.getElementById('task-category').value = task ? (task.category || '') : '';
   // goal_mode 回显
   const goalMode = task ? (task.goal_mode || false) : false;
   document.getElementById('task-goal-mode').checked = goalMode;
@@ -585,6 +637,7 @@ async function submitTask() {
     command_type: document.getElementById('task-command-type').value,
     model: document.getElementById('task-model').value,
     goal_mode: document.getElementById('task-goal-mode').checked,
+    category: document.getElementById('task-category').value.trim(),
   };
   const agentSel = document.getElementById('task-agent-id');
   if (agentSel && agentSel.value) {

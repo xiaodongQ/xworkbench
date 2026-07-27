@@ -214,18 +214,13 @@
     <div class="toolbar">
       <select id="filter-status">
         <option value="">全部状态</option>
-        <option value="pending">待认领</option>
-        <option value="in_progress">待执行</option>
-        <option value="running">执行中</option>
-        <option value="waiting_input">待交互</option>
-        <option value="archived">已完成</option>
-        <option value="exception">异常</option>
+        <option value="pending">🔴 待处理</option>
+        <option value="in_progress">🟡 进行中</option>
+        <option value="waiting_input">🔵 等待输入</option>
+        <option value="archived">✅ 已完成</option>
+        <option value="exception">⚠️ 异常</option>
       </select>
-      <select id="filter-task-type">
-        <option value="">全部类型</option>
-        <option value="manual">本地手动</option>
-        <option value="remote">远程 Agent</option>
-      </select>
+      <input id="filter-category" type="text" placeholder="按分类筛选…" style="font-size:13px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:120px">
       <button class="btn btn-primary" onclick="showTaskModal()">+ 新建任务</button>
       <div class="spacer"></div>
       <span class="count" id="task-count"></span>
@@ -888,6 +883,7 @@
           <button class="btn btn-small" type="button" onclick="openExpPicker()">📚 选择</button>
         </div>
       </div>
+      <div class="form-group"><label>分类标签 <span class="field-hint">逗号分隔多分类，如「前端,需求」</span></label><input id="task-category" type="text" placeholder="前端, 需求, bug…" style="width:100%;box-sizing:border-box"></div>
       <div class="form-group"><label>验收标准 <span class="field-hint">(可选) 正向+反向用例</span></label><textarea id="task-acceptance" class="code" placeholder="正向用例:\n输入... → 输出...\n\n反向用例:\n输入... → 预期行为..."></textarea></div>
     </div>
 
@@ -1515,7 +1511,6 @@
 <script>
 // 事件绑定（filter / search）
 document.getElementById('filter-status').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
-document.getElementById('filter-task-type').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
 document.getElementById('exp-search').addEventListener('input', debounce(() => { if (typeof loadExps === 'function') loadExps(); }, 300));
 
 // 首次加载：dashboard 主体 + widget 侧栏（链接/目录/todo 常驻）
