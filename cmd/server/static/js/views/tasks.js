@@ -17,6 +17,50 @@ function isTaskCategoryExpanded(catId) {
   return _taskCatExpanded[catId] !== false;
 }
 
+function showTaskCategoryModal() {
+  loadTaskCategoryList();
+  document.getElementById('task-category-modal').classList.remove('hidden');
+}
+function closeTaskCategoryModal() {
+  document.getElementById('task-category-modal').classList.add('hidden');
+}
+function loadTaskCategoryList() {
+  fetchJSON('/api/task-categories').then(cats => {
+    taskCategories = cats || [];
+    const el = document.getElementById('task-category-list');
+    el.innerHTML = taskCategories.map(c => {
+      const isDefault = c.id === 'default-task-cat';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)">
+        <span>${esc((c.icon || '') + ' ' + c.name)}</span>
+        ${isDefault ? '<span style="font-size:10px;color:var(--text-secondary)">默认</span>' : ''}
+        <button class="btn btn-small btn-danger" style="margin-left:auto" onclick="deleteTaskCategory('${c.id}')" ${isDefault ? 'disabled' : ''}>删除</button>
+      </div>`;
+    }).join('');
+  });
+}
+function addTaskCategory() {
+  const name = document.getElementById('new-task-category-name').value.trim();
+  const icon = document.getElementById('new-task-category-icon').value.trim();
+  if (!name) { alert('请输入分类名'); return; }
+  fetchJSON('/api/task-categories', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name, icon})
+  }).then(() => {
+    document.getElementById('new-task-category-name').value = '';
+    document.getElementById('new-task-category-icon').value = '';
+    loadTaskCategoryList();
+    updateTaskCategoryFilter();
+  }).catch(e => alert('添加失败：' + e.message));
+}
+function deleteTaskCategory(id) {
+  if (!confirm('删除后该分类下的任务将移至"默认"分类，确定？')) return;
+  fetchJSON('/api/task-categories/' + id, {method:'DELETE'}).then(() => {
+    loadTaskCategoryList();
+    loadTasks();
+  }).catch(e => alert('删除失败：' + e.message));
+}
+
 // ===== 多选经验库（exp picker） =====
 // _selectedExps: [{id, module, scene, keywords}]
 let _selectedExps = [];
@@ -617,7 +661,11 @@ async function showTaskModal(task) {
   };
 
   document.getElementById('task-submit-btn').classList.remove('hidden');
-  // 经验库：编辑模式从 task.experience_id 解析
+	  // 加载分类下拉
+	  const cats = await fetchJSON('/api/task-categories');
+	  taskCategories = cats || [];
+	  updateTaskCategoryFilter();
+	  document.getElementById('task-category').value = task ? (task.category_id || '') : '';  // 经验库：编辑模式从 task.experience_id 解析
   _selectedExps = [];
   if (task && task.experience_id) {
     const ids = task.experience_id.split(',').map(s => s.trim()).filter(Boolean);
@@ -654,6 +702,7 @@ async function submitTask() {
     command_type: document.getElementById('task-command-type').value,
     model: document.getElementById('task-model').value,
     goal_mode: document.getElementById('task-goal-mode').checked,
+    category_id: document.getElementById('task-category').value,
   };
   const agentSel = document.getElementById('task-agent-id');
   if (agentSel && agentSel.value) {
