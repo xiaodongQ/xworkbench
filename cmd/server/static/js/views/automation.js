@@ -496,9 +496,9 @@ async function loadScheduled() {
         <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
         <span style="margin-left:auto;color:var(--text-secondary)">${sortedItems.length}</span>
       </div>
-      <div class="task-category-items${isExpanded ? '' : ' hidden'}" data-cat-id="${cat.id}">
+      
         ${sortedItems.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无定时任务</div>' :
-          `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="setSchedSort('last_run')">最近执行${si('last_run')}</th><th>操作</th></tr></thead><tbody>` +
+          `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="setSchedSort('last_run')">最近执行${si('last_run')}</th><th>操作</th></tr></thead><tbody class="${isExpanded ? '' : 'hidden'}">` +
           sortedItems.map(s => {
             const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
             const nextRun = (s.enabled && s.next_run_at)
@@ -528,7 +528,6 @@ async function loadScheduled() {
               </td>
             </tr>`;
           }).join('') + '</tbody></table>'}
-      </div>
     </div>`;
   }).join('');
   updateSchedSortIcons();
