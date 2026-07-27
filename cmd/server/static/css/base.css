@@ -1248,12 +1248,14 @@ tr:last-child td { border-bottom: none; }
 
 /* ===== 链接/目录分组展示 ===== */
 .link-category-group,
-.dir-category-group {
+.dir-category-group,
+.task-category-group {
   border-bottom: 1px solid var(--border);
 }
 
 .link-category-header,
-.dir-category-header {
+.dir-category-header,
+.task-category-header {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1268,18 +1270,21 @@ tr:last-child td { border-bottom: none; }
 }
 
 .link-category-header:hover,
-.dir-category-header:hover {
+.dir-category-header:hover,
+.task-category-header:hover {
   background: var(--border);
 }
 
 .link-category-items,
-.dir-category-items {
+.dir-category-items,
+.task-category-items {
   display: flex;
   flex-direction: column;
 }
 
 .link-category-items .link-row,
-.dir-category-items .dir-item {
+.dir-category-items .dir-item,
+.task-category-items .task-item {
   border-bottom: none;
 }
 

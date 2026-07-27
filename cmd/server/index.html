@@ -226,6 +226,9 @@
         <option value="manual">本地手动</option>
         <option value="remote">远程 Agent</option>
       </select>
+      <select id="filter-task-category">
+        <option value="">全部分类</option>
+      </select>
       <button class="btn btn-primary" onclick="showTaskModal()">+ 新建任务</button>
       <div class="spacer"></div>
       <span class="count" id="task-count"></span>
@@ -1516,6 +1519,7 @@
 // 事件绑定（filter / search）
 document.getElementById('filter-status').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
 document.getElementById('filter-task-type').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
+document.getElementById('filter-task-category').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
 document.getElementById('exp-search').addEventListener('input', debounce(() => { if (typeof loadExps === 'function') loadExps(); }, 300));
 
 // 首次加载：dashboard 主体 + widget 侧栏（链接/目录/todo 常驻）

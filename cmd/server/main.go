@@ -62,6 +62,7 @@ type APIServer struct {
 	dirDB        *backend.DirShortcutRepo
 	linkCatDB    *backend.LinkCategoryRepo
 	dirCatDB     *backend.DirCategoryRepo
+	taskCatDB    *backend.TaskCategoryRepo
 	schedDB      *backend.ScheduledTaskRepo
 	evalDB       *backend.EvaluationRepo
 	agentDB      *backend.AgentRepo
@@ -87,6 +88,7 @@ func NewAPIServer(
 	db *backend.TaskRepo, expDB *backend.ExperienceRepo, execDB *backend.ExecutionRepo,
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
 	linkCatDB *backend.LinkCategoryRepo, dirCatDB *backend.DirCategoryRepo,
+	taskCatDB *backend.TaskCategoryRepo,
 	schedDB *backend.ScheduledTaskRepo,
 	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
 	eventDB *backend.TaskEventRepo,
@@ -97,7 +99,7 @@ func NewAPIServer(
 ) *APIServer {
 	s := &APIServer{
 		db: db, expDB: expDB, execDB: execDB,
-		linkDB: linkDB, dirDB: dirDB, linkCatDB: linkCatDB, dirCatDB: dirCatDB,
+		linkDB: linkDB, dirDB: dirDB, linkCatDB: linkCatDB, dirCatDB: dirCatDB, taskCatDB: taskCatDB,
 		schedDB: schedDB, evalDB: evalDB,
 		agentDB: agentDB, eventDB: eventDB,
 		cmtDB: cmtDB, execCmtDB: execCmtDB,
@@ -216,6 +218,11 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("PUT /api/dir-categories/{id}", s.handleDirCategoryUpdate)
 	mux.HandleFunc("DELETE /api/dir-categories/{id}", s.handleDirCategoryDelete)
 	mux.HandleFunc("POST /api/dir-categories/{id}/merge", s.handleDirCategoryMerge)
+	mux.HandleFunc("GET /api/task-categories", s.handleTaskCategories)
+	mux.HandleFunc("POST /api/task-categories", s.handleTaskCategoryCreate)
+	mux.HandleFunc("PUT /api/task-categories/{id}", s.handleTaskCategoryUpdate)
+	mux.HandleFunc("DELETE /api/task-categories/{id}", s.handleTaskCategoryDelete)
+	mux.HandleFunc("POST /api/task-categories/{id}/merge", s.handleTaskCategoryMerge)
 	mux.HandleFunc("PUT /api/dir-shortcuts/{id}", s.handleDirShortcutUpdate)
 	mux.HandleFunc("DELETE /api/dir-shortcuts/{id}", s.handleDirShortcutDelete)
 	mux.HandleFunc("POST /api/dir-shortcuts/{id}/open", s.handleDirShortcutOpen)
@@ -334,10 +341,11 @@ func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) handleTasks(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 	taskType := r.URL.Query().Get("task_type")
+	category := r.URL.Query().Get("category")
 	offset := parseInt(r.URL.Query().Get("offset"), 0)
 	limit := parseInt(r.URL.Query().Get("limit"), 50)
 
-	tasks, err := s.db.List(backend.TaskFilter{Status: status, TaskType: taskType, Offset: offset, Limit: limit})
+	tasks, err := s.db.List(backend.TaskFilter{Status: status, TaskType: taskType, Category: category, Offset: offset, Limit: limit})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -359,6 +367,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Prompt           string   `json:"prompt"`             // 执行用 prompt
 		GoalMode         bool     `json:"goal_mode"`           // 是否启用 Goal 目标模式
 		AssignedAgentID  string   `json:"assigned_agent_id"`   // 指定的远程 agent（task_type=remote）
+		CategoryID       string   `json:"category_id"`         // 任务分类 ID
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -380,6 +389,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Prompt:           req.Prompt,
 		GoalMode:         req.GoalMode,
 		AssignedAgentID:  req.AssignedAgentID,
+		CategoryID:       req.CategoryID,
 	}
 	if err := s.db.Create(task); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -421,6 +431,7 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		Model        string   `json:"model"`
 		Prompt       string   `json:"prompt"`
 		GoalMode     *bool    `json:"goal_mode"` // 指针：nil=未传，保持原值
+		CategoryID   string   `json:"category_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -438,6 +449,7 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	task.CommandType = req.CommandType
 	task.Model = req.Model
 	task.Prompt = req.Prompt
+	task.CategoryID = req.CategoryID
 	if req.Priority != nil {
 		task.Priority = *req.Priority
 	}
@@ -1984,6 +1996,97 @@ func (s *APIServer) handleDirCategoryMerge(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, map[string]string{"id": id, "target_id": req.TargetID, "status": "merged"})
 }
 
+func (s *APIServer) handleTaskCategories(w http.ResponseWriter, r *http.Request) {
+	list, err := s.taskCatDB.List()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []*backend.TaskCategory{}
+	}
+	writeJSON(w, list)
+}
+
+func (s *APIServer) handleTaskCategoryCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name      string `json:"name"`
+		Icon      string `json:"icon"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.SortOrder == 0 {
+		req.SortOrder = s.taskCatDB.NextSortOrder()
+	}
+	cat := &backend.TaskCategory{
+		ID:        uuid.New().String(),
+		Name:      req.Name,
+		Icon:      req.Icon,
+		SortOrder: req.SortOrder,
+		CreatedAt: time.Now(),
+	}
+	if err := s.taskCatDB.Create(cat); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cat)
+}
+
+func (s *APIServer) handleTaskCategoryUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Name      string `json:"name"`
+		Icon      string `json:"icon"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	cat := &backend.TaskCategory{ID: id, Name: req.Name, Icon: req.Icon, SortOrder: req.SortOrder}
+	if err := s.taskCatDB.Update(cat); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cat)
+}
+
+func (s *APIServer) handleTaskCategoryDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.taskCatDB.Delete(id); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+func (s *APIServer) handleTaskCategoryMerge(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		TargetID string `json:"target_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.TargetID == "" {
+		writeErr(w, http.StatusBadRequest, "target_id required")
+		return
+	}
+	if err := s.taskCatDB.MergeTo(id, req.TargetID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "target_id": req.TargetID, "status": "merged"})
+}
+
 func (s *APIServer) handleDirShortcutOpen(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	list, err := s.dirDB.List()
@@ -3092,6 +3195,7 @@ func main() {
 	dirRepo := backend.NewDirShortcutRepo(db)
 	linkCatRepo := backend.NewLinkCategoryRepo(db)
 	dirCatRepo := backend.NewDirCategoryRepo(db)
+	taskCatRepo := backend.NewTaskCategoryRepo(db)
 	schedRepo := backend.NewScheduledTaskRepo(db)
 	evalRepo := backend.NewEvaluationRepo(db)
 	h := hub.New()
@@ -3169,7 +3273,7 @@ func main() {
 	}
 
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
-		linkRepo, dirRepo, linkCatRepo, dirCatRepo,
+		linkRepo, dirRepo, linkCatRepo, dirCatRepo, taskCatRepo,
 		schedRepo, evalRepo, agentRepo,
 		eventRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)
 

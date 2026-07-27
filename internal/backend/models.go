@@ -62,6 +62,7 @@ type Task struct {
 	EvaluationScore *float64 `json:"evaluation_score,omitempty"`
 	WaitingInput     string   `json:"waiting_input,omitempty"`   // 待交互的提示内容
 	ExecutionID      string   `json:"execution_id,omitempty"`    // 当前执行的 execution id
+	CategoryID       string   `json:"category_id,omitempty"`     // 任务分类 ID
 }
 
 type Experience struct {
@@ -87,10 +88,11 @@ type SkillVersion struct {
 }
 
 type TaskFilter struct {
-	Status   string
-	TaskType string
-	Offset   int
-	Limit    int
+	Status     string
+	TaskType   string
+	Category   string
+	Offset     int
+	Limit      int
 }
 
 type TaskResult struct {
@@ -202,6 +204,16 @@ type DirShortcut struct {
 
 // DirCategory 目录分类
 type DirCategory struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Icon      string    `json:"icon,omitempty"`
+	SortOrder int       `json:"sort_order"`
+	IsDefault bool      `json:"is_default"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// TaskCategory 任务分类
+type TaskCategory struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Icon      string    `json:"icon,omitempty"`

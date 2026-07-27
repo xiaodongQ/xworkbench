@@ -2,6 +2,20 @@
 // 依赖 api.js
 
 let tasks = [];
+let taskCategories = [];
+
+// 分类展开/收起状态
+const _taskCatExpanded = JSON.parse(localStorage.getItem('sf-task-cat-expanded') || '{}');
+
+function toggleTaskCategory(catId) {
+  _taskCatExpanded[catId] = _taskCatExpanded[catId] === false ? true : false;
+  localStorage.setItem('sf-task-cat-expanded', JSON.stringify(_taskCatExpanded));
+  renderTaskTable(tasks);
+}
+
+function isTaskCategoryExpanded(catId) {
+  return _taskCatExpanded[catId] !== false;
+}
 
 // ===== 多选经验库（exp picker） =====
 // _selectedExps: [{id, module, scene, keywords}]
@@ -125,14 +139,34 @@ function sortIcon(field) {
 async function loadTasks() {
   const status = document.getElementById('filter-status').value;
   const taskType = document.getElementById('filter-task-type').value;
+  const category = document.getElementById('filter-task-category').value;
   const params = [];
   if (status) params.push('status=' + status);
   if (taskType) params.push('task_type=' + taskType);
+  if (category) params.push('category=' + category);
   const url = API + '/api/tasks' + (params.length ? '?' + params.join('&') : '');
   try {
-    tasks = await fetchJSON(url);
+    const [tasksData, catsData] = await Promise.all([
+      fetchJSON(url),
+      fetchJSON('/api/task-categories')
+    ]);
+    tasks = tasksData;
+    taskCategories = catsData || [];
+    // 更新分类过滤下拉
+    updateTaskCategoryFilter();
     renderTaskTable(tasks);
   } catch(e) { console.error('[loadTasks] err:', e); }
+}
+
+function updateTaskCategoryFilter() {
+  const sel = document.getElementById('filter-task-category');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">全部分类</option>' +
+    taskCategories.map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
+  if (current && sel.querySelector('option[value="' + current + '"]')) {
+    sel.value = current;
+  }
 }
 
 function renderTaskTable(list) {
@@ -142,49 +176,84 @@ function renderTaskTable(list) {
     document.getElementById('task-count').textContent = '0 条任务';
     return;
   }
-  // 排序
-  const sorted = [...list].sort((a, b) => {
-    let va = a[_taskSortField], vb = b[_taskSortField];
-    if (_taskSortField === 'created_at') { va = new Date(va); vb = new Date(vb); }
-    if (va < vb) return _taskSortDir === 'asc' ? -1 : 1;
-    if (va > vb) return _taskSortDir === 'asc' ? 1 : -1;
-    return 0;
+  // 按 category_id 分组
+  const byCat = {};
+  const uncategorized = { id: '__uncategorized__', name: '未分类', icon: '📋', items: [] };
+  for (const t of list) {
+    const catId = t.category_id || '__uncategorized__';
+    if (!byCat[catId]) {
+      byCat[catId] = { id: catId, name: catId === '__uncategorized__' ? '未分类' : '', icon: '', items: [] };
+    }
+    byCat[catId].items.push(t);
+  }
+  // 填充分类名称
+  for (const catId in byCat) {
+    if (catId !== '__uncategorized__') {
+      const cat = taskCategories.find(c => c.id === catId);
+      if (cat) {
+        byCat[catId].name = cat.name;
+        byCat[catId].icon = cat.icon || '';
+      }
+    }
+  }
+  // 排序：其他分类在前，默认分类在后
+  const catOrder = [...taskCategories].sort((a, b) => {
+    if (a.id === 'default-task-cat') return 1;
+    if (b.id === 'default-task-cat') return -1;
+    return a.sort_order - b.sort_order;
   });
+  const sortedCats = Object.values(byCat).sort((a, b) => {
+    if (a.id === '__uncategorized__') return 1;
+    if (b.id === '__uncategorized__') return -1;
+    const ai = catOrder.findIndex(c => c.id === a.id);
+    const bi = catOrder.findIndex(c => c.id === b.id);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
+
   document.getElementById('task-count').textContent = list.length + ' 条任务';
-  el.innerHTML = `<table class="task-table">
-    <thead><tr>
-      <th class="col-title" style="text-align:left">标题</th>
-      <th class="col-status" style="cursor:pointer" onclick="setTaskSort('status')">状态${sortIcon('status')}</th>
-      <th class="col-type">类型</th>
-      <th class="col-loop">优化</th>
-      <th class="col-time" style="cursor:pointer" onclick="setTaskSort('created_at')">创建时间${sortIcon('created_at')}</th>
-      <th class="col-ops" style="text-align:left">操作</th>
-    </tr></thead>
-    <tbody>${sorted.map(t => {
-      const ops = taskOpsByStatus(t);
-      return `
-      <tr>
-        <td class="col-title">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span class="title" onclick="editTask('${t.id}')" title="编辑：${esc(t.title)}" style="cursor:pointer;color:var(--text-secondary);font-size:13px;white-space:nowrap">✏️</span>
-            <div class="task-title-cell">
-              <div class="title">${esc(t.title)}</div>
-              ${t.description ? `<div class="desc" title="${esc(t.description)}">${esc(t.description)}</div>` : ''}
-            </div>
-          </div>
-        </td>
-        <td class="col-status">${statusTag(t.status)}</td>
-        <td class="col-type">${taskTypeTag(t.task_type)}</td>
-        <td class="col-loop">${loopStatusTag(t)}</td>
-        <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
-        <td class="col-ops">
-          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
-            ${ops}
-          </div>
-        </td>
-      </tr>`;
-    }).join('')}</tbody>
-  </table>`;
+
+  // 渲染分组
+  el.innerHTML = sortedCats.map(cat => {
+    const isExpanded = isTaskCategoryExpanded(cat.id);
+    const items = cat.items.sort((a, b) => {
+      let va = a[_taskSortField], vb = b[_taskSortField];
+      if (_taskSortField === 'created_at') { va = new Date(va); vb = new Date(vb); }
+      if (va < vb) return _taskSortDir === 'asc' ? -1 : 1;
+      if (va > vb) return _taskSortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return `<div class="task-category-group">
+      <div class="task-category-header" onclick="toggleTaskCategory('${cat.id}')">
+        <span style="font-size:10px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
+        <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
+        <span style="margin-left:auto;color:var(--text-secondary)">${items.length}</span>
+      </div>
+      <div class="task-category-items${isExpanded ? '' : ' hidden'}" data-cat-id="${cat.id}">
+        ${items.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无任务</div>' :
+          `<table class="task-table">
+          <tbody>${items.map(t => {
+            const ops = taskOpsByStatus(t);
+            return `<tr>
+              <td class="col-title">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span class="title" onclick="editTask('${t.id}')" title="编辑：${esc(t.title)}" style="cursor:pointer;color:var(--text-secondary);font-size:13px;white-space:nowrap">✏️</span>
+                  <div class="task-title-cell">
+                    <div class="title">${esc(t.title)}</div>
+                    ${t.description ? `<div class="desc" title="${esc(t.description)}">${esc(t.description)}</div>` : ''}
+                  </div>
+                </div>
+              </td>
+              <td class="col-status">${statusTag(t.status)}</td>
+              <td class="col-type">${taskTypeTag(t.task_type)}</td>
+              <td class="col-loop">${loopStatusTag(t)}</td>
+              <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
+              <td class="col-ops"><div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">${ops}</div></td>
+            </tr>`;
+          }).join('')}</tbody>
+          </table>`}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // 按状态返回操作按钮 HTML（返回按钮列表，td 本身已是 flex 容器）

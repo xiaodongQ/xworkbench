@@ -153,6 +153,14 @@ func InitSchema(db *sql.DB) error {
 		is_default INTEGER DEFAULT 0,
 		created_at DATETIME
 	);
+	CREATE TABLE IF NOT EXISTS task_categories (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		icon TEXT,
+		sort_order INTEGER DEFAULT 0,
+		is_default INTEGER DEFAULT 0,
+		created_at DATETIME
+	);
 	CREATE TABLE IF NOT EXISTS scheduled_tasks (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -245,6 +253,12 @@ func InitSchema(db *sql.DB) error {
 		return err
 	}
 	if err := migrateDirShortcutsCategoryColumn(db); err != nil {
+		return err
+	}
+	if err := migrateTaskCategoriesTable(db); err != nil {
+		return err
+	}
+	if err := migrateTasksCategoryColumn(db); err != nil {
 		return err
 	}
 	if err := seedDefaultCategories(db); err != nil {
@@ -590,6 +604,66 @@ func seedDefaultCategories(db *sql.DB) error {
 	if _, err := db.Exec(`UPDATE dir_shortcuts SET category_id='default-dir' WHERE category_id IS NULL OR category_id=''`); err != nil {
 		return err
 	}
+	// task_categories 默认分类
+	var taskCatCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM task_categories WHERE is_default=1`).Scan(&taskCatCount); err != nil {
+		return err
+	}
+	if taskCatCount == 0 {
+		_, err := db.Exec(`INSERT INTO task_categories (id,name,icon,sort_order,is_default,created_at) VALUES (?,?,?,?,?,?)`,
+			"default-task-cat", "默认", "📋", 0, 1, time.Now())
+		if err != nil {
+			return err
+		}
+	}
+	// 将未分类任务关联到默认分类
+	if _, err := db.Exec(`UPDATE tasks SET category_id='default-task-cat' WHERE (category_id IS NULL OR category_id='') AND category_id IS NULL`); err != nil {
+		// 忽略错误，因为 tasks 表可能还没有 category_id 列
+	}
+	return nil
+}
+
+// migrateTaskCategoriesTable 确保 task_categories 表的默认分类存在
+func migrateTaskCategoriesTable(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM task_categories WHERE is_default=1`).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err := db.Exec(`INSERT INTO task_categories (id,name,icon,sort_order,is_default,created_at) VALUES (?,?,?,?,?,?)`,
+			"default-task-cat", "默认", "📋", 0, 1, time.Now())
+		return err
+	}
+	return nil
+}
+
+// migrateTasksCategoryColumn 为 tasks 表添加 category_id 列
+func migrateTasksCategoryColumn(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(tasks)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	addCol := func(name, decl string) error {
+		if cols[name] {
+			return nil
+		}
+		_, err := db.Exec(`ALTER TABLE tasks ADD COLUMN ` + decl)
+		return err
+	}
+	if err := addCol("category_id", "category_id TEXT"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -785,11 +859,15 @@ func (r *TaskRepo) Create(t *Task) error {
 	if t.GoalMode {
 		goalMode = 1
 	}
-	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type,assigned_agent_id,priority,command_type,model,prompt,goal_mode)
-	        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	categoryID := t.CategoryID
+	if categoryID == "" {
+		categoryID = "default-task-cat"
+	}
+	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type,assigned_agent_id,priority,command_type,model,prompt,goal_mode,category_id)
+	        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, t.ID, t.Title, t.Description, t.Status,
 		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt, t.TaskType, t.AssignedAgentID, t.Priority,
-		t.CommandType, t.Model, t.Prompt, goalMode)
+		t.CommandType, t.Model, t.Prompt, goalMode, categoryID)
 	if err != nil {
 		logger.Logger.Errorw("tasks create failed", "id", t.ID, "error", err.Error())
 		return err
@@ -803,7 +881,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 		claimed_at,maintainer,repo_address,archived_at,completed_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
 		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
-		command_type,model,prompt,goal_mode
+		command_type,model,prompt,goal_mode,category_id
 		FROM tasks WHERE id=?`
 	var t Task
 	var claimedAt, archivedAt, completedAt sql.NullTime
@@ -815,12 +893,13 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
 	var priority int
 	var goalMode int
+	var categoryID sql.NullString
 	err := r.db.QueryRow(q, id).Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 		&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 		&claimedAt, &maintainer, &repoAddr, &archivedAt, &completedAt, &res,
 		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
 		&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
-		&cmdType, &mdl, &prompt, &goalMode)
+		&cmdType, &mdl, &prompt, &goalMode, &categoryID)
 	t.Acceptance = acc.String
 	t.Result = res.String
 	t.Maintainer = maintainer.String
@@ -836,6 +915,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	t.ResultOutput = resultOutput.String
 	t.Priority = priority
 	t.GoalMode = goalMode != 0
+	t.CategoryID = categoryID.String
 	if claimedAt.Valid {
 		t.ClaimedAt = &claimedAt.Time
 	}
@@ -873,10 +953,10 @@ func (r *TaskRepo) Update(t *Task) error {
 	}
 	q := `UPDATE tasks SET title=?,description=?,experience_id=?,resources=?,acceptance=?,
 		task_type=?,assigned_agent_id=?,claimer_agent_id=?,result_output=?,evaluation_score=?,priority=?,
-		command_type=?,model=?,prompt=?,goal_mode=? WHERE id=?`
+		command_type=?,model=?,prompt=?,goal_mode=?,category_id=? WHERE id=?`
 	_, err := r.db.Exec(q, t.Title, t.Description, t.ExperienceID, t.Resources, t.Acceptance,
 		t.TaskType, t.AssignedAgentID, t.ClaimerAgentID, t.ResultOutput, t.EvaluationScore, t.Priority,
-		t.CommandType, t.Model, t.Prompt, goalMode, t.ID)
+		t.CommandType, t.Model, t.Prompt, goalMode, t.CategoryID, t.ID)
 	if err != nil {
 		logger.Logger.Errorw("tasks update failed", "id", t.ID, "error", err.Error())
 		return err
@@ -1054,7 +1134,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		claimed_at,maintainer,repo_address,archived_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
 		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
-		command_type,model,prompt,goal_mode
+		command_type,model,prompt,goal_mode,category_id
 		FROM tasks`
 	var args []any
 	var where []string
@@ -1065,6 +1145,10 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 	if filter.TaskType != "" {
 		where = append(where, "task_type=?")
 		args = append(args, filter.TaskType)
+	}
+	if filter.Category != "" {
+		where = append(where, "category_id=?")
+		args = append(args, filter.Category)
 	}
 	if len(where) > 0 {
 		q += " WHERE " + where[0]
@@ -1091,12 +1175,13 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
 		var priority int
 		var goalMode int
+		var categoryID sql.NullString
 		err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 			&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 			&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 			&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
 			&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
-			&cmdType, &mdl, &prompt, &goalMode)
+			&cmdType, &mdl, &prompt, &goalMode, &categoryID)
 		t.Acceptance = acc.String
 		t.Result = res.String
 		t.Maintainer = maintainer.String
@@ -1112,6 +1197,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		t.ResultOutput = resultOutput.String
 		t.Priority = priority
 		t.GoalMode = goalMode != 0
+		t.CategoryID = categoryID.String
 		if claimedAt.Valid {
 			t.ClaimedAt = &claimedAt.Time
 		}
@@ -2011,6 +2097,117 @@ func (r *DirCategoryRepo) List() ([]*DirCategory, error) {
 func (r *DirCategoryRepo) NextSortOrder() int {
 	var maxSort sql.NullInt64
 	row := r.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) FROM dir_categories`)
+	if err := row.Scan(&maxSort); err != nil {
+		return 1
+	}
+	return int(maxSort.Int64) + 1
+}
+
+// ===== TaskCategoryRepo =====
+
+type TaskCategoryRepo struct{ db *sql.DB }
+
+func NewTaskCategoryRepo(db *sql.DB) *TaskCategoryRepo { return &TaskCategoryRepo{db: db} }
+
+func (r *TaskCategoryRepo) Create(c *TaskCategory) error {
+	q := `INSERT INTO task_categories (id,name,icon,sort_order,is_default,created_at)
+	        VALUES (?,?,?,?,?,?)`
+	isDefaultInt := 0
+	if c.IsDefault {
+		isDefaultInt = 1
+	}
+	_, err := r.db.Exec(q, c.ID, c.Name, c.Icon, c.SortOrder, isDefaultInt, c.CreatedAt)
+	return err
+}
+
+func (r *TaskCategoryRepo) Update(c *TaskCategory) error {
+	set := []string{}
+	args := []any{}
+	if c.Name != "" {
+		set = append(set, "name=?")
+		args = append(args, c.Name)
+	}
+	if c.SortOrder > 0 {
+		set = append(set, "sort_order=?")
+		args = append(args, c.SortOrder)
+	}
+	set = append(set, "icon=?")
+	args = append(args, c.Icon)
+	if len(set) == 0 {
+		return nil
+	}
+	args = append(args, c.ID)
+	q := "UPDATE task_categories SET " + strings.Join(set, ",") + " WHERE id=?"
+	_, err := r.db.Exec(q, args...)
+	return err
+}
+
+func (r *TaskCategoryRepo) Delete(id string) error {
+	var isDefault int
+	if err := r.db.QueryRow(`SELECT COALESCE(is_default,0) FROM task_categories WHERE id=?`, id).Scan(&isDefault); err != nil {
+		return err
+	}
+	if isDefault == 1 {
+		return fmt.Errorf("cannot delete default category")
+	}
+	if _, err := r.db.Exec(`UPDATE tasks SET category_id='default-task-cat' WHERE category_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec(`DELETE FROM task_categories WHERE id=?`, id); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MergeTo 将源分类(id)下的所有任务迁移到 targetID,然后删除源分类。
+func (r *TaskCategoryRepo) MergeTo(id, targetID string) error {
+	if id == targetID {
+		return fmt.Errorf("source and target are the same")
+	}
+	var isDefault int
+	if err := r.db.QueryRow(`SELECT COALESCE(is_default,0) FROM task_categories WHERE id=?`, id).Scan(&isDefault); err != nil {
+		return err
+	}
+	if isDefault == 1 {
+		return fmt.Errorf("cannot merge default category")
+	}
+	var dummy int
+	if err := r.db.QueryRow(`SELECT 1 FROM task_categories WHERE id=?`, targetID).Scan(&dummy); err != nil {
+		return fmt.Errorf("target category not found: %s", targetID)
+	}
+	if _, err := r.db.Exec(`UPDATE tasks SET category_id=? WHERE category_id=?`, targetID, id); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec(`DELETE FROM task_categories WHERE id=?`, id); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *TaskCategoryRepo) List() ([]*TaskCategory, error) {
+	rows, err := r.db.Query(`SELECT id,name,icon,sort_order,is_default,created_at FROM task_categories ORDER BY sort_order ASC, created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*TaskCategory
+	for rows.Next() {
+		var c TaskCategory
+		var icon sql.NullString
+		var isDefault int
+		if err := rows.Scan(&c.ID, &c.Name, &icon, &c.SortOrder, &isDefault, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		c.Icon = icon.String
+		c.IsDefault = isDefault == 1
+		out = append(out, &c)
+	}
+	return out, rows.Err()
+}
+
+func (r *TaskCategoryRepo) NextSortOrder() int {
+	var maxSort sql.NullInt64
+	row := r.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) FROM task_categories`)
 	if err := row.Scan(&maxSort); err != nil {
 		return 1
 	}
