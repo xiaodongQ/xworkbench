@@ -63,6 +63,7 @@ type APIServer struct {
 	linkCatDB    *backend.LinkCategoryRepo
 	dirCatDB     *backend.DirCategoryRepo
 	taskCatDB    *backend.TaskCategoryRepo
+	schedCatDB   *backend.ScheduledTaskCategoryRepo
 	schedDB      *backend.ScheduledTaskRepo
 	evalDB       *backend.EvaluationRepo
 	agentDB      *backend.AgentRepo
@@ -88,7 +89,7 @@ func NewAPIServer(
 	db *backend.TaskRepo, expDB *backend.ExperienceRepo, execDB *backend.ExecutionRepo,
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
 	linkCatDB *backend.LinkCategoryRepo, dirCatDB *backend.DirCategoryRepo,
-	taskCatDB *backend.TaskCategoryRepo,
+	taskCatDB *backend.TaskCategoryRepo, schedCatDB *backend.ScheduledTaskCategoryRepo,
 	schedDB *backend.ScheduledTaskRepo,
 	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
 	eventDB *backend.TaskEventRepo,
@@ -99,7 +100,7 @@ func NewAPIServer(
 ) *APIServer {
 	s := &APIServer{
 		db: db, expDB: expDB, execDB: execDB,
-		linkDB: linkDB, dirDB: dirDB, linkCatDB: linkCatDB, dirCatDB: dirCatDB, taskCatDB: taskCatDB,
+		linkDB: linkDB, dirDB: dirDB, linkCatDB: linkCatDB, dirCatDB: dirCatDB, taskCatDB: taskCatDB, schedCatDB: schedCatDB,
 		schedDB: schedDB, evalDB: evalDB,
 		agentDB: agentDB, eventDB: eventDB,
 		cmtDB: cmtDB, execCmtDB: execCmtDB,
@@ -223,6 +224,11 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("PUT /api/task-categories/{id}", s.handleTaskCategoryUpdate)
 	mux.HandleFunc("DELETE /api/task-categories/{id}", s.handleTaskCategoryDelete)
 	mux.HandleFunc("POST /api/task-categories/{id}/merge", s.handleTaskCategoryMerge)
+	mux.HandleFunc("GET /api/scheduled-task-categories", s.handleScheduledTaskCategories)
+	mux.HandleFunc("POST /api/scheduled-task-categories", s.handleScheduledTaskCategoryCreate)
+	mux.HandleFunc("PUT /api/scheduled-task-categories/{id}", s.handleScheduledTaskCategoryUpdate)
+	mux.HandleFunc("DELETE /api/scheduled-task-categories/{id}", s.handleScheduledTaskCategoryDelete)
+	mux.HandleFunc("POST /api/scheduled-task-categories/{id}/merge", s.handleScheduledTaskCategoryMerge)
 	mux.HandleFunc("PUT /api/dir-shortcuts/{id}", s.handleDirShortcutUpdate)
 	mux.HandleFunc("DELETE /api/dir-shortcuts/{id}", s.handleDirShortcutDelete)
 	mux.HandleFunc("POST /api/dir-shortcuts/{id}/open", s.handleDirShortcutOpen)
@@ -2087,6 +2093,97 @@ func (s *APIServer) handleTaskCategoryMerge(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, map[string]string{"id": id, "target_id": req.TargetID, "status": "merged"})
 }
 
+func (s *APIServer) handleScheduledTaskCategories(w http.ResponseWriter, r *http.Request) {
+	list, err := s.schedCatDB.List()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []*backend.ScheduledTaskCategory{}
+	}
+	writeJSON(w, list)
+}
+
+func (s *APIServer) handleScheduledTaskCategoryCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name      string `json:"name"`
+		Icon      string `json:"icon"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.SortOrder == 0 {
+		req.SortOrder = s.schedCatDB.NextSortOrder()
+	}
+	cat := &backend.ScheduledTaskCategory{
+		ID:        uuid.New().String(),
+		Name:      req.Name,
+		Icon:      req.Icon,
+		SortOrder: req.SortOrder,
+		CreatedAt: time.Now(),
+	}
+	if err := s.schedCatDB.Create(cat); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cat)
+}
+
+func (s *APIServer) handleScheduledTaskCategoryUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Name      string `json:"name"`
+		Icon      string `json:"icon"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	cat := &backend.ScheduledTaskCategory{ID: id, Name: req.Name, Icon: req.Icon, SortOrder: req.SortOrder}
+	if err := s.schedCatDB.Update(cat); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cat)
+}
+
+func (s *APIServer) handleScheduledTaskCategoryDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.schedCatDB.Delete(id); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
+}
+
+func (s *APIServer) handleScheduledTaskCategoryMerge(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		TargetID string `json:"target_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.TargetID == "" {
+		writeErr(w, http.StatusBadRequest, "target_id required")
+		return
+	}
+	if err := s.schedCatDB.MergeTo(id, req.TargetID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "target_id": req.TargetID, "status": "merged"})
+}
+
 func (s *APIServer) handleDirShortcutOpen(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	list, err := s.dirDB.List()
@@ -3196,6 +3293,7 @@ func main() {
 	linkCatRepo := backend.NewLinkCategoryRepo(db)
 	dirCatRepo := backend.NewDirCategoryRepo(db)
 	taskCatRepo := backend.NewTaskCategoryRepo(db)
+	schedCatRepo := backend.NewScheduledTaskCategoryRepo(db)
 	schedRepo := backend.NewScheduledTaskRepo(db)
 	evalRepo := backend.NewEvaluationRepo(db)
 	h := hub.New()
@@ -3273,7 +3371,7 @@ func main() {
 	}
 
 	srv := NewAPIServer(taskRepo, expRepo, execRepo,
-		linkRepo, dirRepo, linkCatRepo, dirCatRepo, taskCatRepo,
+		linkRepo, dirRepo, linkCatRepo, dirCatRepo, taskCatRepo, schedCatRepo,
 		schedRepo, evalRepo, agentRepo,
 		eventRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)
 

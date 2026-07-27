@@ -161,6 +161,14 @@ func InitSchema(db *sql.DB) error {
 		is_default INTEGER DEFAULT 0,
 		created_at DATETIME
 	);
+	CREATE TABLE IF NOT EXISTS scheduled_task_categories (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		icon TEXT,
+		sort_order INTEGER DEFAULT 0,
+		is_default INTEGER DEFAULT 0,
+		created_at DATETIME
+	);
 	CREATE TABLE IF NOT EXISTS scheduled_tasks (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -259,6 +267,12 @@ func InitSchema(db *sql.DB) error {
 		return err
 	}
 	if err := migrateTasksCategoryColumn(db); err != nil {
+		return err
+	}
+	if err := migrateScheduledTaskCategoriesTable(db); err != nil {
+		return err
+	}
+	if err := migrateScheduledTasksCategoryColumn(db); err != nil {
 		return err
 	}
 	if err := seedDefaultCategories(db); err != nil {
@@ -616,6 +630,18 @@ func seedDefaultCategories(db *sql.DB) error {
 			return err
 		}
 	}
+	// scheduled_task_categories 默认分类
+	var schedCatCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM scheduled_task_categories WHERE is_default=1`).Scan(&schedCatCount); err != nil {
+		return err
+	}
+	if schedCatCount == 0 {
+		_, err := db.Exec(`INSERT INTO scheduled_task_categories (id,name,icon,sort_order,is_default,created_at) VALUES (?,?,?,?,?,?)`,
+			"default-sched-cat", "默认", "⏰", 0, 1, time.Now())
+		if err != nil {
+			return err
+		}
+	}
 	// 将未分类任务关联到默认分类
 	if _, err := db.Exec(`UPDATE tasks SET category_id='default-task-cat' WHERE (category_id IS NULL OR category_id='') AND category_id IS NULL`); err != nil {
 		// 忽略错误，因为 tasks 表可能还没有 category_id 列
@@ -659,6 +685,50 @@ func migrateTasksCategoryColumn(db *sql.DB) error {
 			return nil
 		}
 		_, err := db.Exec(`ALTER TABLE tasks ADD COLUMN ` + decl)
+		return err
+	}
+	if err := addCol("category_id", "category_id TEXT"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// migrateScheduledTaskCategoriesTable 确保 scheduled_task_categories 表的默认分类存在
+func migrateScheduledTaskCategoriesTable(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM scheduled_task_categories WHERE is_default=1`).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err := db.Exec(`INSERT INTO scheduled_task_categories (id,name,icon,sort_order,is_default,created_at) VALUES (?,?,?,?,?,?)`,
+			"default-sched-cat", "默认", "⏰", 0, 1, time.Now())
+		return err
+	}
+	return nil
+}
+
+// migrateScheduledTasksCategoryColumn 为 scheduled_tasks 表添加 category_id 列
+func migrateScheduledTasksCategoryColumn(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(scheduled_tasks)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	addCol := func(name, decl string) error {
+		if cols[name] {
+			return nil
+		}
+		_, err := db.Exec(`ALTER TABLE scheduled_tasks ADD COLUMN ` + decl)
 		return err
 	}
 	if err := addCol("category_id", "category_id TEXT"); err != nil {
@@ -2214,6 +2284,117 @@ func (r *TaskCategoryRepo) NextSortOrder() int {
 	return int(maxSort.Int64) + 1
 }
 
+// ===== ScheduledTaskCategoryRepo =====
+
+type ScheduledTaskCategoryRepo struct{ db *sql.DB }
+
+func NewScheduledTaskCategoryRepo(db *sql.DB) *ScheduledTaskCategoryRepo { return &ScheduledTaskCategoryRepo{db: db} }
+
+func (r *ScheduledTaskCategoryRepo) Create(c *ScheduledTaskCategory) error {
+	q := `INSERT INTO scheduled_task_categories (id,name,icon,sort_order,is_default,created_at)
+	        VALUES (?,?,?,?,?,?)`
+	isDefaultInt := 0
+	if c.IsDefault {
+		isDefaultInt = 1
+	}
+	_, err := r.db.Exec(q, c.ID, c.Name, c.Icon, c.SortOrder, isDefaultInt, c.CreatedAt)
+	return err
+}
+
+func (r *ScheduledTaskCategoryRepo) Update(c *ScheduledTaskCategory) error {
+	set := []string{}
+	args := []any{}
+	if c.Name != "" {
+		set = append(set, "name=?")
+		args = append(args, c.Name)
+	}
+	if c.SortOrder > 0 {
+		set = append(set, "sort_order=?")
+		args = append(args, c.SortOrder)
+	}
+	set = append(set, "icon=?")
+	args = append(args, c.Icon)
+	if len(set) == 0 {
+		return nil
+	}
+	args = append(args, c.ID)
+	q := "UPDATE scheduled_task_categories SET " + strings.Join(set, ",") + " WHERE id=?"
+	_, err := r.db.Exec(q, args...)
+	return err
+}
+
+func (r *ScheduledTaskCategoryRepo) Delete(id string) error {
+	var isDefault int
+	if err := r.db.QueryRow(`SELECT COALESCE(is_default,0) FROM scheduled_task_categories WHERE id=?`, id).Scan(&isDefault); err != nil {
+		return err
+	}
+	if isDefault == 1 {
+		return fmt.Errorf("cannot delete default category")
+	}
+	if _, err := r.db.Exec(`UPDATE scheduled_tasks SET category_id='default-sched-cat' WHERE category_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec(`DELETE FROM scheduled_task_categories WHERE id=?`, id); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MergeTo 将源分类(id)下的所有定时任务迁移到 targetID,然后删除源分类。
+func (r *ScheduledTaskCategoryRepo) MergeTo(id, targetID string) error {
+	if id == targetID {
+		return fmt.Errorf("source and target are the same")
+	}
+	var isDefault int
+	if err := r.db.QueryRow(`SELECT COALESCE(is_default,0) FROM scheduled_task_categories WHERE id=?`, id).Scan(&isDefault); err != nil {
+		return err
+	}
+	if isDefault == 1 {
+		return fmt.Errorf("cannot merge default category")
+	}
+	var dummy int
+	if err := r.db.QueryRow(`SELECT 1 FROM scheduled_task_categories WHERE id=?`, targetID).Scan(&dummy); err != nil {
+		return fmt.Errorf("target category not found: %s", targetID)
+	}
+	if _, err := r.db.Exec(`UPDATE scheduled_tasks SET category_id=? WHERE category_id=?`, targetID, id); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec(`DELETE FROM scheduled_task_categories WHERE id=?`, id); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *ScheduledTaskCategoryRepo) List() ([]*ScheduledTaskCategory, error) {
+	rows, err := r.db.Query(`SELECT id,name,icon,sort_order,is_default,created_at FROM scheduled_task_categories ORDER BY sort_order ASC, created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*ScheduledTaskCategory
+	for rows.Next() {
+		var c ScheduledTaskCategory
+		var icon sql.NullString
+		var isDefault int
+		if err := rows.Scan(&c.ID, &c.Name, &icon, &c.SortOrder, &isDefault, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		c.Icon = icon.String
+		c.IsDefault = isDefault == 1
+		out = append(out, &c)
+	}
+	return out, rows.Err()
+}
+
+func (r *ScheduledTaskCategoryRepo) NextSortOrder() int {
+	var maxSort sql.NullInt64
+	row := r.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) FROM scheduled_task_categories`)
+	if err := row.Scan(&maxSort); err != nil {
+		return 1
+	}
+	return int(maxSort.Int64) + 1
+}
+
 // ===== DirShortcutRepo =====
 
 type DirShortcutRepo struct{ db *sql.DB }
@@ -2461,10 +2642,14 @@ type ScheduledTaskRepo struct{ db *sql.DB }
 func NewScheduledTaskRepo(db *sql.DB) *ScheduledTaskRepo { return &ScheduledTaskRepo{db: db} }
 
 func (r *ScheduledTaskRepo) Create(t *ScheduledTask) error {
-	q := `INSERT INTO scheduled_tasks (id,name,cron_expr,command_type,model,prompt,working_dir,enabled,timeout_sec,created_at)
-	        VALUES (?,?,?,?,?,?,?,?,?,?)`
+	categoryID := t.CategoryID
+	if categoryID == "" {
+		categoryID = "default-sched-cat"
+	}
+	q := `INSERT INTO scheduled_tasks (id,name,cron_expr,command_type,model,prompt,working_dir,enabled,timeout_sec,created_at,category_id)
+	        VALUES (?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, t.ID, t.Name, t.CronExpr, t.CommandType, t.Model, t.Prompt,
-		t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, t.CreatedAt)
+		t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, t.CreatedAt, categoryID)
 	if err != nil {
 		logger.Logger.Errorw("scheduled_tasks insert failed", "id", t.ID, "error", err.Error())
 		return err
@@ -2474,8 +2659,8 @@ func (r *ScheduledTaskRepo) Create(t *ScheduledTask) error {
 }
 
 func (r *ScheduledTaskRepo) Update(t *ScheduledTask) error {
-	_, err := r.db.Exec(`UPDATE scheduled_tasks SET name=?, cron_expr=?, command_type=?, model=?, prompt=?, working_dir=?, enabled=?, timeout_sec=? WHERE id=?`,
-		t.Name, t.CronExpr, t.CommandType, t.Model, t.Prompt, t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, t.ID)
+	_, err := r.db.Exec(`UPDATE scheduled_tasks SET name=?, cron_expr=?, command_type=?, model=?, prompt=?, working_dir=?, enabled=?, timeout_sec=?, category_id=? WHERE id=?`,
+		t.Name, t.CronExpr, t.CommandType, t.Model, t.Prompt, t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, t.CategoryID, t.ID)
 	if err != nil {
 		logger.Logger.Errorw("scheduled_tasks update failed", "id", t.ID, "error", err.Error())
 		return err
@@ -2496,12 +2681,12 @@ func (r *ScheduledTaskRepo) Delete(id string) error {
 
 func (r *ScheduledTaskRepo) Get(id string) (*ScheduledTask, error) {
 	var t ScheduledTask
-	var model, prompt, workdir, lastStatus, lastExecID, lastSessionID sql.NullString
+	var model, prompt, workdir, lastStatus, lastExecID, lastSessionID, categoryID sql.NullString
 	var lastRunAt sql.NullTime
 	var enabled, resumeCount int
-	err := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at
+	err := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at,category_id
 	        FROM scheduled_tasks WHERE id=?`, id).Scan(&t.ID, &t.Name, &t.CronExpr, &t.CommandType,
-		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt)
+		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt, &categoryID)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("scheduled_task %s not found", id)
 	}
@@ -2516,6 +2701,7 @@ func (r *ScheduledTaskRepo) Get(id string) (*ScheduledTask, error) {
 	t.LastSessionID = lastSessionID.String
 	t.ResumeCount = resumeCount
 	t.Enabled = enabled != 0
+	t.CategoryID = categoryID.String
 	if lastRunAt.Valid {
 		t.LastRunAt = &lastRunAt.Time
 	}
@@ -2560,7 +2746,7 @@ func (r *ScheduledTaskRepo) FindByName(name string) (*ScheduledTask, error) {
 }
 
 func (r *ScheduledTaskRepo) listWhere(where string) ([]*ScheduledTask, error) {
-	q := `SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at
+	q := `SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at,category_id
 	        FROM scheduled_tasks ` + where + ` ORDER BY created_at DESC`
 	rows, err := r.db.Query(q)
 	if err != nil {
@@ -2570,11 +2756,11 @@ func (r *ScheduledTaskRepo) listWhere(where string) ([]*ScheduledTask, error) {
 	var out []*ScheduledTask
 	for rows.Next() {
 		var t ScheduledTask
-		var model, prompt, workdir, lastStatus, lastExecID, lastSessionID sql.NullString
+		var model, prompt, workdir, lastStatus, lastExecID, lastSessionID, categoryID sql.NullString
 		var lastRunAt sql.NullTime
 		var enabled, resumeCount int
 		if err := rows.Scan(&t.ID, &t.Name, &t.CronExpr, &t.CommandType,
-			&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt); err != nil {
+			&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt, &categoryID); err != nil {
 			return nil, err
 		}
 		t.Model = model.String
@@ -2585,6 +2771,7 @@ func (r *ScheduledTaskRepo) listWhere(where string) ([]*ScheduledTask, error) {
 		t.LastSessionID = lastSessionID.String
 		t.ResumeCount = resumeCount
 		t.Enabled = enabled != 0
+		t.CategoryID = categoryID.String
 		if lastRunAt.Valid {
 			t.LastRunAt = &lastRunAt.Time
 		}

@@ -143,27 +143,19 @@
   <div id="page-dashboard">
     <h1 class="page-title">总览</h1>
     <div class="stat-grid">
-      <div class="stat-card stat-pending">
-        <div class="stat-label">待认领</div>
+      <div class="stat-card stat-pending" onclick="switchTab('tasks');document.getElementById('filter-status').value='pending';loadTasks()" style="cursor:pointer">
+        <div class="stat-label">待执行</div>
         <div class="stat-value" id="stat-pending">-</div>
       </div>
-      <div class="stat-card stat-in_progress">
-        <div class="stat-label">待执行</div>
+      <div class="stat-card stat-in_progress" onclick="switchTab('tasks');document.getElementById('filter-status').value='in_progress';loadTasks()" style="cursor:pointer">
+        <div class="stat-label">进行中</div>
         <div class="stat-value" id="stat-in_progress">-</div>
       </div>
-      <div class="stat-card stat-running">
-        <div class="stat-label">执行中</div>
-        <div class="stat-value" id="stat-running">-</div>
-      </div>
-      <div class="stat-card stat-waiting" onclick="switchTab('tasks');document.getElementById('filter-status').value='waiting_input';loadTasks()" style="cursor:pointer">
-        <div class="stat-label">待交互</div>
-        <div class="stat-value" id="stat-waiting_input">-</div>
-      </div>
-      <div class="stat-card stat-archived">
+      <div class="stat-card stat-archived" onclick="switchTab('tasks');document.getElementById('filter-status').value='archived';loadTasks()" style="cursor:pointer">
         <div class="stat-label">已完成</div>
         <div class="stat-value" id="stat-archived">-</div>
       </div>
-      <div class="stat-card stat-exception">
+      <div class="stat-card stat-exception" onclick="switchTab('tasks');document.getElementById('filter-status').value='exception';loadTasks()" style="cursor:pointer">
         <div class="stat-label">异常</div>
         <div class="stat-value" id="stat-exception">-</div>
       </div>
@@ -214,10 +206,8 @@
     <div class="toolbar">
       <select id="filter-status">
         <option value="">全部状态</option>
-        <option value="pending">待认领</option>
-        <option value="in_progress">待执行</option>
-        <option value="running">执行中</option>
-        <option value="waiting_input">待交互</option>
+        <option value="pending">待执行</option>
+        <option value="in_progress">进行中</option>
         <option value="archived">已完成</option>
         <option value="exception">异常</option>
       </select>
@@ -259,6 +249,11 @@
         <button class="btn" data-sched-action="stop" onclick="schedulerStop()">⏸ 停止</button>
         <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
         <button class="btn btn-small" onclick="showAdvancedSettings()">⚙️ 高级设置</button>
+        <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+        <select id="filter-sched-category">
+          <option value="">全部分类</option>
+        </select>
+        <button class="btn btn-small" onclick="showSchedCategoryModal()" title="管理分类">⚙️</button>
       </div>
       <button class="btn btn-primary" onclick="showScheduledModal()">+ 新建定时任务</button>
     </div>
@@ -1082,6 +1077,22 @@
   </div>
 </div>
 
+<!-- 定时任务分类管理 Modal -->
+<div id="sched-category-modal" class="modal-overlay hidden" >
+  <div class="modal">
+    <h2>管理定时任务分类</h2>
+    <div id="sched-category-list" style="max-height:300px;overflow-y:auto;margin-bottom:12px"></div>
+    <div class="form-group" style="display:flex;gap:6px;align-items:center">
+      <input id="new-sched-category-name" placeholder="新分类名" style="flex:1">
+      <input id="new-sched-category-icon" placeholder="图标" style="width:60px">
+      <button class="btn btn-primary" onclick="addSchedCategory()">添加</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeSchedCategoryModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
 <!-- Todo Path Modal -->
 <div id="todo-path-modal" class="modal-overlay hidden">
   <div class="modal">
@@ -1520,6 +1531,7 @@
 document.getElementById('filter-status').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
 document.getElementById('filter-task-type').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
 document.getElementById('filter-task-category').addEventListener('change', () => { if (typeof loadTasks === 'function') loadTasks(); });
+document.getElementById('filter-sched-category').addEventListener('change', () => { if (typeof loadScheduled === 'function') loadScheduled(); });
 document.getElementById('exp-search').addEventListener('input', debounce(() => { if (typeof loadExps === 'function') loadExps(); }, 300));
 
 // 首次加载：dashboard 主体 + widget 侧栏（链接/目录/todo 常驻）

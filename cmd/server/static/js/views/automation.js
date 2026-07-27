@@ -6,6 +6,75 @@ const REFRESH_KEY = 'automation.refreshSeconds';
 let autoRefreshTimer = null;
 let _autoRefreshEnabled = true;
 
+// 定时任务分类
+let schedCategories = [];
+const _schedCatExpanded = JSON.parse(localStorage.getItem('sf-sched-cat-expanded') || '{}');
+
+function toggleSchedCategory(catId) {
+  _schedCatExpanded[catId] = _schedCatExpanded[catId] === false ? true : false;
+  localStorage.setItem('sf-sched-cat-expanded', JSON.stringify(_schedCatExpanded));
+  loadScheduled();
+}
+
+function isSchedCategoryExpanded(catId) {
+  return _schedCatExpanded[catId] !== false;
+}
+
+// 分类管理弹窗
+function showSchedCategoryModal() {
+  loadSchedCategoryList();
+  document.getElementById('sched-category-modal').classList.remove('hidden');
+}
+function closeSchedCategoryModal() {
+  document.getElementById('sched-category-modal').classList.add('hidden');
+}
+function loadSchedCategoryList() {
+  fetchJSON('/api/scheduled-task-categories').then(cats => {
+    schedCategories = cats || [];
+    const el = document.getElementById('sched-category-list');
+    el.innerHTML = schedCategories.map(c => {
+      const isDefault = c.id === 'default-sched-cat';
+      return `<div class="cat-row" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)">
+        <span>${esc((c.icon || '') + ' ' + c.name)}</span>
+        ${isDefault ? '<span style="font-size:10px;color:var(--text-secondary)">默认</span>' : ''}
+        <button class="btn btn-small btn-danger" style="margin-left:auto" onclick="deleteSchedCategory('${c.id}')" ${isDefault ? 'disabled' : ''}>删除</button>
+      </div>`;
+    }).join('');
+  });
+}
+function addSchedCategory() {
+  const name = document.getElementById('new-sched-category-name').value.trim();
+  const icon = document.getElementById('new-sched-category-icon').value.trim();
+  if (!name) { alert('请输入分类名'); return; }
+  fetchJSON('/api/scheduled-task-categories', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name, icon})
+  }).then(() => {
+    document.getElementById('new-sched-category-name').value = '';
+    document.getElementById('new-sched-category-icon').value = '';
+    loadSchedCategoryList();
+    updateSchedCategoryFilter();
+  }).catch(e => alert('添加失败：' + e.message));
+}
+function deleteSchedCategory(id) {
+  if (!confirm('删除后该分类下的定时任务将移至"默认"分类，确定？')) return;
+  fetchJSON('/api/scheduled-task-categories/' + id, {method:'DELETE'}).then(() => {
+    loadSchedCategoryList();
+    loadScheduled();
+  }).catch(e => alert('删除失败：' + e.message));
+}
+function updateSchedCategoryFilter() {
+  const sel = document.getElementById('filter-sched-category');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">全部分类</option>' +
+    schedCategories.map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
+  if (current && sel.querySelector('option[value="' + current + '"]')) {
+    sel.value = current;
+  }
+}
+
 // ===== 高级设置弹窗 =====
 function showAdvancedSettings() {
   // 加载 AI 自治状态
@@ -336,7 +405,15 @@ async function loadScheduledSummary() {
 }
 
 async function loadScheduled() {
-  const list = await fetchJSON('/api/scheduled');
+  const category = document.getElementById('filter-sched-category').value;
+  const params = category ? '?category=' + category : '';
+  const [list, catsData] = await Promise.all([
+    fetchJSON('/api/scheduled' + params),
+    fetchJSON('/api/scheduled-task-categories')
+  ]);
+  schedCategories = catsData || [];
+  updateSchedCategoryFilter();
+
   // 顺手拉最近 exec，找 last_execution_id 对应的 completed_at 判断 running
   const execs = await fetchJSON('/api/executions?limit=50').catch(() => []);
   const execMap = {};
@@ -346,74 +423,114 @@ async function loadScheduled() {
     el.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:40px 0">暂无定时任务<br><br><span style="font-size:12px">点击右上"+ 新建定时任务"创建<br>支持标准 cron 5 字段 或 @every 30s</span></div>';
     return;
   }
-  const sortField = localStorage.getItem('automation.schedSortField') || '';
-  const sortDir = sortField ? _getSchedSortDir(sortField) : '';
 
-  const sortedList = [...list].sort((a, b) => {
-    // disabled 排最后（不受排序字段影响）
-    if (!a.enabled && !b.enabled) return 0;
-    if (!a.enabled) return 1;
-    if (!b.enabled) return -1;
-
-    // 无排序字段时按 next_run_at 升序
-    if (!sortField) {
-      if (!a.next_run_at && !b.next_run_at) return 0;
-      if (!a.next_run_at) return 1;
-      if (!b.next_run_at) return -1;
-      return new Date(a.next_run_at) - new Date(b.next_run_at);
+  // 按 category_id 分组
+  const byCat = {};
+  const uncategorized = { id: '__uncategorized__', name: '未分类', icon: '⏰', items: [] };
+  for (const s of list) {
+    const catId = s.category_id || '__uncategorized__';
+    if (!byCat[catId]) {
+      byCat[catId] = { id: catId, name: catId === '__uncategorized__' ? '未分类' : '', icon: '', items: [] };
     }
-
-    // 按排序列排序
-    let va, vb;
-    if (sortField === 'type') {
-      va = a.command_type || '';
-      vb = b.command_type || '';
-      const cmp = va.localeCompare(vb);
-      return sortDir === 'desc' ? -cmp : cmp;
-    } else if (sortField === 'status') {
-      va = _STATUS_PRIORITY[a.last_status] ?? 99;
-      vb = _STATUS_PRIORITY[b.last_status] ?? 99;
-      return sortDir === 'desc' ? vb - va : va - vb;
-    } else if (sortField === 'last_run') {
-      va = a.last_run_at ? new Date(a.last_run_at).getTime() : 0;
-      vb = b.last_run_at ? new Date(b.last_run_at).getTime() : 0;
-      return sortDir === 'desc' ? vb - va : va - vb;
+    byCat[catId].items.push(s);
+  }
+  // 填充分类名称
+  for (const catId in byCat) {
+    if (catId !== '__uncategorized__') {
+      const cat = schedCategories.find(c => c.id === catId);
+      if (cat) {
+        byCat[catId].name = cat.name;
+        byCat[catId].icon = cat.icon || '';
+      }
     }
-    return 0;
+  }
+  // 排序：其他分类在前，默认分类在后
+  const catOrder = [...schedCategories].sort((a, b) => {
+    if (a.id === 'default-sched-cat') return 1;
+    if (b.id === 'default-sched-cat') return -1;
+    return a.sort_order - b.sort_order;
+  });
+  const sortedCats = Object.values(byCat).sort((a, b) => {
+    if (a.id === '__uncategorized__') return 1;
+    if (b.id === '__uncategorized__') return -1;
+    const ai = catOrder.findIndex(c => c.id === a.id);
+    const bi = catOrder.findIndex(c => c.id === b.id);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
   });
 
+  const sortField = localStorage.getItem('automation.schedSortField') || '';
+  const sortDir = sortField ? _getSchedSortDir(sortField) : '';
   const si = (field) => schedSortIcon(field);
-el.innerHTML = `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="setSchedSort('last_run')">最近执行${si('last_run')}</th><th>操作</th></tr></thead><tbody>` + sortedList.map(s => {
-    const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
-    const nextRun = (s.enabled && s.next_run_at)
-      ? `<div style="font-size:10px;color:var(--info);margin-top:2px;white-space:nowrap">⏰ 下次 ${esc(new Date(s.next_run_at).toLocaleString())}</div>`
-      : '';
-    const baseStatus = s.last_status || 'pending';
-    // running 检测：last_execution_id 对应的 execution 没有 completed_at
-    let statusBadge = `<span class="s-status ${baseStatus}">${schedStatusText(baseStatus)}</span>`;
-    if (s.last_execution_id && execMap[s.last_execution_id] && !execMap[s.last_execution_id].completed_at) {
-      statusBadge = '<span class="s-status" style="background:var(--info,#3b82f6);color:#fff">运行中</span>';
-    }
-    const enabledBadge = s.enabled ? '' : ' <span style="color:#f59e0b;font-size:11px;font-weight:600">(已禁用)</span>';
-    const toggleLabel = s.enabled ? '⏸ 停用' : '▶ 启用';
-    const toggleBtnClass = s.enabled ? 'btn btn-small' : 'btn btn-small btn-primary';
-    return `<tr>
-      <td style="padding:4px 6px">
-        <span class="edit-icon" onclick="editScheduled('${s.id}')" title="编辑" style="cursor:pointer;margin-right:6px;color:var(--text-secondary);font-size:14px">✏️</span>
-        <strong>${esc(s.name)}</strong>${enabledBadge}
-      </td>
-      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 6px"><code style="font-size:10.5px">${esc(s.cron_expr)}</code></td>
-      <td title="${esc(s.command_type)}" style="padding:4px 6px"><span style="font-size:10.5px">${esc(s.command_type)}</span><br><span style="font-size:10.5px;color:var(--text-secondary)">${s.model ? esc(s.model) : ''}</span></td>
-      <td style="padding:4px 6px">${statusBadge}</td>
-      <td style="font-size:11px;color:var(--text-secondary);vertical-align:top;padding:4px 6px">${lastRun}${nextRun}</td>
-      <td style="padding:4px 6px">
-        <button class="${toggleBtnClass}" onclick="toggleScheduled('${s.id}', ${s.enabled})" title="${s.enabled ? '停止调度' : '启用调度'}">${toggleLabel}</button>
-        <button class="btn btn-small" onclick="runScheduled('${s.id}')">▶ 执行</button>
-        <button class="btn btn-small" onclick="deleteScheduled('${s.id}')">删除</button>
-      </td>
-    </tr>`;
-  }).join('') + '</tbody></table>';
-  // 页面加载时恢复排序图标状态
+
+  el.innerHTML = sortedCats.map(cat => {
+    const isExpanded = isSchedCategoryExpanded(cat.id);
+    const sortedItems = [...cat.items].sort((a, b) => {
+      if (!a.enabled && !b.enabled) return 0;
+      if (!a.enabled) return 1;
+      if (!b.enabled) return -1;
+      if (!sortField) {
+        if (!a.next_run_at && !b.next_run_at) return 0;
+        if (!a.next_run_at) return 1;
+        if (!b.next_run_at) return -1;
+        return new Date(a.next_run_at) - new Date(b.next_run_at);
+      }
+      let va, vb;
+      if (sortField === 'type') {
+        va = a.command_type || '';
+        vb = b.command_type || '';
+        return sortDir === 'desc' ? vb.localeCompare(va) : va.localeCompare(vb);
+      } else if (sortField === 'status') {
+        va = _STATUS_PRIORITY[a.last_status] ?? 99;
+        vb = _STATUS_PRIORITY[b.last_status] ?? 99;
+        return sortDir === 'desc' ? vb - va : va - vb;
+      } else if (sortField === 'last_run') {
+        va = a.last_run_at ? new Date(a.last_run_at).getTime() : 0;
+        vb = b.last_run_at ? new Date(b.last_run_at).getTime() : 0;
+        return sortDir === 'desc' ? vb - va : va - vb;
+      }
+      return 0;
+    });
+    return `<div class="task-category-group">
+      <div class="task-category-header" onclick="toggleSchedCategory('${cat.id}')">
+        <span style="font-size:10px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
+        <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
+        <span style="margin-left:auto;color:var(--text-secondary)">${sortedItems.length}</span>
+      </div>
+      <div class="task-category-items${isExpanded ? '' : ' hidden'}" data-cat-id="${cat.id}">
+        ${sortedItems.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无定时任务</div>' :
+          `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="setSchedSort('last_run')">最近执行${si('last_run')}</th><th>操作</th></tr></thead><tbody>` +
+          sortedItems.map(s => {
+            const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
+            const nextRun = (s.enabled && s.next_run_at)
+              ? `<div style="font-size:10px;color:var(--info);margin-top:2px;white-space:nowrap">⏰ 下次 ${esc(new Date(s.next_run_at).toLocaleString())}</div>`
+              : '';
+            const baseStatus = s.last_status || 'pending';
+            let statusBadge = `<span class="s-status ${baseStatus}">${schedStatusText(baseStatus)}</span>`;
+            if (s.last_execution_id && execMap[s.last_execution_id] && !execMap[s.last_execution_id].completed_at) {
+              statusBadge = '<span class="s-status" style="background:var(--info,#3b82f6);color:#fff">运行中</span>';
+            }
+            const enabledBadge = s.enabled ? '' : ' <span style="color:#f59e0b;font-size:11px;font-weight:600">(已禁用)</span>';
+            const toggleLabel = s.enabled ? '⏸ 停用' : '▶ 启用';
+            const toggleBtnClass = s.enabled ? 'btn btn-small' : 'btn btn-small btn-primary';
+            return `<tr>
+              <td style="padding:4px 6px">
+                <span class="edit-icon" onclick="editScheduled('${s.id}')" title="编辑" style="cursor:pointer;margin-right:6px;color:var(--text-secondary);font-size:14px">✏️</span>
+                <strong>${esc(s.name)}</strong>${enabledBadge}
+              </td>
+              <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 6px"><code style="font-size:10.5px">${esc(s.cron_expr)}</code></td>
+              <td title="${esc(s.command_type)}" style="padding:4px 6px"><span style="font-size:10.5px">${esc(s.command_type)}</span><br><span style="font-size:10.5px;color:var(--text-secondary)">${s.model ? esc(s.model) : ''}</span></td>
+              <td style="padding:4px 6px">${statusBadge}</td>
+              <td style="font-size:11px;color:var(--text-secondary);vertical-align:top;padding:4px 6px">${lastRun}${nextRun}</td>
+              <td style="padding:4px 6px">
+                <button class="${toggleBtnClass}" onclick="toggleScheduled('${s.id}', ${s.enabled})" title="${s.enabled ? '停止调度' : '启用调度'}">${toggleLabel}</button>
+                <button class="btn btn-small" onclick="runScheduled('${s.id}')">▶ 执行</button>
+                <button class="btn btn-small" onclick="deleteScheduled('${s.id}')">删除</button>
+              </td>
+            </tr>`;
+          }).join('') + '</tbody></table>'}
+      </div>
+    </div>`;
+  }).join('');
   updateSchedSortIcons();
 }
 

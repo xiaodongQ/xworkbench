@@ -222,6 +222,16 @@ type TaskCategory struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// ScheduledTaskCategory 定时任务分类
+type ScheduledTaskCategory struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Icon      string    `json:"icon,omitempty"`
+	SortOrder int       `json:"sort_order"`
+	IsDefault bool      `json:"is_default"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // ScheduledTask 定时任务
 type ScheduledTask struct {
 	ID             string     `json:"id"`
@@ -240,6 +250,7 @@ type ScheduledTask struct {
 	LastSessionID   string    `json:"last_session_id,omitempty"` // 跨执行续用 session_id
 	ResumeCount     int       `json:"resume_count"`              // 当前连续 resume 次数，达到 MaxResumeCount 后重置会话
 	CreatedAt       time.Time `json:"created_at"`
+	CategoryID      string    `json:"category_id,omitempty"`     // 分类 ID
 }
 
 // AppSetting KV 设置
