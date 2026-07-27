@@ -315,7 +315,6 @@ function renderTaskTable(list) {
       return 0;
     });
     return `<div class="task-category-group">
-      <div class="task-category-items${isExpanded ? '' : ' hidden'}" data-cat-id="${cat.id}">
         ${items.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无任务</div>' :
           `<table class="task-table">
           <thead>
@@ -338,6 +337,8 @@ function renderTaskTable(list) {
                 </div>
               </td>
             </tr>
+          </tbody>
+          <tbody class="${isExpanded ? '' : 'hidden'}">
             ${items.map(t => {
             const ops = taskOpsByStatus(t);
             return `<tr>
@@ -359,7 +360,6 @@ function renderTaskTable(list) {
           }).join('')}
           </tbody>
           </table>`}
-      </div>
     </div>`;
   }).join('');
 }
