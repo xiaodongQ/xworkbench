@@ -2212,6 +2212,11 @@ func (r *TaskCategoryRepo) Update(c *TaskCategory) error {
 	return err
 }
 
+func (r *TaskCategoryRepo) UpdateSortOrder(id string, sortOrder int) error {
+	_, err := r.db.Exec(`UPDATE task_categories SET sort_order=? WHERE id=?`, sortOrder, id)
+	return err
+}
+
 func (r *TaskCategoryRepo) Delete(id string) error {
 	var isDefault int
 	if err := r.db.QueryRow(`SELECT COALESCE(is_default,0) FROM task_categories WHERE id=?`, id).Scan(&isDefault); err != nil {
@@ -2320,6 +2325,11 @@ func (r *ScheduledTaskCategoryRepo) Update(c *ScheduledTaskCategory) error {
 	args = append(args, c.ID)
 	q := "UPDATE scheduled_task_categories SET " + strings.Join(set, ",") + " WHERE id=?"
 	_, err := r.db.Exec(q, args...)
+	return err
+}
+
+func (r *ScheduledTaskCategoryRepo) UpdateSortOrder(id string, sortOrder int) error {
+	_, err := r.db.Exec(`UPDATE scheduled_task_categories SET sort_order=? WHERE id=?`, sortOrder, id)
 	return err
 }
 

@@ -232,6 +232,12 @@ type ScheduledTaskCategory struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// ReorderItem 拖拽排序请求项
+type ReorderItem struct {
+	ID        string `json:"id"`
+	SortOrder int    `json:"sort_order"`
+}
+
 // ScheduledTask 定时任务
 type ScheduledTask struct {
 	ID             string     `json:"id"`

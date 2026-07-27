@@ -1238,6 +1238,7 @@ tr:last-child td { border-bottom: none; }
 /* ===== 分类管理 Modal 的拖动重排行 ===== */
 .cat-row {
   transition: background 0.15s ease;
+  cursor: default;
 }
 .cat-row:hover {
   background: var(--hover);
@@ -1245,6 +1246,8 @@ tr:last-child td { border-bottom: none; }
 .cat-row[draggable="true"]:active {
   cursor: grabbing;
 }
+.cat-row .drag-handle { cursor: grab; }
+.cat-row.drag-over { border-top: 2px solid var(--primary); }
 
 /* ===== 链接/目录分组展示 ===== */
 .link-category-group,
@@ -1272,6 +1275,17 @@ tr:last-child td { border-bottom: none; }
 .link-category-header:hover,
 .dir-category-header:hover,
 .task-category-header:hover {
+  background: var(--border);
+}
+
+/* 任务表格内的分类分隔行 */
+.task-category-header-row {
+  user-select: none;
+}
+.task-category-header-row td {
+  background: var(--border);
+}
+.task-category-header-row:hover td {
   background: var(--border);
 }
 

@@ -28,9 +28,12 @@ function loadTaskCategoryList() {
   fetchJSON('/api/task-categories').then(cats => {
     taskCategories = cats || [];
     const el = document.getElementById('task-category-list');
-    el.innerHTML = taskCategories.map(c => {
+    el.innerHTML = taskCategories.map((c, i) => {
       const isDefault = c.id === 'default-task-cat';
-      return `<div style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)">
+      const dragAttrs = isDefault ? '' : `draggable="true" ondragstart="onTaskCatDragStart(event)" ondragover="onTaskCatDragOver(event)" ondrop="onTaskCatDrop(event)" ondragend="onTaskCatDragEnd(event)"`;
+      const dragHandle = isDefault ? '' : '<span class="drag-handle" style="cursor:grab;margin-right:6px">⋮⋮</span>';
+      return `<div class="cat-row" data-cat-id="${c.id}" data-index="${i}" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)" ${dragAttrs}>
+        ${dragHandle}
         <span>${esc((c.icon || '') + ' ' + c.name)}</span>
         ${isDefault ? '<span style="font-size:10px;color:var(--text-secondary)">默认</span>' : ''}
         <button class="btn btn-small btn-danger" style="margin-left:auto" onclick="deleteTaskCategory('${c.id}')" ${isDefault ? 'disabled' : ''}>删除</button>
@@ -59,6 +62,51 @@ function deleteTaskCategory(id) {
     loadTaskCategoryList();
     loadTasks();
   }).catch(e => alert('删除失败：' + e.message));
+}
+
+let _taskCatDragSrcIndex = -1;
+
+function onTaskCatDragStart(e) {
+  _taskCatDragSrcIndex = parseInt(e.target.closest('.cat-row').dataset.index);
+  e.dataTransfer.effectAllowed = 'move';
+  e.target.closest('.cat-row').style.opacity = '0.5';
+}
+
+function onTaskCatDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+}
+
+function onTaskCatDrop(e) {
+  e.preventDefault();
+  const targetRow = e.target.closest('.cat-row');
+  if (!targetRow) return;
+  const destIndex = parseInt(targetRow.dataset.index);
+  if (_taskCatDragSrcIndex === destIndex) return;
+
+  const [moved] = taskCategories.splice(_taskCatDragSrcIndex, 1);
+  taskCategories.splice(destIndex, 0, moved);
+
+  const reorderData = taskCategories
+    .filter(c => c.id !== 'default-task-cat')
+    .map((c, i) => ({ id: c.id, sort_order: i }));
+
+  fetchJSON('/api/task-categories/reorder', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(reorderData)
+  }).then(() => {
+    loadTaskCategoryList();
+    updateTaskCategoryFilter();
+    loadTasks();
+  }).catch(e => {
+    alert('排序失败：' + e.message);
+    loadTaskCategoryList();
+  });
+}
+
+function onTaskCatDragEnd(e) {
+  e.target.closest('.cat-row').style.opacity = '1';
 }
 
 // ===== 多选经验库（exp picker） =====
@@ -267,15 +315,30 @@ function renderTaskTable(list) {
       return 0;
     });
     return `<div class="task-category-group">
-      <div class="task-category-header" onclick="toggleTaskCategory('${cat.id}')">
-        <span style="font-size:10px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
-        <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
-        <span style="margin-left:auto;color:var(--text-secondary)">${items.length}</span>
-      </div>
       <div class="task-category-items${isExpanded ? '' : ' hidden'}" data-cat-id="${cat.id}">
         ${items.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无任务</div>' :
           `<table class="task-table">
-          <tbody>${items.map(t => {
+          <thead>
+            <tr>
+              <th class="col-title">标题/描述</th>
+              <th class="col-status">状态</th>
+              <th class="col-type">类型</th>
+              <th class="col-loop">循环</th>
+              <th class="col-time">时间</th>
+              <th class="col-ops">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="task-category-header-row" onclick="toggleTaskCategory('${cat.id}')" style="cursor:pointer">
+              <td colspan="6" style="padding:6px 12px;font-size:11px;font-weight:500;background:var(--border);border-radius:0">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="font-size:10px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
+                  <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
+                  <span style="margin-left:auto;color:var(--text-secondary)">${items.length}</span>
+                </div>
+              </td>
+            </tr>
+            ${items.map(t => {
             const ops = taskOpsByStatus(t);
             return `<tr>
               <td class="col-title">
@@ -293,7 +356,8 @@ function renderTaskTable(list) {
               <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
               <td class="col-ops"><div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">${ops}</div></td>
             </tr>`;
-          }).join('')}</tbody>
+          }).join('')}
+          </tbody>
           </table>`}
       </div>
     </div>`;

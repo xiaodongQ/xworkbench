@@ -32,9 +32,12 @@ function loadSchedCategoryList() {
   fetchJSON('/api/scheduled-task-categories').then(cats => {
     schedCategories = cats || [];
     const el = document.getElementById('sched-category-list');
-    el.innerHTML = schedCategories.map(c => {
+    el.innerHTML = schedCategories.map((c, i) => {
       const isDefault = c.id === 'default-sched-cat';
-      return `<div class="cat-row" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)">
+      const dragAttrs = isDefault ? '' : `draggable="true" ondragstart="onSchedCatDragStart(event)" ondragover="onSchedCatDragOver(event)" ondrop="onSchedCatDrop(event)" ondragend="onSchedCatDragEnd(event)"`;
+      const dragHandle = isDefault ? '' : '<span class="drag-handle" style="cursor:grab;margin-right:6px">⋮⋮</span>';
+      return `<div class="cat-row" data-cat-id="${c.id}" data-index="${i}" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)" ${dragAttrs}>
+        ${dragHandle}
         <span>${esc((c.icon || '') + ' ' + c.name)}</span>
         ${isDefault ? '<span style="font-size:10px;color:var(--text-secondary)">默认</span>' : ''}
         <button class="btn btn-small btn-danger" style="margin-left:auto" onclick="deleteSchedCategory('${c.id}')" ${isDefault ? 'disabled' : ''}>删除</button>
@@ -64,6 +67,52 @@ function deleteSchedCategory(id) {
     loadScheduled();
   }).catch(e => alert('删除失败：' + e.message));
 }
+
+let _schedCatDragSrcIndex = -1;
+
+function onSchedCatDragStart(e) {
+  _schedCatDragSrcIndex = parseInt(e.target.closest('.cat-row').dataset.index);
+  e.dataTransfer.effectAllowed = 'move';
+  e.target.closest('.cat-row').style.opacity = '0.5';
+}
+
+function onSchedCatDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+}
+
+function onSchedCatDrop(e) {
+  e.preventDefault();
+  const targetRow = e.target.closest('.cat-row');
+  if (!targetRow) return;
+  const destIndex = parseInt(targetRow.dataset.index);
+  if (_schedCatDragSrcIndex === destIndex) return;
+
+  const [moved] = schedCategories.splice(_schedCatDragSrcIndex, 1);
+  schedCategories.splice(destIndex, 0, moved);
+
+  const reorderData = schedCategories
+    .filter(c => c.id !== 'default-sched-cat')
+    .map((c, i) => ({ id: c.id, sort_order: i }));
+
+  fetchJSON('/api/scheduled-task-categories/reorder', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(reorderData)
+  }).then(() => {
+    loadSchedCategoryList();
+    updateSchedCategoryFilter();
+    loadScheduled();
+  }).catch(e => {
+    alert('排序失败：' + e.message);
+    loadSchedCategoryList();
+  });
+}
+
+function onSchedCatDragEnd(e) {
+  e.target.closest('.cat-row').style.opacity = '1';
+}
+
 function updateSchedCategoryFilter() {
   const sel = document.getElementById('filter-sched-category');
   if (!sel) return;
@@ -491,14 +540,18 @@ async function loadScheduled() {
       return 0;
     });
     return `<div class="task-category-group">
-      <div class="task-category-header" onclick="toggleSchedCategory('${cat.id}')">
-        <span style="font-size:10px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
-        <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
-        <span style="margin-left:auto;color:var(--text-secondary)">${sortedItems.length}</span>
-      </div>
       
         ${sortedItems.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无定时任务</div>' :
-          `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="setSchedSort('last_run')">最近执行${si('last_run')}</th><th>操作</th></tr></thead><tbody class="${isExpanded ? '' : 'hidden'}">` +
+          `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="setSchedSort('last_run')">最近执行${si('last_run')}</th><th>操作</th></tr></thead><tbody class="${isExpanded ? '' : 'hidden'}">
+            <tr class="task-category-header-row" onclick="toggleSchedCategory('${cat.id}')" style="cursor:pointer">
+              <td colspan="6" style="padding:6px 12px;font-size:11px;font-weight:500;background:var(--border);border-radius:0">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="font-size:10px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
+                  <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
+                  <span style="margin-left:auto;color:var(--text-secondary)">${sortedItems.length}</span>
+                </div>
+              </td>
+            </tr>` +
           sortedItems.map(s => {
             const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
             const nextRun = (s.enabled && s.next_run_at)

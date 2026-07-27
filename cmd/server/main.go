@@ -229,6 +229,8 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("PUT /api/scheduled-task-categories/{id}", s.handleScheduledTaskCategoryUpdate)
 	mux.HandleFunc("DELETE /api/scheduled-task-categories/{id}", s.handleScheduledTaskCategoryDelete)
 	mux.HandleFunc("POST /api/scheduled-task-categories/{id}/merge", s.handleScheduledTaskCategoryMerge)
+	mux.HandleFunc("PUT /api/task-categories/reorder", s.handleTaskCategoriesReorder)
+	mux.HandleFunc("PUT /api/scheduled-task-categories/reorder", s.handleScheduledTaskCategoriesReorder)
 	mux.HandleFunc("PUT /api/dir-shortcuts/{id}", s.handleDirShortcutUpdate)
 	mux.HandleFunc("DELETE /api/dir-shortcuts/{id}", s.handleDirShortcutDelete)
 	mux.HandleFunc("POST /api/dir-shortcuts/{id}/open", s.handleDirShortcutOpen)
@@ -2182,6 +2184,36 @@ func (s *APIServer) handleScheduledTaskCategoryMerge(w http.ResponseWriter, r *h
 		return
 	}
 	writeJSON(w, map[string]string{"id": id, "target_id": req.TargetID, "status": "merged"})
+}
+
+func (s *APIServer) handleTaskCategoriesReorder(w http.ResponseWriter, r *http.Request) {
+	var items []backend.ReorderItem
+	if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	for _, item := range items {
+		if err := s.taskCatDB.UpdateSortOrder(item.ID, item.SortOrder); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *APIServer) handleScheduledTaskCategoriesReorder(w http.ResponseWriter, r *http.Request) {
+	var items []backend.ReorderItem
+	if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	for _, item := range items {
+		if err := s.schedCatDB.UpdateSortOrder(item.ID, item.SortOrder); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 func (s *APIServer) handleDirShortcutOpen(w http.ResponseWriter, r *http.Request) {
