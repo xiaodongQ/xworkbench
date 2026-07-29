@@ -513,6 +513,7 @@ async function loadScheduled() {
     if (catIndex === 0) {
       thead = '<thead><tr><th class="col-title">名称</th><th class="col-cron">Cron</th><th class="col-type">类型</th><th class="col-status">状态</th><th class="col-time" style="cursor:pointer;user-select:none" onclick="setSchedSort(\'last_run\')">最近执行' + si('last_run') + '</th><th class="col-ops">操作</th></tr></thead>';
     }
+    const colgroup = '<colgroup><col style="width:auto"><col style="width:110px"><col style="width:55px"><col style="width:70px"><col style="width:130px"><col style="width:270px"></colgroup>';
     const sortedItems = [...cat.items].sort((a, b) => {
       if (!a.enabled && !b.enabled) return 0;
       if (!a.enabled) return 1;
@@ -542,7 +543,7 @@ async function loadScheduled() {
     return `<div class="task-category-group">
       
         ${sortedItems.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无定时任务</div>' :
-          `<table class="task-table">${thead}<tbody>
+          `<table class="task-table">${colgroup}${thead}<tbody>
             <tr class="task-category-header-row" onclick="toggleSchedCategory('${cat.id}')" style="cursor:pointer">
               <td colspan="6" style="padding:6px 12px;font-size:12px">
                 <div style="display:flex;align-items:center;gap:6px">
