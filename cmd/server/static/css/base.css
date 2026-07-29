@@ -271,7 +271,7 @@ tr:last-child td { border-bottom: none; }
 .task-table .col-status { width: 60px; }
 .task-table .col-type { width: 70px; }
 .task-table .col-cron { width: 100px; }
-.task-table .col-time { width: 120px; }
+.task-table .col-time { width: 100px; }
 .task-table .col-ops { width: 150px; white-space: nowrap; }
 .task-table th { padding: 12px 12px; vertical-align: middle; }
 .task-table td { vertical-align: middle; }
