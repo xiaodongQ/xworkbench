@@ -1298,6 +1298,14 @@ tr:last-child td { border-bottom: none; }
   background: var(--bg-secondary);
   border-bottom: 2px solid var(--border);
 }
+/* 不同分类头行用不同浅色背景 */
+.task-category-group:nth-of-type(6n+1) .task-category-header-row td { background: #e3f0ff; }
+.task-category-group:nth-of-type(6n+2) .task-category-header-row td { background: #e3ffe8; }
+.task-category-group:nth-of-type(6n+3) .task-category-header-row td { background: #fff3e3; }
+.task-category-group:nth-of-type(6n+4) .task-category-header-row td { background: #ffe3f0; }
+.task-category-group:nth-of-type(6n+5) .task-category-header-row td { background: #efe3ff; }
+.task-category-group:nth-of-type(6n+6) .task-category-header-row td { background: #e3f5ff; }
+
 .task-category-header-row:hover td {
   background: var(--hover);
 }
