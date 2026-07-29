@@ -219,8 +219,7 @@
       <select id="filter-task-category">
         <option value="">全部分类</option>
       </select>
-      <button class="btn btn-small" onclick="showTaskCategoryModal()" title="管理分类">⚙️</button>
-      <button class="btn" onclick="showAdvancedSettings()">⚙️ 高级设置</button>
+      <button class="btn" onclick="showTaskCategoryModal()">⚙️ 设置</button>
       <button class="btn btn-primary" onclick="showTaskModal()">+ 新建任务</button>
       <div class="spacer"></div>
       <span class="count" id="task-count"></span>
@@ -1113,8 +1112,36 @@
 <!-- 任务分类管理 Modal -->
 <div id="task-category-modal" class="modal-overlay hidden" >
   <div class="modal">
-    <h2>管理任务分类</h2>
-    <div id="task-category-list" style="max-height:300px;overflow-y:auto;margin-bottom:12px"></div>
+    <h2>设置</h2>
+
+    <!-- AI 自治区块 -->
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:16px">
+      <div onclick="toggleAILoopSection()" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;cursor:pointer;background:var(--hover);user-select:none">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px;font-weight:600">🤖 AI 自治</span>
+          <span id="ailoop-badge" style="font-size:11px;padding:1px 8px;border-radius:10px;background:#6b7280;color:#fff">未启用</span>
+        </div>
+        <span id="advanced-ailoop-arrow" style="font-size:12px;color:var(--text-secondary);transition:transform 0.2s">▶</span>
+      </div>
+      <div id="advanced-ailoop-content" class="hidden" style="padding:14px;background:var(--card)">
+        <div style="margin-bottom:12px">
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+            AI 自治让 AI 自动从任务池认领任务并执行，形成<strong>自动 → 评估 → 学习</strong>的闭环。
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="ailoop-toggle" onchange="toggleAILoop(this.checked)">
+            <span style="font-weight:500">启用 AI 自治</span>
+          </label>
+          <span id="ailoop-source" style="font-size:11px;color:var(--text-secondary)"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 分类管理 -->
+    <h3 style="font-size:14px;font-weight:600;margin:0 0 8px 0">分类管理</h3>
+    <div id="task-category-list" style="max-height:200px;overflow-y:auto;margin-bottom:12px"></div>
     <div class="form-group" style="display:flex;gap:6px;align-items:center">
       <input id="new-task-category-name" placeholder="新分类名" style="flex:1">
       <select id="new-task-category-icon" style="width:80px">

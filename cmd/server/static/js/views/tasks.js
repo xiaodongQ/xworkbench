@@ -18,6 +18,7 @@ function isTaskCategoryExpanded(catId) {
 }
 
 function showTaskCategoryModal() {
+  if (typeof loadAILoopStatus === 'function') loadAILoopStatus();
   loadTaskCategoryList();
   document.getElementById('task-category-modal').classList.remove('hidden');
 }
@@ -311,9 +312,9 @@ function renderTaskTable(list) {
       return 0;
     });
     const thead = catIndex === 0
-      ? `<thead><tr><th class="col-title">标题/描述</th><th class="col-status">状态</th><th class="col-type">类型</th><th class="col-loop">循环</th><th class="col-time">时间</th><th class="col-ops">操作</th></tr></thead>`
+      ? `<thead><tr><th class="col-title">标题/描述</th><th class="col-status">状态</th><th class="col-type">类型</th><th class="col-time">时间</th><th class="col-ops">操作</th></tr></thead>`
       : '';
-    const colgroup = `<colgroup><col style="width:260px"><col style="width:60px"><col style="width:70px"><col style="width:56px"><col style="width:150px"><col style="width:150px"></colgroup>`;
+    const colgroup = `<colgroup><col style="width:260px"><col style="width:60px"><col style="width:70px"><col style="width:120px"><col style="width:150px"></colgroup>`;
     return `<div class="task-category-group">
         ${items.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无任务</div>' :
           `<table class="task-table">
@@ -321,7 +322,7 @@ function renderTaskTable(list) {
           ${thead}
           <tbody>
             <tr class="task-category-header-row" onclick="toggleTaskCategory('${cat.id}')" style="cursor:pointer">
-              <td colspan="6" style="padding:6px 12px;font-size:12px">
+              <td colspan="5" style="padding:6px 12px;font-size:12px">
                 <div style="display:flex;align-items:center;gap:6px">
                   <span style="font-size:12px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
                   <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
@@ -345,7 +346,6 @@ function renderTaskTable(list) {
               </td>
               <td class="col-status">${statusTag(t.status)}</td>
               <td class="col-type">${taskTypeTag(t.task_type)}</td>
-              <td class="col-loop">${loopStatusTag(t)}</td>
               <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
               <td class="col-ops"><div style="display:flex;align-items:center;gap:4px;white-space:nowrap">${ops}</div></td>
             </tr>`;
@@ -361,12 +361,11 @@ function taskOpsByStatus(t) {
   const id = t.id;
   switch (t.status) {
     case 'pending':
-      return `<button class="btn btn-small btn-warning" style="flex-shrink:0" onclick="claimTask('${id}')" title="认领后：状态→待执行，maintainer 标记为你，可以▶运行">🟡 认领</button>` +
+      return `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI 执行此任务">▶ 运行</button>` +
              `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="直接归档（不需执行）">归档</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'in_progress':
-      return `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI CLI 跑这个任务（流式输出在 /api/tasks/{id}/run）">▶ 运行</button>` +
-             `<button class="btn btn-small" style="flex-shrink:0;background:#94a3b8;color:#fff" onclick="unclaimTask('${id}')" title="退回 pending（清空 maintainer/started_at）">↩ 取消认领</button>` +
+      return `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI 执行此任务">▶ 运行</button>` +
              `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="归档">归档</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'running':
