@@ -511,7 +511,7 @@ async function loadScheduled() {
     const isExpanded = isSchedCategoryExpanded(cat.id);
     let thead = '';
     if (catIndex === 0) {
-      thead = '<thead><tr><th class="col-title">名称</th><th class="col-cron">Cron</th><th class="col-type">类型</th><th class="col-status">状态</th><th class="col-time" style="cursor:pointer;user-select:none" onclick="setSchedSort(\'last_run\')">最近执行' + si('last_run') + '</th><th class="col-ops">操作</th></tr></thead>';
+      thead = '<thead><tr><th class="col-title">任务名称</th><th class="col-cron">Cron</th><th class="col-type">类型</th><th class="col-status">状态</th><th class="col-time" style="cursor:pointer;user-select:none" onclick="setSchedSort(\'last_run\')">最近执行' + si('last_run') + '</th><th class="col-ops">操作</th></tr></thead>';
     }
     const colgroup = '<colgroup><col style="width:280px"><col style="width:100px"><col style="width:70px"><col style="width:60px"><col style="width:150px"><col style="width:150px"></colgroup>';
     const sortedItems = [...cat.items].sort((a, b) => {
