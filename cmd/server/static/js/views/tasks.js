@@ -313,7 +313,7 @@ function renderTaskTable(list) {
     const thead = catIndex === 0
       ? `<thead><tr><th class="col-title">标题/描述</th><th class="col-status">状态</th><th class="col-type">类型</th><th class="col-loop">循环</th><th class="col-time">时间</th><th class="col-ops">操作</th></tr></thead>`
       : '';
-    const colgroup = `<colgroup><col style="width:300px"><col style="width:80px"><col style="width:60px"><col style="width:56px"><col style="width:150px"><col style="width:200px"></colgroup>`;
+    const colgroup = `<colgroup><col style="width:280px"><col style="width:80px"><col style="width:60px"><col style="width:56px"><col style="width:150px"><col style="width:150px"></colgroup>`;
     return `<div class="task-category-group">
         ${items.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无任务</div>' :
           `<table class="task-table">
