@@ -312,7 +312,7 @@ function renderTaskTable(list) {
       return 0;
     });
     const thead = catIndex === 0
-      ? `<thead><tr><th class="col-title">标题/描述</th><th class="col-status">状态</th><th class="col-type">类型</th><th class="col-time">时间</th><th class="col-ops">操作</th></tr></thead>`
+      ? `<thead><tr><th class="col-title">标题/描述</th><th class="col-status">状态</th><th class="col-type">类型</th><th class="col-time">创建时间</th><th class="col-ops">操作</th></tr></thead>`
       : '';
     const colgroup = `<colgroup><col style="width:260px"><col style="width:60px"><col style="width:70px"><col style="width:100px"><col style="width:150px"></colgroup>`;
     return `<div class="task-category-group">
