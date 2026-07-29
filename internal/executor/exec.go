@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -83,6 +84,9 @@ func Run(ctx context.Context, cmd []string, dir string, stdin string, onChunk fu
 		}
 		return nil, err
 	}
+	// 强制子进程使用 UTF-8 编码，避免 shell 命令中文输出乱码
+	c.Env = append(os.Environ(), "LANG=zh_CN.UTF-8", "LC_ALL=zh_CN.UTF-8")
+
 	started := time.Now()
 	if err := c.Start(); err != nil {
 		if stdinPipe != nil {
