@@ -301,7 +301,7 @@ function renderTaskTable(list) {
   document.getElementById('task-count').textContent = list.length + ' 条任务';
 
   // 渲染分组
-  el.innerHTML = sortedCats.map(cat => {
+  el.innerHTML = sortedCats.map((cat, catIndex) => {
     const isExpanded = isTaskCategoryExpanded(cat.id);
     const items = cat.items.sort((a, b) => {
       let va = a[_taskSortField], vb = b[_taskSortField];
@@ -310,19 +310,13 @@ function renderTaskTable(list) {
       if (va > vb) return _taskSortDir === 'asc' ? 1 : -1;
       return 0;
     });
+    const thead = catIndex === 0
+      ? `<thead><tr><th class="col-title">标题/描述</th><th class="col-status">状态</th><th class="col-type">类型</th><th class="col-loop">循环</th><th class="col-time">时间</th><th class="col-ops">操作</th></tr></thead>`
+      : '';
     return `<div class="task-category-group">
         ${items.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无任务</div>' :
           `<table class="task-table">
-          <thead>
-            <tr>
-              <th class="col-title">标题/描述</th>
-              <th class="col-status">状态</th>
-              <th class="col-type">类型</th>
-              <th class="col-loop">循环</th>
-              <th class="col-time">时间</th>
-              <th class="col-ops">操作</th>
-            </tr>
-          </thead>
+          ${thead}
           <tbody>
             <tr class="task-category-header-row" onclick="toggleTaskCategory('${cat.id}')" style="cursor:pointer">
               <td colspan="6" style="padding:6px 12px;font-size:12px;background:var(--border);border-radius:0">

@@ -507,8 +507,12 @@ async function loadScheduled() {
   const sortDir = sortField ? _getSchedSortDir(sortField) : '';
   const si = (field) => schedSortIcon(field);
 
-  el.innerHTML = sortedCats.map(cat => {
+  el.innerHTML = sortedCats.map((cat, catIndex) => {
     const isExpanded = isSchedCategoryExpanded(cat.id);
+    let thead = '';
+    if (catIndex === 0) {
+      thead = '<thead><tr><th class="col-title">名称</th><th class="col-cron">Cron</th><th class="col-type">类型</th><th class="col-status">状态</th><th class="col-time" style="cursor:pointer;user-select:none" onclick="setSchedSort(\'last_run\')">最近执行' + si('last_run') + '</th><th class="col-ops">操作</th></tr></thead>';
+    }
     const sortedItems = [...cat.items].sort((a, b) => {
       if (!a.enabled && !b.enabled) return 0;
       if (!a.enabled) return 1;
@@ -538,7 +542,7 @@ async function loadScheduled() {
     return `<div class="task-category-group">
       
         ${sortedItems.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无定时任务</div>' :
-          `<table><thead><tr><th>名称</th><th>Cron</th><th>类型</th><th>状态</th><th style="cursor:pointer;user-select:none" onclick="setSchedSort('last_run')">最近执行${si('last_run')}</th><th>操作</th></tr></thead><tbody>
+          `<table class="task-table">${thead}<tbody>
             <tr class="task-category-header-row" onclick="toggleSchedCategory('${cat.id}')" style="cursor:pointer">
               <td colspan="6" style="padding:6px 12px;font-size:12px;background:var(--border);border-radius:0">
                 <div style="display:flex;align-items:center;gap:6px">
@@ -563,15 +567,15 @@ async function loadScheduled() {
             const toggleLabel = s.enabled ? '⏸ 停用' : '▶ 启用';
             const toggleBtnClass = s.enabled ? 'btn btn-small' : 'btn btn-small btn-primary';
             return `<tr>
-              <td style="padding:4px 6px">
+              <td class="col-title" style="padding:4px 6px">
                 <span class="edit-icon" onclick="editScheduled('${s.id}')" title="编辑" style="cursor:pointer;margin-right:6px;color:var(--text-secondary);font-size:14px">✏️</span>
                 <strong>${esc(s.name)}</strong>${enabledBadge}
               </td>
-              <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 6px"><code style="font-size:10.5px">${esc(s.cron_expr)}</code></td>
-              <td title="${esc(s.command_type)}" style="padding:4px 6px"><span style="font-size:10.5px">${esc(s.command_type)}</span><br><span style="font-size:10.5px;color:var(--text-secondary)">${s.model ? esc(s.model) : ''}</span></td>
-              <td style="padding:4px 6px">${statusBadge}</td>
-              <td style="font-size:11px;color:var(--text-secondary);vertical-align:top;padding:4px 6px">${lastRun}${nextRun}</td>
-              <td style="padding:4px 6px">
+              <td class="col-cron" style="padding:4px 6px"><code style="font-size:10.5px">${esc(s.cron_expr)}</code></td>
+              <td class="col-type" title="${esc(s.command_type)}" style="padding:4px 6px"><span style="font-size:10.5px">${esc(s.command_type)}</span><br><span style="font-size:10.5px;color:var(--text-secondary)">${s.model ? esc(s.model) : ''}</span></td>
+              <td class="col-status" style="padding:4px 6px">${statusBadge}</td>
+              <td class="col-time" style="font-size:11px;color:var(--text-secondary);padding:4px 6px">${lastRun}${nextRun}</td>
+              <td class="col-ops" style="padding:4px 6px">
                 <button class="${toggleBtnClass}" onclick="toggleScheduled('${s.id}', ${s.enabled})" title="${s.enabled ? '停止调度' : '启用调度'}">${toggleLabel}</button>
                 <button class="btn btn-small" onclick="runScheduled('${s.id}')">▶ 执行</button>
                 <button class="btn btn-small" onclick="deleteScheduled('${s.id}')">删除</button>
