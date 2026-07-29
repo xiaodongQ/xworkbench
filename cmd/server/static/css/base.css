@@ -268,9 +268,9 @@ tr:last-child td { border-bottom: none; }
 .task-table { table-layout: fixed; width: 100%; border-collapse: collapse; overflow: hidden; }
 .task-table td { padding: 5px 8px; vertical-align: middle; white-space: nowrap; overflow: hidden; }
 .task-table .col-title { width: 280px; }
-.task-table .col-status { width: 80px; }
-.task-table .col-type { width: 60px; }
-.task-table .col-cron { width: 130px; }
+.task-table .col-status { width: 60px; }
+.task-table .col-type { width: 70px; }
+.task-table .col-cron { width: 100px; }
 .task-table .col-loop { width: 56px; text-align: center; }
 .task-table .col-time { width: 150px; }
 .task-table .col-ops { width: 150px; white-space: nowrap; }
