@@ -220,6 +220,7 @@
         <option value="">全部分类</option>
       </select>
       <button class="btn btn-small" onclick="showTaskCategoryModal()" title="管理分类">⚙️</button>
+      <button class="btn" onclick="showAdvancedSettings()">⚙️ 高级设置</button>
       <button class="btn btn-primary" onclick="showTaskModal()">+ 新建任务</button>
       <div class="spacer"></div>
       <span class="count" id="task-count"></span>
@@ -248,9 +249,6 @@
         <span id="scheduler-badge-2"></span>
         <button class="btn" data-sched-action="start" onclick="schedulerStart()">▶ 启动</button>
         <button class="btn" data-sched-action="stop" onclick="schedulerStop()">⏸ 停止</button>
-        <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
-        <button class="btn" onclick="showAdvancedSettings()">⚙️ 高级设置</button>
-        <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
         <select id="filter-sched-category" style="font-size:13px">
           <option value="">全部分类</option>
         </select>
