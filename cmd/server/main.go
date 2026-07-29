@@ -2245,6 +2245,7 @@ func (s *APIServer) handleDirShortcutOpen(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusBadRequest, "remote shortcut: use /open-terminal to open with SSH")
 		return
 	}
+	// FTP 路径用系统资源管理器打开（open/xdg-open/explorer 原生支持 ftp://）
 	if err := shortcuts.OpenDir(entry.Path); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

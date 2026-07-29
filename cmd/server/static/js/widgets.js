@@ -224,6 +224,12 @@ function onDirTypeChange() {
     localPathGroup.classList.add('hidden');
     const remoteUserInput = document.getElementById('dir-remote-user');
     if (!remoteUserInput.value) remoteUserInput.value = 'root';
+  } else if (type === 'ftp') {
+    remoteFields.classList.add('hidden');
+    localPathGroup.classList.remove('hidden');
+    // FTP 用系统资源管理器打开，路径栏复用为 FTP URL
+    const pathInput = document.getElementById('dir-path');
+    if (!pathInput.value) pathInput.placeholder = 'ftp://host/path';
   } else {
     remoteFields.classList.add('hidden');
     localPathGroup.classList.remove('hidden');
