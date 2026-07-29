@@ -544,7 +544,7 @@ async function loadScheduled() {
         ${sortedItems.length === 0 ? '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无定时任务</div>' :
           `<table class="task-table">${thead}<tbody>
             <tr class="task-category-header-row" onclick="toggleSchedCategory('${cat.id}')" style="cursor:pointer">
-              <td colspan="6" style="padding:6px 12px;font-size:12px;background:var(--border);border-radius:0">
+              <td colspan="6" style="padding:6px 12px;font-size:12px">
                 <div style="display:flex;align-items:center;gap:6px">
                   <span style="font-size:12px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
                   <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>

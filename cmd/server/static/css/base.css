@@ -277,6 +277,16 @@ tr:last-child td { border-bottom: none; }
 .task-table th { vertical-align: middle; }
 .task-table td { vertical-align: middle; }
 
+/* 表格标题行 - 丰富样式 */
+.task-table thead th {
+  background: var(--bg-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.3px;
+  border-bottom: 2px solid var(--primary);
+}
+
 /* 经验库表格 */
 .exp-table { table-layout: fixed; width: 100%; border-collapse: collapse; overflow: hidden; }
 .exp-table td { vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1284,10 +1294,11 @@ tr:last-child td { border-bottom: none; }
   user-select: none;
 }
 .task-category-header-row td {
-  background: var(--border);
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--border);
 }
 .task-category-header-row:hover td {
-  background: var(--border);
+  background: var(--hover);
 }
 
 .link-category-items,
