@@ -106,7 +106,7 @@ function renderExpTable(list) {
     const isExpanded = isExpCategoryExpanded(cat.id);
     const thead = catIndex === 0
       ? `<thead><tr>
-          <th class="col-module" style="text-align:left">分类</th>
+          <th class="col-module" style="text-align:left">模块</th>
           <th class="col-kw">关键词</th>
           <th class="col-scene">适用场景</th>
           <th class="col-ops">操作</th>
@@ -173,11 +173,20 @@ function showExpModal(exp) {
   document.getElementById('exp-modal-title').textContent = exp ? '编辑经验' : '添加经验';
   document.getElementById('exp-id').value = exp ? exp.id : '';
   document.getElementById('exp-module').value = exp ? exp.module : '';
-  // 编辑时可修改分类（不再限制 readOnly）
+  document.getElementById('exp-module').readOnly = false;
   document.getElementById('exp-keywords').value = exp ? (exp.keywords || '') : '';
   document.getElementById('exp-scene').value = exp ? (exp.scene || '') : '';
   document.getElementById('exp-details').value = exp ? (exp.details || '') : '';
   document.getElementById('exp-submit-btn').classList.remove('hidden');
+
+  // 填充分类下拉
+  const catSel = document.getElementById('exp-category');
+  if (catSel) {
+    catSel.innerHTML = '<option value="">默认分类</option>' +
+      expCategories.map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
+    catSel.value = exp ? (exp.category_id || '') : '';
+  }
+
   document.getElementById('exp-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('exp-module').focus(), 50);
 }
@@ -195,9 +204,10 @@ function closeExpModal() {
 async function submitExp() {
   const id = document.getElementById('exp-id').value;
   const module = document.getElementById('exp-module').value.trim();
-  if (!module) { alert('请输入分类'); return; }
+  if (!module) { alert('请输入模块'); return; }
   const body = {
     module,
+    category_id: document.getElementById('exp-category').value,
     keywords: document.getElementById('exp-keywords').value,
     scene: document.getElementById('exp-scene').value,
     details: document.getElementById('exp-details').value

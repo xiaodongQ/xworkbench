@@ -952,7 +952,13 @@
   <div class="modal">
     <h2 id="exp-modal-title">添加经验</h2>
     <input type="hidden" id="exp-id">
-    <div class="form-group"><label>分类 <span class="field-hint">必填 · 如 redis, docker, git</span></label><input id="exp-module" placeholder="如 redis"></div>
+    <div class="form-group">
+      <label>分类</label>
+      <select id="exp-category" style="width:100%">
+        <option value="">默认分类</option>
+      </select>
+    </div>
+    <div class="form-group"><label>模块 <span class="field-hint">必填 · 如 redis, docker, git</span></label><input id="exp-module" placeholder="如 redis"></div>
     <div class="form-group">
       <label>关键词 <span class="field-hint">用于程序化匹配问题特征，逗号分隔</span></label>
       <textarea id="exp-keywords" placeholder="CLUSTERDOWN, MOVED redirect, READONLY..."></textarea>
