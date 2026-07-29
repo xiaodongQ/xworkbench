@@ -169,6 +169,14 @@ func InitSchema(db *sql.DB) error {
 		is_default INTEGER DEFAULT 0,
 		created_at DATETIME
 	);
+	CREATE TABLE IF NOT EXISTS exp_categories (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		icon TEXT,
+		sort_order INTEGER DEFAULT 0,
+		is_default INTEGER DEFAULT 0,
+		created_at DATETIME
+	);
 	CREATE TABLE IF NOT EXISTS scheduled_tasks (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
