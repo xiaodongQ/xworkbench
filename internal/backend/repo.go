@@ -296,6 +296,12 @@ func InitSchema(db *sql.DB) error {
 	if err := migrateExperiencesToDetails(db); err != nil {
 		return err
 	}
+	if err := migrateExpCategoriesTable(db); err != nil {
+		return err
+	}
+	if err := migrateExperiencesCategoryColumn(db); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`PRAGMA user_version = 5`); err != nil {
 		return err
 	}
@@ -585,6 +591,41 @@ func migrateDirShortcutsCategoryColumn(db *sql.DB) error {
 	return nil
 }
 
+// migrateExpCategoriesTable 创建 exp_categories 表
+func migrateExpCategoriesTable(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS exp_categories (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		icon TEXT,
+		sort_order INTEGER DEFAULT 0,
+		is_default INTEGER DEFAULT 0,
+		created_at DATETIME
+	)`)
+	return err
+}
+
+// migrateExperiencesCategoryColumn 为 experiences 表添加 category_id 列
+func migrateExperiencesCategoryColumn(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(experiences)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name string
+		_ = rows.Scan(&cid, &name, nil, nil, nil, nil)
+		cols[name] = true
+	}
+	if !cols["category_id"] {
+		if _, err := db.Exec(`ALTER TABLE experiences ADD COLUMN category_id TEXT`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // seedDefaultCategories 为现有数据库插入默认分类（"默认"）
 func seedDefaultCategories(db *sql.DB) error {
 	// link_categories 默认分类
@@ -642,10 +683,24 @@ func seedDefaultCategories(db *sql.DB) error {
 			return err
 		}
 	}
+	// exp_categories 默认分类
+	var expCatCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM exp_categories WHERE is_default=1`).Scan(&expCatCount); err != nil {
+		return err
+	}
+	if expCatCount == 0 {
+		_, err := db.Exec(`INSERT INTO exp_categories (id,name,icon,sort_order,is_default,created_at) VALUES (?,?,?,?,?,?)`,
+			"default-exp-cat", "默认", "📚", 0, 1, time.Now())
+		if err != nil {
+			return err
+		}
+	}
 	// 将未分类任务关联到默认分类
 	if _, err := db.Exec(`UPDATE tasks SET category_id='default-task-cat' WHERE (category_id IS NULL OR category_id='') AND category_id IS NULL`); err != nil {
 		// 忽略错误，因为 tasks 表可能还没有 category_id 列
 	}
+	// 将未分类经验关联到默认分类
+	db.Exec(`UPDATE experiences SET category_id='default-exp-cat' WHERE category_id IS NULL OR category_id=''`)
 	return nil
 }
 
@@ -1373,9 +1428,12 @@ type ExperienceRepo struct{ db *sql.DB }
 func NewExperienceRepo(db *sql.DB) *ExperienceRepo { return &ExperienceRepo{db: db} }
 
 func (r *ExperienceRepo) Create(e *Experience) error {
-	q := `INSERT INTO experiences (id,module,keywords,scene,details,version,created_at,updated_at)
-	        VALUES (?,?,?,?,?,?,?,?)`
-	_, err := r.db.Exec(q, e.ID, e.Module, e.Keywords, e.Scene, e.Details, e.Version, e.CreatedAt, e.UpdatedAt)
+	if e.CategoryID == "" {
+		e.CategoryID = "default-exp-cat"
+	}
+	q := `INSERT INTO experiences (id,module,category_id,keywords,scene,details,version,created_at,updated_at)
+	        VALUES (?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.Exec(q, e.ID, e.Module, e.CategoryID, e.Keywords, e.Scene, e.Details, e.Version, e.CreatedAt, e.UpdatedAt)
 	if err != nil {
 		logger.Logger.Errorw("experiences insert failed", "id", e.ID, "error", err.Error())
 		return err
@@ -1385,9 +1443,9 @@ func (r *ExperienceRepo) Create(e *Experience) error {
 }
 
 func (r *ExperienceRepo) Get(id string) (*Experience, error) {
-	q := `SELECT id,module,keywords,scene,details,version,created_at,updated_at FROM experiences WHERE id=?`
+	q := `SELECT id,module,COALESCE(category_id,'default-exp-cat'),keywords,scene,details,version,created_at,updated_at FROM experiences WHERE id=?`
 	var e Experience
-	err := r.db.QueryRow(q, id).Scan(&e.ID, &e.Module, &e.Keywords, &e.Scene, &e.Details, &e.Version, &e.CreatedAt, &e.UpdatedAt)
+	err := r.db.QueryRow(q, id).Scan(&e.ID, &e.Module, &e.CategoryID, &e.Keywords, &e.Scene, &e.Details, &e.Version, &e.CreatedAt, &e.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("experience %s not found", id)
 	}
@@ -1395,7 +1453,7 @@ func (r *ExperienceRepo) Get(id string) (*Experience, error) {
 }
 
 func (r *ExperienceRepo) Search(module string) ([]*Experience, error) {
-	q := `SELECT id,module,keywords,scene,details,version,created_at,updated_at FROM experiences WHERE 1=1`
+	q := `SELECT id,module,COALESCE(category_id,'default-exp-cat'),keywords,scene,details,version,created_at,updated_at FROM experiences WHERE 1=1`
 	var args []any
 	if module != "" {
 		q += ` AND module LIKE ?`
@@ -1409,7 +1467,7 @@ func (r *ExperienceRepo) Search(module string) ([]*Experience, error) {
 	var list []*Experience
 	for rows.Next() {
 		var e Experience
-		err := rows.Scan(&e.ID, &e.Module, &e.Keywords, &e.Scene, &e.Details, &e.Version, &e.CreatedAt, &e.UpdatedAt)
+		err := rows.Scan(&e.ID, &e.Module, &e.CategoryID, &e.Keywords, &e.Scene, &e.Details, &e.Version, &e.CreatedAt, &e.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -2399,6 +2457,75 @@ func (r *ScheduledTaskCategoryRepo) List() ([]*ScheduledTaskCategory, error) {
 func (r *ScheduledTaskCategoryRepo) NextSortOrder() int {
 	var maxSort sql.NullInt64
 	row := r.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) FROM scheduled_task_categories`)
+	if err := row.Scan(&maxSort); err != nil {
+		return 1
+	}
+	return int(maxSort.Int64) + 1
+}
+
+// ===== ExpCategoryRepo =====
+
+type ExpCategoryRepo struct{ db *sql.DB }
+
+func NewExpCategoryRepo(db *sql.DB) *ExpCategoryRepo { return &ExpCategoryRepo{db: db} }
+
+func (r *ExpCategoryRepo) Create(c *ExpCategory) error {
+	q := `INSERT INTO exp_categories (id,name,icon,sort_order,is_default,created_at)
+	        VALUES (?,?,?,?,?,?)`
+	isDefaultInt := 0
+	if c.IsDefault {
+		isDefaultInt = 1
+	}
+	_, err := r.db.Exec(q, c.ID, c.Name, c.Icon, c.SortOrder, isDefaultInt, c.CreatedAt)
+	return err
+}
+
+func (r *ExpCategoryRepo) UpdateSortOrder(id string, sortOrder int) error {
+	_, err := r.db.Exec(`UPDATE exp_categories SET sort_order=? WHERE id=?`, sortOrder, id)
+	return err
+}
+
+func (r *ExpCategoryRepo) Delete(id string) error {
+	var isDefault int
+	if err := r.db.QueryRow(`SELECT COALESCE(is_default,0) FROM exp_categories WHERE id=?`, id).Scan(&isDefault); err != nil {
+		return err
+	}
+	if isDefault == 1 {
+		return fmt.Errorf("cannot delete default category")
+	}
+	if _, err := r.db.Exec(`UPDATE experiences SET category_id='default-exp-cat' WHERE category_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := r.db.Exec(`DELETE FROM exp_categories WHERE id=?`, id); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *ExpCategoryRepo) List() ([]*ExpCategory, error) {
+	rows, err := r.db.Query(`SELECT id,name,icon,sort_order,is_default,created_at FROM exp_categories ORDER BY sort_order ASC, created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*ExpCategory
+	for rows.Next() {
+		var c ExpCategory
+		var icon sql.NullString
+		var isDefault int
+		if err := rows.Scan(&c.ID, &c.Name, &icon, &c.SortOrder, &isDefault, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		c.Icon = icon.String
+		c.IsDefault = isDefault == 1
+		out = append(out, &c)
+	}
+	return out, rows.Err()
+}
+
+func (r *ExpCategoryRepo) NextSortOrder() int {
+	var maxSort sql.NullInt64
+	row := r.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) FROM exp_categories`)
 	if err := row.Scan(&maxSort); err != nil {
 		return 1
 	}

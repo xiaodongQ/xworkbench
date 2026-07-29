@@ -57,6 +57,7 @@ var FS embed.FS
 type APIServer struct {
 	db           *backend.TaskRepo
 	expDB        *backend.ExperienceRepo
+	expCatDB     *backend.ExpCategoryRepo
 	execDB       *backend.ExecutionRepo
 	linkDB       *backend.WebLinkRepo
 	dirDB        *backend.DirShortcutRepo
@@ -86,7 +87,8 @@ type APIServer struct {
 }
 
 func NewAPIServer(
-	db *backend.TaskRepo, expDB *backend.ExperienceRepo, execDB *backend.ExecutionRepo,
+	db *backend.TaskRepo, expDB *backend.ExperienceRepo, expCatDB *backend.ExpCategoryRepo,
+	execDB *backend.ExecutionRepo,
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
 	linkCatDB *backend.LinkCategoryRepo, dirCatDB *backend.DirCategoryRepo,
 	taskCatDB *backend.TaskCategoryRepo, schedCatDB *backend.ScheduledTaskCategoryRepo,
@@ -99,7 +101,7 @@ func NewAPIServer(
 	relayRepo relay.Repo,
 ) *APIServer {
 	s := &APIServer{
-		db: db, expDB: expDB, execDB: execDB,
+		db: db, expDB: expDB, expCatDB: expCatDB, execDB: execDB,
 		linkDB: linkDB, dirDB: dirDB, linkCatDB: linkCatDB, dirCatDB: dirCatDB, taskCatDB: taskCatDB, schedCatDB: schedCatDB,
 		schedDB: schedDB, evalDB: evalDB,
 		agentDB: agentDB, eventDB: eventDB,
@@ -231,6 +233,10 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/scheduled-task-categories/{id}/merge", s.handleScheduledTaskCategoryMerge)
 	mux.HandleFunc("PUT /api/task-categories/reorder", s.handleTaskCategoriesReorder)
 	mux.HandleFunc("PUT /api/scheduled-task-categories/reorder", s.handleScheduledTaskCategoriesReorder)
+	mux.HandleFunc("GET /api/exp-categories", s.handleExpCategories)
+	mux.HandleFunc("POST /api/exp-categories", s.handleExpCategoryCreate)
+	mux.HandleFunc("DELETE /api/exp-categories/{id}", s.handleExpCategoryDelete)
+	mux.HandleFunc("PUT /api/exp-categories/reorder", s.handleExpCategoriesReorder)
 	mux.HandleFunc("PUT /api/dir-shortcuts/{id}", s.handleDirShortcutUpdate)
 	mux.HandleFunc("DELETE /api/dir-shortcuts/{id}", s.handleDirShortcutDelete)
 	mux.HandleFunc("POST /api/dir-shortcuts/{id}/open", s.handleDirShortcutOpen)
@@ -2216,6 +2222,73 @@ func (s *APIServer) handleScheduledTaskCategoriesReorder(w http.ResponseWriter, 
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
+func (s *APIServer) handleExpCategories(w http.ResponseWriter, r *http.Request) {
+	list, err := s.expCatDB.List()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []*backend.ExpCategory{}
+	}
+	writeJSON(w, list)
+}
+
+func (s *APIServer) handleExpCategoryCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name      string `json:"name"`
+		Icon      string `json:"icon"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.SortOrder == 0 {
+		req.SortOrder = s.expCatDB.NextSortOrder()
+	}
+	cat := &backend.ExpCategory{
+		ID:        uuid.New().String(),
+		Name:      req.Name,
+		Icon:      req.Icon,
+		SortOrder: req.SortOrder,
+		CreatedAt: time.Now(),
+	}
+	if err := s.expCatDB.Create(cat); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, cat)
+}
+
+func (s *APIServer) handleExpCategoryDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.expCatDB.Delete(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"status": "deleted"})
+}
+
+func (s *APIServer) handleExpCategoriesReorder(w http.ResponseWriter, r *http.Request) {
+	var items []backend.ReorderItem
+	if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	for _, item := range items {
+		if err := s.expCatDB.UpdateSortOrder(item.ID, item.SortOrder); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
 func (s *APIServer) handleDirShortcutOpen(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	list, err := s.dirDB.List()
@@ -3335,6 +3408,7 @@ func main() {
 	dirCatRepo := backend.NewDirCategoryRepo(db)
 	taskCatRepo := backend.NewTaskCategoryRepo(db)
 	schedCatRepo := backend.NewScheduledTaskCategoryRepo(db)
+	expCatRepo := backend.NewExpCategoryRepo(db)
 	schedRepo := backend.NewScheduledTaskRepo(db)
 	evalRepo := backend.NewEvaluationRepo(db)
 	h := hub.New()
@@ -3411,7 +3485,7 @@ func main() {
 		}
 	}
 
-	srv := NewAPIServer(taskRepo, expRepo, execRepo,
+	srv := NewAPIServer(taskRepo, expRepo, expCatRepo, execRepo,
 		linkRepo, dirRepo, linkCatRepo, dirCatRepo, taskCatRepo, schedCatRepo,
 		schedRepo, evalRepo, agentRepo,
 		eventRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)

@@ -66,14 +66,15 @@ type Task struct {
 }
 
 type Experience struct {
-	ID        string    `json:"id"`
-	Module    string    `json:"module"`    // 分类，如 redis, docker, git（必填）
-	Keywords  string    `json:"keywords"`  // 关键词，逗号分隔，用于匹配问题
-	Scene     string    `json:"scene"`     // 适用场景简述
-	Details   string    `json:"details"`   // 详细内容，Markdown 格式（命令/日志/代码/步骤等）
-	Version   string    `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         string    `json:"id"`
+	Module     string    `json:"module"`     // 分类，如 redis, docker, git（必填）
+	CategoryID string    `json:"category_id"` // 经验库分类 ID
+	Keywords   string    `json:"keywords"`   // 关键词，逗号分隔，用于匹配问题
+	Scene      string    `json:"scene"`      // 适用场景简述
+	Details    string    `json:"details"`    // 详细内容，Markdown 格式（命令/日志/代码/步骤等）
+	Version    string    `json:"version"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type SkillVersion struct {
@@ -224,6 +225,16 @@ type TaskCategory struct {
 
 // ScheduledTaskCategory 定时任务分类
 type ScheduledTaskCategory struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Icon      string    `json:"icon,omitempty"`
+	SortOrder int       `json:"sort_order"`
+	IsDefault bool      `json:"is_default"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ExpCategory 经验库分类
+type ExpCategory struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Icon      string    `json:"icon,omitempty"`
