@@ -378,6 +378,7 @@ const SCHED_SORT = {
   type:      { key: 'automation.schedSortType',      label: '类型' },
   status:    { key: 'automation.schedSortStatus',    label: '状态' },
   last_run:  { key: 'automation.schedSortLastRun',   label: '最近执行' },
+  next_run:  { key: 'automation.schedSortNextRun',   label: '下次执行' },
 };
 const _schedSortField = localStorage.getItem('automation.schedSortField') || '';
 
@@ -512,7 +513,7 @@ async function loadScheduled() {
     const isExpanded = isSchedCategoryExpanded(cat.id);
     let thead = '';
     if (catIndex === 0) {
-      thead = '<thead><tr><th class="col-title">任务名称</th><th class="col-cron">Cron</th><th class="col-type">类型</th><th class="col-status">状态</th><th class="col-time" style="cursor:pointer;user-select:none" onclick="setSchedSort(\'last_run\')">最近执行' + si('last_run') + '</th><th class="col-ops">操作</th></tr></thead>';
+      thead = '<thead><tr><th class="col-title">任务名称</th><th class="col-cron">Cron</th><th class="col-type">类型</th><th class="col-status">状态</th><th class="col-time" style="cursor:pointer;user-select:none" onclick="setSchedSort(\'next_run\')">下次执行' + si('next_run') + '</th><th class="col-ops">操作</th></tr></thead>';
     }
     const colgroup = '<colgroup><col style="width:260px"><col style="width:100px"><col style="width:70px"><col style="width:60px"><col style="width:150px"><col style="width:150px"></colgroup>';
     const sortedItems = [...cat.items].sort((a, b) => {
@@ -538,6 +539,13 @@ async function loadScheduled() {
         va = a.last_run_at ? new Date(a.last_run_at).getTime() : 0;
         vb = b.last_run_at ? new Date(b.last_run_at).getTime() : 0;
         return sortDir === 'desc' ? vb - va : va - vb;
+      } else if (sortField === 'next_run') {
+        if (!a.next_run_at && !b.next_run_at) return 0;
+        if (!a.next_run_at) return 1;
+        if (!b.next_run_at) return -1;
+        return sortDir === 'desc'
+          ? new Date(b.next_run_at) - new Date(a.next_run_at)
+          : new Date(a.next_run_at) - new Date(b.next_run_at);
       }
       return 0;
     });
