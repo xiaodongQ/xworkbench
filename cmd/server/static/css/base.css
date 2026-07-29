@@ -288,6 +288,11 @@ tr:last-child td { border-bottom: none; }
   border-bottom: 2px solid var(--text-secondary);
 }
 
+/* 表格数据行交替背景色 */
+.task-table tbody tr:not(.task-category-header-row):nth-child(even) td {
+  background: var(--hover);
+}
+
 /* 经验库表格 */
 .exp-table { table-layout: fixed; width: 100%; border-collapse: collapse; overflow: hidden; }
 .exp-table td { vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
