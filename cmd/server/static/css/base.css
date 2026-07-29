@@ -288,11 +288,6 @@ tr:last-child td { border-bottom: none; }
   border-bottom: 2px solid var(--text-secondary);
 }
 
-/* 表格数据行交替背景色 */
-.task-table tbody tr:not(.task-category-header-row):nth-child(even) td {
-  background: var(--hover);
-}
-
 /* 经验库表格 */
 .exp-table { table-layout: fixed; width: 100%; border-collapse: collapse; overflow: hidden; }
 .exp-table td { vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1305,6 +1300,18 @@ tr:last-child td { border-bottom: none; }
 }
 .task-category-header-row:hover td {
   background: var(--hover);
+}
+
+/* 不同分类用不同浅色背景 (6色循环) */
+.task-category-group:nth-of-type(6n+1) tbody:nth-of-type(2) tr td { background: #f0f4ff; }
+.task-category-group:nth-of-type(6n+2) tbody:nth-of-type(2) tr td { background: #f4fff6; }
+.task-category-group:nth-of-type(6n+3) tbody:nth-of-type(2) tr td { background: #fff8f0; }
+.task-category-group:nth-of-type(6n+4) tbody:nth-of-type(2) tr td { background: #fff0f6; }
+.task-category-group:nth-of-type(6n+5) tbody:nth-of-type(2) tr td { background: #f8f0ff; }
+.task-category-group:nth-of-type(6n+6) tbody:nth-of-type(2) tr td { background: #f0f8ff; }
+/* hover 时微微加深 */
+.task-category-group tbody:nth-of-type(2) tr:hover td {
+  filter: brightness(0.97);
 }
 
 .link-category-items,
