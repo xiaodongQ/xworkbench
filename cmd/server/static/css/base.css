@@ -266,7 +266,7 @@ tr:last-child td { border-bottom: none; }
 
 /* 表格：固定列宽，防止溢出 */
 .task-table { table-layout: fixed; width: 100%; border-collapse: collapse; overflow: hidden; }
-.task-table td { vertical-align: middle; white-space: nowrap; overflow: hidden; }
+.task-table td { padding: 5px 8px; vertical-align: middle; white-space: nowrap; overflow: hidden; }
 .task-table .col-title { width: 280px; }
 .task-table .col-status { width: 80px; }
 .task-table .col-type { width: 60px; }
@@ -274,7 +274,7 @@ tr:last-child td { border-bottom: none; }
 .task-table .col-loop { width: 56px; text-align: center; }
 .task-table .col-time { width: 150px; }
 .task-table .col-ops { width: 150px; white-space: nowrap; }
-.task-table th { vertical-align: middle; }
+.task-table th { padding: 12px 12px; vertical-align: middle; }
 .task-table td { vertical-align: middle; }
 
 /* 表格标题行 - 丰富样式 */
