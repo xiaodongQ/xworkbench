@@ -160,7 +160,7 @@ func TestClaimNext_BothMethodsWork(t *testing.T) {
 	}
 }
 
-// TestXwcliEndpoints test that install script and xwcli.py are served.
+// TestXwcliEndpoints tests that install script is served and legacy xwcli.py returns 410 Gone.
 func TestXwcliEndpoints(t *testing.T) {
 	s := &APIServer{}
 
@@ -180,16 +180,12 @@ func TestXwcliEndpoints(t *testing.T) {
 		t.Errorf("install.sh missing expected content, got: %s", body[:intMin(200, len(body))])
 	}
 
-	// xwcli.py endpoint
+	// Legacy xwcli.py returns 410 Gone
 	req2 := httptest.NewRequest("GET", "/api/xwcli/xwcli.py", nil)
 	w2 := httptest.NewRecorder()
 	s.handleXwcliDownload(w2, req2)
-	if w2.Code != http.StatusOK {
-		t.Errorf("xwcli.py status: %d", w2.Code)
-	}
-	body2 := w2.Body.String()
-	if !bytes.Contains([]byte(body2), []byte("xwcli")) || !bytes.Contains([]byte(body2), []byte("claim_next")) {
-		t.Errorf("xwcli.py missing expected content")
+	if w2.Code != http.StatusGone {
+		t.Errorf("xwcli.py status: want 410, got %d", w2.Code)
 	}
 }
 

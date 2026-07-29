@@ -330,7 +330,7 @@ func (s *APIServer) routes() {
 
 	// xwcli 安装脚本（公开，无需认证）
 	mux.HandleFunc("GET /api/xwcli/install.sh", s.handleXwcliInstall)
-	mux.HandleFunc("GET /api/xwcli/xwcli.py", s.handleXwcliDownload)
+	mux.HandleFunc("GET /api/xwcli/{filename}", s.handleXwcliDownload)
 
 	// 评论
 	mux.HandleFunc("GET /api/tasks/{id}/comments", s.handleCommentList)
@@ -3174,11 +3174,17 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 		funcName = "unknown"
 	}
 	if code >= 500 {
-		logger.Errorw("http error", "status", code, "msg", msg, "handler", funcName)
+		if logger != nil {
+			logger.Errorw("http error", "status", code, "msg", msg, "handler", funcName)
+		}
 	} else if code >= 400 {
-		logger.Warnw("http error", "status", code, "msg", msg, "handler", funcName)
+		if logger != nil {
+			logger.Warnw("http error", "status", code, "msg", msg, "handler", funcName)
+		}
 	} else {
-		logger.Infow("http error", "status", code, "msg", msg, "handler", funcName)
+		if logger != nil {
+			logger.Infow("http error", "status", code, "msg", msg, "handler", funcName)
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
