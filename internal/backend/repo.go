@@ -2669,8 +2669,12 @@ func (r *ScheduledTaskRepo) Create(t *ScheduledTask) error {
 }
 
 func (r *ScheduledTaskRepo) Update(t *ScheduledTask) error {
+	categoryID := t.CategoryID
+	if categoryID == "" {
+		categoryID = "default-sched-cat"
+	}
 	_, err := r.db.Exec(`UPDATE scheduled_tasks SET name=?, cron_expr=?, command_type=?, model=?, prompt=?, working_dir=?, enabled=?, timeout_sec=?, category_id=? WHERE id=?`,
-		t.Name, t.CronExpr, t.CommandType, t.Model, t.Prompt, t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, t.CategoryID, t.ID)
+		t.Name, t.CronExpr, t.CommandType, t.Model, t.Prompt, t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, categoryID, t.ID)
 	if err != nil {
 		logger.Logger.Errorw("scheduled_tasks update failed", "id", t.ID, "error", err.Error())
 		return err

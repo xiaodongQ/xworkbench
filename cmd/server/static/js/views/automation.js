@@ -473,24 +473,21 @@ async function loadScheduled() {
     return;
   }
 
-  // 按 category_id 分组
+  // 按 category_id 分组，未分类任务归入默认分类
   const byCat = {};
-  const uncategorized = { id: '__uncategorized__', name: '未分类', icon: '⏰', items: [] };
   for (const s of list) {
-    const catId = s.category_id || '__uncategorized__';
+    const catId = s.category_id || 'default-sched-cat';
     if (!byCat[catId]) {
-      byCat[catId] = { id: catId, name: catId === '__uncategorized__' ? '未分类' : '', icon: '', items: [] };
+      byCat[catId] = { id: catId, name: '', icon: '', items: [] };
     }
     byCat[catId].items.push(s);
   }
   // 填充分类名称
   for (const catId in byCat) {
-    if (catId !== '__uncategorized__') {
-      const cat = schedCategories.find(c => c.id === catId);
-      if (cat) {
-        byCat[catId].name = cat.name;
-        byCat[catId].icon = cat.icon || '';
-      }
+    const cat = schedCategories.find(c => c.id === catId);
+    if (cat) {
+      byCat[catId].name = cat.name;
+      byCat[catId].icon = cat.icon || '';
     }
   }
   // 排序：其他分类在前，默认分类在后
@@ -500,8 +497,8 @@ async function loadScheduled() {
     return a.sort_order - b.sort_order;
   });
   const sortedCats = Object.values(byCat).sort((a, b) => {
-    if (a.id === '__uncategorized__') return 1;
-    if (b.id === '__uncategorized__') return -1;
+    if (a.id === 'default-sched-cat') return 1;
+    if (b.id === 'default-sched-cat') return -1;
     const ai = catOrder.findIndex(c => c.id === a.id);
     const bi = catOrder.findIndex(c => c.id === b.id);
     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);

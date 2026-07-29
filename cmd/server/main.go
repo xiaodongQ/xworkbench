@@ -2635,6 +2635,8 @@ func (s *APIServer) handleScheduledCreate(w http.ResponseWriter, r *http.Request
 		Prompt      string `json:"prompt"`
 		WorkingDir  string `json:"working_dir"`
 		Enabled     bool   `json:"enabled"`
+		CategoryID  string `json:"category_id"`
+		TimeoutSec  int    `json:"timeout_sec"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -2653,6 +2655,8 @@ func (s *APIServer) handleScheduledCreate(w http.ResponseWriter, r *http.Request
 		Prompt:      req.Prompt,
 		WorkingDir:  req.WorkingDir,
 		Enabled:     req.Enabled,
+		CategoryID:  req.CategoryID,
+		TimeoutSec:  req.TimeoutSec,
 		CreatedAt:   time.Now(),
 	}
 	if err := s.schedDB.Create(t); err != nil {
@@ -2675,6 +2679,8 @@ func (s *APIServer) handleScheduledUpdate(w http.ResponseWriter, r *http.Request
 		Prompt      string `json:"prompt"`
 		WorkingDir  string `json:"working_dir"`
 		Enabled     bool   `json:"enabled"`
+		CategoryID  string `json:"category_id"`
+		TimeoutSec  int    `json:"timeout_sec"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -2689,6 +2695,8 @@ func (s *APIServer) handleScheduledUpdate(w http.ResponseWriter, r *http.Request
 		Prompt:      req.Prompt,
 		WorkingDir:  req.WorkingDir,
 		Enabled:     req.Enabled,
+		CategoryID:  req.CategoryID,
+		TimeoutSec:  req.TimeoutSec,
 	}
 	if err := s.schedDB.Update(t); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
