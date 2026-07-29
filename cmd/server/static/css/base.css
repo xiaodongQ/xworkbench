@@ -679,7 +679,7 @@ tr:last-child td { border-bottom: none; }
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
-.scheduler-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+.scheduler-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 12px; font-size: 13px; font-weight: 500; }
 .scheduler-badge.running { background: rgba(16, 185, 129, 0.15); color: var(--archived); }
 .scheduler-badge.stopped { background: rgba(239, 68, 68, 0.15); color: var(--exception); font-weight: 600; }
 .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
