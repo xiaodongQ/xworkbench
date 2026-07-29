@@ -30,8 +30,8 @@ function loadTaskCategoryList() {
     const el = document.getElementById('task-category-list');
     el.innerHTML = taskCategories.map((c, i) => {
       const isDefault = c.id === 'default-task-cat';
-      const dragAttrs = isDefault ? '' : `draggable="true" ondragstart="onTaskCatDragStart(event)" ondragover="onTaskCatDragOver(event)" ondrop="onTaskCatDrop(event)" ondragend="onTaskCatDragEnd(event)"`;
-      const dragHandle = isDefault ? '' : '<span class="drag-handle" style="cursor:grab;margin-right:6px">⋮⋮</span>';
+      const dragAttrs = `draggable="true" ondragstart="onTaskCatDragStart(event)" ondragover="onTaskCatDragOver(event)" ondrop="onTaskCatDrop(event)" ondragend="onTaskCatDragEnd(event)"`;
+      const dragHandle = '<span class="drag-handle" style="cursor:grab;margin-right:6px">⋮⋮</span>';
       return `<div class="cat-row" data-cat-id="${c.id}" data-index="${i}" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)" ${dragAttrs}>
         ${dragHandle}
         <span>${esc((c.icon || '') + ' ' + c.name)}</span>
@@ -88,7 +88,6 @@ function onTaskCatDrop(e) {
   taskCategories.splice(destIndex, 0, moved);
 
   const reorderData = taskCategories
-    .filter(c => c.id !== 'default-task-cat')
     .map((c, i) => ({ id: c.id, sort_order: i }));
 
   fetchJSON('/api/task-categories/reorder', {
@@ -326,9 +325,9 @@ function renderTaskTable(list) {
           </thead>
           <tbody>
             <tr class="task-category-header-row" onclick="toggleTaskCategory('${cat.id}')" style="cursor:pointer">
-              <td colspan="6" style="padding:6px 12px;font-size:11px;font-weight:500;background:var(--border);border-radius:0">
+              <td colspan="6" style="padding:6px 12px;font-size:12px;background:var(--border);border-radius:0">
                 <div style="display:flex;align-items:center;gap:6px">
-                  <span style="font-size:10px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
+                  <span style="font-size:12px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
                   <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
                   <span style="margin-left:auto;color:var(--text-secondary)">${items.length}</span>
                 </div>
