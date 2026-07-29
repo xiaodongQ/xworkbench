@@ -513,7 +513,7 @@ async function loadScheduled() {
     if (catIndex === 0) {
       thead = '<thead><tr><th class="col-title">名称</th><th class="col-cron">Cron</th><th class="col-type">类型</th><th class="col-status">状态</th><th class="col-time" style="cursor:pointer;user-select:none" onclick="setSchedSort(\'last_run\')">最近执行' + si('last_run') + '</th><th class="col-ops">操作</th></tr></thead>';
     }
-    const colgroup = '<colgroup><col style="width:300px"><col style="width:130px"><col style="width:60px"><col style="width:80px"><col style="width:150px"><col style="width:320px"></colgroup>';
+    const colgroup = '<colgroup><col style="width:300px"><col style="width:130px"><col style="width:60px"><col style="width:80px"><col style="width:150px"><col style="width:200px"></colgroup>';
     const sortedItems = [...cat.items].sort((a, b) => {
       if (!a.enabled && !b.enabled) return 0;
       if (!a.enabled) return 1;

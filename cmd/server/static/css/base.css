@@ -273,7 +273,7 @@ tr:last-child td { border-bottom: none; }
 .task-table .col-cron { width: 130px; }
 .task-table .col-loop { width: 56px; text-align: center; }
 .task-table .col-time { width: 150px; }
-.task-table .col-ops { width: 320px; white-space: nowrap; }
+.task-table .col-ops { width: 200px; white-space: nowrap; }
 .task-table th { vertical-align: middle; }
 .task-table td { vertical-align: middle; }
 
