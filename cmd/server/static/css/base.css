@@ -279,12 +279,13 @@ tr:last-child td { border-bottom: none; }
 
 /* 表格标题行 - 丰富样式 */
 .task-table thead th {
-  background: var(--bg-secondary);
+  background: var(--border);
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
   letter-spacing: 0.3px;
-  border-bottom: 2px solid var(--primary);
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--text-secondary);
 }
 
 /* 经验库表格 */
