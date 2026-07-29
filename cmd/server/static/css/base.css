@@ -268,12 +268,12 @@ tr:last-child td { border-bottom: none; }
 .task-table { table-layout: fixed; width: 100%; border-collapse: collapse; overflow: hidden; }
 .task-table td { vertical-align: middle; white-space: nowrap; overflow: hidden; }
 .task-table .col-title { width: auto; }
-.task-table .col-status { width: 80px; }
-.task-table .col-type { width: 60px; }
-.task-table .col-cron { width: 130px; }
-.task-table .col-loop { width: 56px; text-align: center; }
-.task-table .col-time { width: 150px; }
-.task-table .col-ops { width: 320px; white-space: nowrap; }
+.task-table .col-status { width: 70px; }
+.task-table .col-type { width: 55px; }
+.task-table .col-cron { width: 110px; }
+.task-table .col-loop { width: 50px; text-align: center; }
+.task-table .col-time { width: 130px; }
+.task-table .col-ops { width: 270px; white-space: nowrap; }
 .task-table th { vertical-align: middle; }
 .task-table td { vertical-align: middle; }
 
