@@ -1485,8 +1485,8 @@ func (r *ExperienceRepo) Search(module string) ([]*Experience, error) {
 }
 
 func (r *ExperienceRepo) Update(e *Experience) error {
-	q := `UPDATE experiences SET keywords=?, scene=?, details=?, updated_at=? WHERE id=?`
-	_, err := r.db.Exec(q, e.Keywords, e.Scene, e.Details, time.Now(), e.ID)
+	q := `UPDATE experiences SET module=?, keywords=?, scene=?, details=?, category_id=?, updated_at=? WHERE id=?`
+	_, err := r.db.Exec(q, e.Module, e.Keywords, e.Scene, e.Details, e.CategoryID, time.Now(), e.ID)
 	if err != nil {
 		logger.Logger.Errorw("experiences update failed", "id", e.ID, "error", err.Error())
 		return err

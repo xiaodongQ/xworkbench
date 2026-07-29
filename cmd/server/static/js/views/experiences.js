@@ -173,7 +173,7 @@ function showExpModal(exp) {
   document.getElementById('exp-modal-title').textContent = exp ? '编辑经验' : '添加经验';
   document.getElementById('exp-id').value = exp ? exp.id : '';
   document.getElementById('exp-module').value = exp ? exp.module : '';
-  document.getElementById('exp-module').readOnly = !!exp; // 编辑时不可改分类
+  // 编辑时可修改分类（不再限制 readOnly）
   document.getElementById('exp-keywords').value = exp ? (exp.keywords || '') : '';
   document.getElementById('exp-scene').value = exp ? (exp.scene || '') : '';
   document.getElementById('exp-details').value = exp ? (exp.details || '') : '';

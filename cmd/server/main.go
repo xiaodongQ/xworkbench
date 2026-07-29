@@ -593,10 +593,11 @@ func (s *APIServer) handleExpUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	logger.Infow("exp update", "id", id)
 	var req struct {
-		Module   string `json:"module"`
-		Keywords string `json:"keywords"`
-		Scene    string `json:"scene"`
-		Details  string `json:"details"`
+		Module     string `json:"module"`
+		CategoryID string `json:"category_id"`
+		Keywords   string `json:"keywords"`
+		Scene      string `json:"scene"`
+		Details    string `json:"details"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -607,6 +608,8 @@ func (s *APIServer) handleExpUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	exp.Module = req.Module
+	exp.CategoryID = req.CategoryID
 	exp.Keywords = req.Keywords
 	exp.Scene = req.Scene
 	exp.Details = req.Details
