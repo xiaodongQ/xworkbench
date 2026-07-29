@@ -402,9 +402,10 @@ function setSchedSort(field) {
 function schedSortTitle(field) {
   const prev = _getSchedSortDir(field);
   const next = prev === 'asc' ? 'desc' : prev === 'desc' ? '' : 'asc';
-  if (next === 'asc') return '点击排序（下一档：↑ 升序）';
-  if (next === 'desc') return '点击排序（下一档：↓ 降序）';
-  return '点击排序（恢复正常序）';
+  const label = (SCHED_SORT[field] && SCHED_SORT[field].label) || field;
+  if (next === 'asc') return '按' + label + '排序（点击切换：↑ 升序）';
+  if (next === 'desc') return '按' + label + '排序（点击切换：↓ 降序）';
+  return '按' + label + '排序（点击恢复默认）';
 }
 
 function schedSortIcon(field) {
