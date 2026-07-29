@@ -345,7 +345,7 @@ function renderTaskTable(list) {
               <td class="col-type">${taskTypeTag(t.task_type)}</td>
               <td class="col-loop">${loopStatusTag(t)}</td>
               <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
-              <td class="col-ops"><div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">${ops}</div></td>
+              <td class="col-ops"><div style="display:flex;align-items:center;gap:4px;white-space:nowrap">${ops}</div></td>
             </tr>`;
           }).join('')}
           </tbody>
