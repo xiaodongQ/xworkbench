@@ -1302,18 +1302,6 @@ tr:last-child td { border-bottom: none; }
   background: var(--hover);
 }
 
-/* 不同分类用不同浅色背景 (6色循环) */
-.task-category-group:nth-of-type(6n+1) tbody:nth-of-type(2) tr td { background: #f0f4ff; }
-.task-category-group:nth-of-type(6n+2) tbody:nth-of-type(2) tr td { background: #f4fff6; }
-.task-category-group:nth-of-type(6n+3) tbody:nth-of-type(2) tr td { background: #fff8f0; }
-.task-category-group:nth-of-type(6n+4) tbody:nth-of-type(2) tr td { background: #fff0f6; }
-.task-category-group:nth-of-type(6n+5) tbody:nth-of-type(2) tr td { background: #f8f0ff; }
-.task-category-group:nth-of-type(6n+6) tbody:nth-of-type(2) tr td { background: #f0f8ff; }
-/* hover 时微微加深 */
-.task-category-group tbody:nth-of-type(2) tr:hover td {
-  filter: brightness(0.97);
-}
-
 .link-category-items,
 .dir-category-items,
 .task-category-items {
