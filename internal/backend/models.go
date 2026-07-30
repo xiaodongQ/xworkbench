@@ -58,6 +58,7 @@ type Task struct {
 	TaskType          string   `json:"task_type,omitempty"`
 	AssignedAgentID   string   `json:"assigned_agent_id,omitempty"`  // 创建时指定的目标 agent（task_type=remote）
 	ClaimerAgentID    string   `json:"claimer_agent_id,omitempty"`
+	DispatchedAt   *time.Time `json:"dispatched_at,omitempty"`    // 手动分派时间戳
 	ResultOutput     string   `json:"result_output,omitempty"`
 	EvaluationScore *float64 `json:"evaluation_score,omitempty"`
 	WaitingInput     string   `json:"waiting_input,omitempty"`   // 待交互的提示内容

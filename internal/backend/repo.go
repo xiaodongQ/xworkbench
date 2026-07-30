@@ -277,6 +277,9 @@ func InitSchema(db *sql.DB) error {
 	if err := migrateTasksCategoryColumn(db); err != nil {
 		return err
 	}
+	if err := migrateTasksDispatchedAt(db); err != nil {
+		return err
+	}
 	if err := migrateScheduledTaskCategoriesTable(db); err != nil {
 		return err
 	}
@@ -756,6 +759,30 @@ func migrateTasksCategoryColumn(db *sql.DB) error {
 	return nil
 }
 
+// migrateTasksDispatchedAt 为 tasks 表添加 dispatched_at 列（远程任务手动分派时间戳）
+func migrateTasksDispatchedAt(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(tasks)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	if cols["dispatched_at"] {
+		return nil
+	}
+	_, err = db.Exec(`ALTER TABLE tasks ADD COLUMN dispatched_at DATETIME`)
+	return err
+}
+
 // migrateScheduledTaskCategoriesTable 确保 scheduled_task_categories 表的默认分类存在
 func migrateScheduledTaskCategoriesTable(db *sql.DB) error {
 	var count int
@@ -1014,10 +1041,10 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 		claimed_at,maintainer,repo_address,archived_at,completed_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
 		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
-		command_type,model,prompt,goal_mode,category_id
+		command_type,model,prompt,goal_mode,category_id,dispatched_at
 		FROM tasks WHERE id=?`
 	var t Task
-	var claimedAt, archivedAt, completedAt sql.NullTime
+	var claimedAt, archivedAt, completedAt, dispatchedAt sql.NullTime
 	var acc, res, maintainer, repoAddr sql.NullString
 	var execModel, cbcMdl sql.NullString
 	var iterCount, maxIter int
@@ -1032,7 +1059,7 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 		&claimedAt, &maintainer, &repoAddr, &archivedAt, &completedAt, &res,
 		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
 		&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
-		&cmdType, &mdl, &prompt, &goalMode, &categoryID)
+		&cmdType, &mdl, &prompt, &goalMode, &categoryID, &dispatchedAt)
 	t.Acceptance = acc.String
 	t.Result = res.String
 	t.Maintainer = maintainer.String
@@ -1051,6 +1078,9 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	t.CategoryID = categoryID.String
 	if claimedAt.Valid {
 		t.ClaimedAt = &claimedAt.Time
+	}
+	if dispatchedAt.Valid {
+		t.DispatchedAt = &dispatchedAt.Time
 	}
 	if archivedAt.Valid {
 		t.ArchivedAt = &archivedAt.Time
@@ -1267,7 +1297,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		claimed_at,maintainer,repo_address,archived_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
 		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
-		command_type,model,prompt,goal_mode,category_id
+		command_type,model,prompt,goal_mode,category_id,dispatched_at
 		FROM tasks`
 	var args []any
 	var where []string
@@ -3247,6 +3277,24 @@ func (r *AgentRepo) SetBoundDirShortcut(id, dirShortcutID string) error {
 	return nil
 }
 
+// DispatchTask 将远程任务显式分派给指定 agent，设置 dispatched_at 时间戳。
+// agent 在下次 claim-next 轮询时才能认领到此任务。
+func (r *TaskRepo) DispatchTask(taskID, agentID string, dispatchedAt time.Time) error {
+	result, err := r.db.Exec(`UPDATE tasks SET assigned_agent_id=?, dispatched_at=?
+		WHERE id=? AND status='pending' AND task_type='remote'`,
+		agentID, dispatchedAt, taskID)
+	if err != nil {
+		logger.Logger.Errorw("tasks dispatch failed", "task_id", taskID, "agent_id", agentID, "error", err.Error())
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("task %s cannot be dispatched (not pending/remote)", taskID)
+	}
+	logger.Logger.Infow("tasks dispatched", "task_id", taskID, "agent_id", agentID)
+	return nil
+}
+
 // ClaimTask 原子 claim：只有在 task 状态为 pending 且类型为 remote 且无人认领时才能 claim。
 // 成功返回 nil，失败返回 error（并发抢或状态不对）。
 func (r *TaskRepo) ClaimTask(taskID, agentID string) error {
@@ -3557,14 +3605,15 @@ func (r *ExecutionCommentRepo) Delete(id string) error {
 	return nil
 }
 
-// NextClaimable 返回下一个可 claim 的 remote 任务（按 priority DESC, created_at ASC 排序）。
-// agentID 用于过滤 assigned_agent_id：只返回分配给此 agent 的任务（未指定 agent 的允许任意 agent 认领）。
+// NextClaimable 返回下一个可 claim 的 remote 任务（已手动分派的）。
+// 只有 dispatched_at 非空（用户已显式分派）的任务才会被 agent 认领。
 func (r *TaskRepo) NextClaimable(agentID string) (string, error) {
 	q := `SELECT id FROM tasks
 		WHERE status='pending' AND task_type='remote'
 		  AND (claimer_agent_id='' OR claimer_agent_id IS NULL)
 		  AND (assigned_agent_id='' OR assigned_agent_id IS NULL OR assigned_agent_id=?1)
-		ORDER BY priority DESC, created_at ASC
+		  AND dispatched_at IS NOT NULL
+		ORDER BY dispatched_at ASC
 		LIMIT 1`
 	var id string
 	err := r.db.QueryRow(q, agentID).Scan(&id)

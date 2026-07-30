@@ -359,9 +359,13 @@ function renderTaskTable(list) {
 // 按状态返回操作按钮 HTML（返回按钮列表，td 本身已是 flex 容器）
 function taskOpsByStatus(t) {
   const id = t.id;
+  const isRemote = t.task_type === 'remote';
+  const runBtn = isRemote
+    ? `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="dispatchTask('${id}')" title="分派到远程 Agent 执行">▶ 分派</button>`
+    : `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI 执行此任务">▶ 运行</button>`;
   switch (t.status) {
     case 'pending':
-      return `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI 执行此任务">▶ 运行</button>` +
+      return runBtn +
              `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="直接归档（不需执行）">归档</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'in_progress':
@@ -390,6 +394,41 @@ async function claimTask(id) {
     body: JSON.stringify({status: 'in_progress', maintainer: 'factory-agent'})
   });
   reloadCurrentTab();
+}
+
+// dispatchTask 手动将远程任务分派给指定 agent。
+async function dispatchTask(taskID) {
+  try {
+    const agents = await fetchJSON(API + '/api/agents');
+    const online = (agents || []).filter(a => a.status === 'online');
+    if (online.length === 0) {
+      alert('无可用 agent，请先在目标机器上运行 xwcli register 并启动 agent');
+      return;
+    }
+    const names = online.map((a, i) => `${i + 1}. ${a.name}${(a.bound_dir_shortcut || {}).remote_host ? ' (' + a.bound_dir_shortcut.remote_host + ')' : ''}`);
+    const choice = prompt('选择目标 Agent:\n' + names.join('\n') + '\n\n输入序号：');
+    if (!choice) return;
+    const idx = parseInt(choice) - 1;
+    if (idx < 0 || idx >= online.length) {
+      alert('无效选择');
+      return;
+    }
+    const agent = online[idx];
+    const r = await fetch(API + '/api/tasks/' + taskID + '/dispatch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({agent_id: agent.id})
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      alert('分派失败：' + (b.error || r.statusText));
+      return;
+    }
+    alert('已分派到 ' + agent.name);
+    reloadCurrentTab();
+  } catch (e) {
+    alert('分派失败：' + e.message);
+  }
 }
 
 async function unclaimTask(id) {

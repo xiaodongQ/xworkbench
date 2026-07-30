@@ -100,17 +100,18 @@ async function loadSourceStats(source) {
 // ===== Linux 调用脚本生成 =====
 // showRelayScriptModal 打开 modal,展示一段可直接拷贝到 Linux 机器运行的 shell 脚本。
 // 脚本内置 exec_cmd / proxy_http 两个函数封装,用户改 3 处(API_HOST/API_KEY/参数)即可用。
-// 脚本内容是常量字符串(不依赖任何运行时变量),避免脚本里出现实际 token 等敏感信息。
+// SERVER_URL 动态取自浏览器当前 origin,避免手动修改。
 function showRelayScriptModal() {
+  const serverURL = window.location.origin;
   const script = `#!/usr/bin/env bash
 # xworkbench Relay 调用脚本
 # 用途:在 Linux 机器上调用本服务代理(执行命令 / HTTP 转发)
-# 改 3 处即可:API_HOST / API_KEY / 调用参数(command / url)
+# 改 2 处即可:API_KEY / 调用参数(command / url)
 
 set -euo pipefail
 
-API_HOST="\${API_HOST:-http://localhost:8902}"   # ← 改成你的 xworkbench 地址
-API_KEY="\${API_KEY:-xworkbench}"                # ← 改成实际 API key(默认 "xworkbench")
+API_HOST="\${API_HOST:-${serverURL}}"   # ← 自动取自当前服务器地址,如有变动请手动修改
+API_KEY="\${API_KEY:-xworkbench}"       # ← 改成实际 API key(默认 "xworkbench")
 
 # === 方式 1:执行 shell 命令(POST /api/exec) ===
 # body 形如: '{"command":"ls -la /tmp","cwd":"/","timeout_ms":30000}'

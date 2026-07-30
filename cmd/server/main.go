@@ -162,6 +162,7 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("PUT /api/tasks/{id}", s.handleTaskUpdate)
 	mux.HandleFunc("PUT /api/tasks/{id}/status", s.handleTaskStatus)
 	mux.HandleFunc("POST /api/tasks/{id}/unclaim", s.handleTaskUnclaim)
+	mux.HandleFunc("POST /api/tasks/{id}/dispatch", s.handleTaskDispatch)
 	mux.HandleFunc("POST /api/tasks/{id}/run", s.handleTaskRun)
 	mux.HandleFunc("POST /api/tasks/{id}/cancel", s.handleTaskCancel)
 	mux.HandleFunc("DELETE /api/tasks/{id}", s.handleTaskDelete)
@@ -1053,6 +1054,49 @@ func (s *APIServer) handleTaskUnclaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"id": id, "status": "pending"})
+}
+
+// handleTaskDispatch 手动分派远程任务给指定 agent（设置 dispatched_at 时间戳）。
+func (s *APIServer) handleTaskDispatch(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.AgentID == "" {
+		writeErr(w, http.StatusBadRequest, "agent_id is required")
+		return
+	}
+
+	task, err := s.db.Get(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if task.Status != backend.TaskStatusPending {
+		writeErr(w, http.StatusConflict, "only pending tasks can be dispatched")
+		return
+	}
+	if task.TaskType != backend.TaskTypeRemote {
+		writeErr(w, http.StatusBadRequest, "only remote tasks can be dispatched")
+		return
+	}
+
+	now := time.Now()
+	if err := s.db.DispatchTask(id, req.AgentID, now); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	logger.Infow("task dispatched", "task_id", id, "agent_id", req.AgentID)
+	writeJSON(w, map[string]any{
+		"task_id": id,
+		"agent_id": req.AgentID,
+		"dispatched_at": now,
+	})
 }
 
 func (s *APIServer) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
