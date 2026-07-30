@@ -63,7 +63,7 @@ detect_platform() {
 build_xwcli_all() {
   local xwcli_dir="tools/xworkbench-cli"
   mkdir -p "$xwcli_dir"
-  for osarch in linux-amd64 darwin-amd64; do
+  for osarch in linux-amd64 darwin-amd64 windows-amd64; do
     build_xwcli_one "$osarch" "$xwcli_dir"
   done
   # 同步到 bin/ 目录供直接使用
@@ -75,9 +75,11 @@ build_xwcli_one() {
   local osarch=$1 xwcli_dir=$2
   local os=${osarch%-*}
   local arch=${osarch#*-}
+  local ext=""
+  [ "$os" = "windows" ] && ext=".exe"
   printf "  %-12s %-8s ... " "$os" "$arch"
-  if GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -trimpath -o "${xwcli_dir}/xwcli-${osarch}" ./cmd/xwcli 2>&1; then
-    local size=$(ls -lh "${xwcli_dir}/xwcli-${osarch}" | awk '{print $5}')
+  if GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -trimpath -o "${xwcli_dir}/xwcli-${osarch}${ext}" ./cmd/xwcli 2>&1; then
+    local size=$(ls -lh "${xwcli_dir}/xwcli-${osarch}${ext}" | awk '{print $5}')
     printf '%b\n' "${GREEN}[OK]${NC}  $size"
   else
     printf '%b\n' "${RED}[FAIL]${NC}"
