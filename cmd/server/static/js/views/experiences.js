@@ -126,9 +126,9 @@ function renderExpTable(list) {
           <tr class="task-category-header-row"
               onclick="toggleExpCategory('${cat.id}')"
               style="cursor:pointer">
-            <td colspan="4" style="padding:6px 12px;font-size:12px">
+            <td colspan="4" style="padding:6px 12px;font-size:11px">
               <div style="display:flex;align-items:center;gap:6px">
-                <span style="font-size:12px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
+                <span style="font-size:11px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
                 <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
                 <span style="margin-left:auto;color:var(--text-secondary)">${items.length}</span>
               </div>

@@ -322,9 +322,9 @@ function renderTaskTable(list) {
           ${thead}
           <tbody>
             <tr class="task-category-header-row" onclick="toggleTaskCategory('${cat.id}')" style="cursor:pointer">
-              <td colspan="5" style="padding:6px 12px;font-size:12px">
+              <td colspan="5" style="padding:6px 12px;font-size:11px">
                 <div style="display:flex;align-items:center;gap:6px">
-                  <span style="font-size:12px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
+                  <span style="font-size:11px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
                   <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
                   <span style="margin-left:auto;color:var(--text-secondary)">${items.length}</span>
                 </div>
@@ -346,7 +346,7 @@ function renderTaskTable(list) {
               </td>
               <td class="col-status">${statusTag(t.status)}</td>
               <td class="col-type">${taskTypeTag(t.task_type)}</td>
-              <td class="col-time" style="color:var(--text-secondary);font-size:12px">${fmt(t.created_at)}</td>
+              <td class="col-time" style="color:var(--text-secondary);font-size:11px">${fmt(t.created_at)}</td>
               <td class="col-ops"><div style="display:flex;align-items:center;gap:4px;white-space:nowrap">${ops}</div></td>
             </tr>`;
           }).join('')}
