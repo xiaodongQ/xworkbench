@@ -55,6 +55,8 @@ if [ -d "tools" ]; then
   if [ -d "$OUT/tools/xw-ssh-mcp-server" ]; then
     find "$OUT/tools/xw-ssh-mcp-server" -mindepth 1 -maxdepth 1 ! -name "xw-ssh-mcp-server-*" -exec rm -rf {} +
   fi
+  # 清理所有 tools 子目录中的 README.md
+  find "$OUT/tools" -name "README.md" -delete
 fi
 
 # 4. 生成 README
