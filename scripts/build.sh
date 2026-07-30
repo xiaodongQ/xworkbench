@@ -63,7 +63,7 @@ detect_platform() {
 build_xwcli_all() {
   local xwcli_dir="cmd/server/tools/xwcli"
   mkdir -p "$xwcli_dir"
-  for osarch in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+  for osarch in linux-amd64 darwin-amd64; do
     build_xwcli_one "$osarch" "$xwcli_dir"
   done
   # 同步到 bin/ 目录供直接使用
