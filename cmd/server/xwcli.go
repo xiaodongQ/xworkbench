@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-//go:embed tools/xwcli/xwcli-linux-amd64 tools/xwcli/xwcli-linux-arm64 tools/xwcli/xwcli-darwin-amd64 tools/xwcli/xwcli-darwin-arm64
+//go:embed tools/xworkbench-cli/xwcli-linux-amd64 tools/xworkbench-cli/xwcli-darwin-amd64
 var xwcliFS embed.FS
 
 // handleXwcliInstall returns the install script that downloads and runs the Go binary.
@@ -35,7 +35,7 @@ func (s *APIServer) handleXwcliDownload(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusGone, "xwcli.py is no longer available; use xwcli-install.sh to install the Go binary")
 		return
 	}
-	data, err := xwcliFS.ReadFile("tools/xwcli/" + base)
+	data, err := xwcliFS.ReadFile("tools/xworkbench-cli/" + base)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, fmt.Sprintf("no binary for %s (not built?)", base))
 		return
