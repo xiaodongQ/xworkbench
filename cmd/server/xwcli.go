@@ -32,7 +32,7 @@ func (s *APIServer) handleXwcliDownload(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusGone, "xwcli.py is no longer available; use xwcli-install.sh to install the Go binary")
 		return
 	}
-	data, err := os.ReadFile(filepath.Join("tools", base))
+	data, err := os.ReadFile(filepath.Join("tools", "xworkbench-cli", base))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, fmt.Sprintf("no binary for %s (not built?)", base))
 		return
