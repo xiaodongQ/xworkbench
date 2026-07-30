@@ -1339,12 +1339,13 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		var priority int
 		var goalMode int
 		var categoryID sql.NullString
+		var dispatchedAt sql.NullTime
 		err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 			&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 			&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 			&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
 			&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
-			&cmdType, &mdl, &prompt, &goalMode, &categoryID)
+			&cmdType, &mdl, &prompt, &goalMode, &categoryID, &dispatchedAt)
 		t.Acceptance = acc.String
 		t.Result = res.String
 		t.Maintainer = maintainer.String
@@ -1375,6 +1376,9 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		}
 		if evalScore.Valid {
 			t.EvaluationScore = &evalScore.Float64
+		}
+		if dispatchedAt.Valid {
+			t.DispatchedAt = &dispatchedAt.Time
 		}
 		t.CommandType = cmdType.String
 		t.Model = mdl.String
