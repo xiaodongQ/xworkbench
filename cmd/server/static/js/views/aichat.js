@@ -127,14 +127,13 @@
   // ── Resize ───────────────────────────────────────────────
   function initResize(panel) {
     const handle = panel.querySelector('#floating-chat-resize-handle');
-    let startY, startTop;
+    let startY, startHeight;
 
     function onMove(e) {
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      const dy = clientY - startY;
-      const newTop = Math.max(0, Math.min(window.innerHeight - 320, startTop + dy));
-      panel.style.top = newTop + 'px';
-      panel.style.height = (window.innerHeight - newTop) + 'px';
+      const dy = startY - clientY; // drag up = taller, drag down = shorter
+      const newHeight = Math.max(320, Math.min(window.innerHeight - 16, startHeight + dy));
+      panel.style.height = newHeight + 'px';
     }
 
     function onUp() {
@@ -147,7 +146,7 @@
 
     handle.addEventListener('mousedown', e => {
       startY = e.clientY;
-      startTop = panel.offsetTop;
+      startHeight = panel.offsetHeight;
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
       document.body.style.userSelect = 'none';
@@ -156,7 +155,7 @@
 
     handle.addEventListener('touchstart', e => {
       startY = e.touches[0].clientY;
-      startTop = panel.offsetTop;
+      startHeight = panel.offsetHeight;
       document.addEventListener('touchmove', onMove, { passive: false });
       document.addEventListener('touchend', onUp);
       document.body.style.userSelect = 'none';

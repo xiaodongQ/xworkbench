@@ -1453,7 +1453,7 @@ tr:last-child td { border-bottom: none; }
 /* 面板容器 */
 .floating-chat-panel {
   position: fixed;
-  top: 8px;
+  bottom: 8px;
   right: 8px;
   width: 500px;
   max-width: 92vw;
