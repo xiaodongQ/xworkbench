@@ -47,12 +47,14 @@ cp scripts/run_background.ps1 "$OUT/scripts/" 2>/dev/null || true
 if [ -d "tools" ]; then
   echo "==> 拷贝 tools 工具目录..."
   cp -r tools "$OUT/"
-  # 清理 xw-ssh-mcp-server 和 xw-sshpass 只保留 bin/ 目录
-  for dir in xw-ssh-mcp-server xw-sshpass; do
-    if [ -d "$OUT/tools/$dir" ]; then
-      find "$OUT/tools/$dir" -mindepth 1 ! -path "$OUT/tools/$dir/bin*" -exec rm -rf {} + 2>/dev/null || true
-    fi
-  done
+  # 清理 xw-sshpass: 只保留 xw-sshpass-* 二进制
+  if [ -d "$OUT/tools/xw-sshpass" ]; then
+    find "$OUT/tools/xw-sshpass" -mindepth 1 -maxdepth 1 ! -name "xw-sshpass-*" -exec rm -rf {} +
+  fi
+  # 清理 xw-ssh-mcp-server: 只保留 xw-ssh-mcp-server-* 二进制
+  if [ -d "$OUT/tools/xw-ssh-mcp-server" ]; then
+    find "$OUT/tools/xw-ssh-mcp-server" -mindepth 1 -maxdepth 1 ! -name "xw-ssh-mcp-server-*" -exec rm -rf {} +
+  fi
 fi
 
 # 4. 生成 README
