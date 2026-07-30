@@ -49,11 +49,11 @@ if [ -d "tools" ]; then
   cp -r tools "$OUT/"
   # 清理 xw-sshpass: 只保留 xw-sshpass-* 二进制
   if [ -d "$OUT/tools/xw-sshpass" ]; then
-    find "$OUT/tools/xw-sshpass" -mindepth 1 -maxdepth 1 ! -name "xw-sshpass-*" -exec rm -rf {} +
+    find "$OUT/tools/xw-sshpass" -mindepth 1 -maxdepth 1 ! -name "xw-sshpass-*" ! -name "README.md" -exec rm -rf {} +
   fi
   # 清理 xw-ssh-mcp-server: 只保留 xw-ssh-mcp-server-* 二进制
   if [ -d "$OUT/tools/xw-ssh-mcp-server" ]; then
-    find "$OUT/tools/xw-ssh-mcp-server" -mindepth 1 -maxdepth 1 ! -name "xw-ssh-mcp-server-*" -exec rm -rf {} +
+    find "$OUT/tools/xw-ssh-mcp-server" -mindepth 1 -maxdepth 1 ! -name "xw-ssh-mcp-server-*" ! -name "README.md" -exec rm -rf {} +
   fi
 fi
 
