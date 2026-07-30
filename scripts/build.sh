@@ -59,9 +59,9 @@ detect_platform() {
   [ "$os" = "windows" ] && ext=".exe"
 }
 
-# build_xwcli_all 编译所有平台的 xwcli 二进制到 tools/xworkbench-cli/
+# build_xwcli_all 编译所有平台的 xwcli 二进制到 cmd/server/tools/xworkbench-cli/
 build_xwcli_all() {
-  local xwcli_dir="tools/xworkbench-cli"
+  local xwcli_dir="cmd/server/tools/xworkbench-cli"
   mkdir -p "$xwcli_dir"
   for osarch in linux-amd64 darwin-amd64; do
     build_xwcli_one "$osarch" "$xwcli_dir"
