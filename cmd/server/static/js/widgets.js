@@ -1790,7 +1790,8 @@ async function refreshLinkCategoryList() {
       ${c.is_default ? '<span style="color:var(--text-secondary);font-size:11px">默认</span>' :
         `<button class="btn btn-small" onclick="event.stopPropagation();deleteLinkCategory('${esc(c.id)}')">删除</button>`}
     </div>
-  `).join('');
+  `;
+}).join('');
 }
 async function addLinkCategory() {
   const name = document.getElementById('new-link-category-name').value.trim();
@@ -2177,7 +2178,8 @@ async function refreshDirCategoryList() {
       ${c.is_default ? '<span style="color:var(--text-secondary);font-size:11px">默认</span>' :
         `<button class="btn btn-small" onclick="event.stopPropagation();deleteDirCategory('${esc(c.id)}')">删除</button>`}
     </div>
-  `).join('');
+  `;
+}).join('');
 }
 async function addDirCategory() {
   const name = document.getElementById('new-dir-category-name').value.trim();
