@@ -1777,15 +1777,14 @@ async function refreshLinkCategoryList() {
     container.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无分类</div>';
     return;
   }
-  // 拖动重排：整行 draggable；data-id 携带分类 id；onXxx 回调走通用 catRowDrag* 助手
-  container.innerHTML = list.map(c => `
-    <div class="cat-row" draggable="true" data-id="${esc(c.id)}"
-         ondragstart="catRowDragStart(event, 'link')"
-         ondragover="catRowDragOver(event)"
-         ondragleave="catRowDragLeave(event)"
-         ondrop="catRowDrop(event, 'link', refreshLinkCategoryList)"
-         style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border);cursor:move">
-      <span class="drag-handle" title="拖动重排"></span>
+  container.innerHTML = list.map(c => {
+    const isDefault = c.id === 'default-link';
+    const dragAttrs = isDefault ? '' : ` draggable="true" ondragstart="catRowDragStart(event, 'link')" ondragover="catRowDragOver(event)" ondragleave="catRowDragLeave(event)" ondrop="catRowDrop(event, 'link', refreshLinkCategoryList)"`;
+    const dragHandle = isDefault ? '' : '<span class="drag-handle" title="拖动重排"></span>';
+    return `
+    <div class="cat-row"${dragAttrs}
+         style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border);cursor:${isDefault ? 'default' : 'move'}" data-id="${esc(c.id)}">
+      ${dragHandle}
       <span>${esc(c.icon || '')}</span>
       <span style="flex:1">${esc(c.name)}</span>
       ${c.is_default ? '<span style="color:var(--text-secondary);font-size:11px">默认</span>' :
@@ -2165,14 +2164,14 @@ async function refreshDirCategoryList() {
     container.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无分类</div>';
     return;
   }
-  container.innerHTML = list.map(c => `
-    <div class="cat-row" draggable="true" data-id="${esc(c.id)}"
-         ondragstart="catRowDragStart(event, 'dir')"
-         ondragover="catRowDragOver(event)"
-         ondragleave="catRowDragLeave(event)"
-         ondrop="catRowDrop(event, 'dir', refreshDirCategoryList)"
-         style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border);cursor:move">
-      <span class="drag-handle" title="拖动重排"></span>
+  container.innerHTML = list.map(c => {
+    const isDefault = c.id === 'default-dir';
+    const dragAttrs = isDefault ? '' : ` draggable="true" ondragstart="catRowDragStart(event, 'dir')" ondragover="catRowDragOver(event)" ondragleave="catRowDragLeave(event)" ondrop="catRowDrop(event, 'dir', refreshDirCategoryList)"`;
+    const dragHandle = isDefault ? '' : '<span class="drag-handle" title="拖动重排"></span>';
+    return `
+    <div class="cat-row"${dragAttrs}
+         style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border);cursor:${isDefault ? 'default' : 'move'}" data-id="${esc(c.id)}">
+      ${dragHandle}
       <span>${esc(c.icon || '')}</span>
       <span style="flex:1">${esc(c.name)}</span>
       ${c.is_default ? '<span style="color:var(--text-secondary);font-size:11px">默认</span>' :
