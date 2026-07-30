@@ -34,8 +34,8 @@ function loadSchedCategoryList() {
     const el = document.getElementById('sched-category-list');
     el.innerHTML = schedCategories.map((c, i) => {
       const isDefault = c.id === 'default-sched-cat';
-      const dragAttrs = `draggable="true" ondragstart="onSchedCatDragStart(event)" ondragover="onSchedCatDragOver(event)" ondrop="onSchedCatDrop(event)" ondragend="onSchedCatDragEnd(event)"`;
-      const dragHandle = '<span class="drag-handle" style="cursor:grab;margin-right:6px">⋮⋮</span>';
+      const dragAttrs = isDefault ? '' : `draggable="true" ondragstart="onSchedCatDragStart(event)" ondragover="onSchedCatDragOver(event)" ondrop="onSchedCatDrop(event)" ondragend="onSchedCatDragEnd(event)"`;
+      const dragHandle = isDefault ? '' : '<span class="drag-handle" style="cursor:grab;margin-right:6px">⋮⋮</span>';
       return `<div class="cat-row" data-cat-id="${c.id}" data-index="${i}" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border);font-size:12px" ${dragAttrs}>
         ${dragHandle}
         <span>${esc((c.icon || '') + ' ' + c.name)}</span>

@@ -31,8 +31,8 @@ function loadTaskCategoryList() {
     const el = document.getElementById('task-category-list');
     el.innerHTML = taskCategories.map((c, i) => {
       const isDefault = c.id === 'default-task-cat';
-      const dragAttrs = `draggable="true" ondragstart="onTaskCatDragStart(event)" ondragover="onTaskCatDragOver(event)" ondrop="onTaskCatDrop(event)" ondragend="onTaskCatDragEnd(event)"`;
-      const dragHandle = '<span class="drag-handle" style="cursor:grab;margin-right:6px">⋮⋮</span>';
+      const dragAttrs = isDefault ? '' : `draggable="true" ondragstart="onTaskCatDragStart(event)" ondragover="onTaskCatDragOver(event)" ondrop="onTaskCatDrop(event)" ondragend="onTaskCatDragEnd(event)"`;
+      const dragHandle = isDefault ? '' : '<span class="drag-handle" style="cursor:grab;margin-right:6px">⋮⋮</span>';
       return `<div class="cat-row" data-cat-id="${c.id}" data-index="${i}" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border);font-size:12px" ${dragAttrs}>
         ${dragHandle}
         <span>${esc((c.icon || '') + ' ' + c.name)}</span>
