@@ -66,6 +66,9 @@ build_xwcli_all() {
   for osarch in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
     build_xwcli_one "$osarch" "$xwcli_dir"
   done
+  # 同步到 bin/ 目录供直接使用
+  mkdir -p "$BIN_DIR"
+  cp "$xwcli_dir"/xwcli-* "$BIN_DIR/" 2>/dev/null || true
 }
 
 build_xwcli_one() {
