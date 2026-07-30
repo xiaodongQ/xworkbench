@@ -1778,7 +1778,7 @@ async function refreshLinkCategoryList() {
     return;
   }
   // 拖动重排：整行 draggable；data-id 携带分类 id；onXxx 回调走通用 catRowDrag* 助手
-  container.innerHTML = sortByOrder(list).map(c => `
+  container.innerHTML = list.map(c => `
     <div class="cat-row" draggable="true" data-id="${esc(c.id)}"
          ondragstart="catRowDragStart(event, 'link')"
          ondragover="catRowDragOver(event)"
@@ -2165,7 +2165,7 @@ async function refreshDirCategoryList() {
     container.innerHTML = '<div style="color:var(--text-secondary);font-size:12px;padding:8px">暂无分类</div>';
     return;
   }
-  container.innerHTML = sortByOrder(list).map(c => `
+  container.innerHTML = list.map(c => `
     <div class="cat-row" draggable="true" data-id="${esc(c.id)}"
          ondragstart="catRowDragStart(event, 'dir')"
          ondragover="catRowDragOver(event)"
