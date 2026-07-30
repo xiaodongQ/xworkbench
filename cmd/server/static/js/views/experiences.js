@@ -86,16 +86,10 @@ function renderExpTable(list) {
     }
   }
 
-  // 排序：其他分类在前，默认分类在后
-  const catOrder = [...expCategories].sort((a, b) => {
-    if (a.id === 'default-exp-cat') return 1;
-    if (b.id === 'default-exp-cat') return -1;
-    return a.sort_order - b.sort_order;
-  });
+  // 按 sort_order 排序
+  const catOrder = [...expCategories].sort((a, b) => a.sort_order - b.sort_order);
 
   const sortedCats = Object.values(byCat).sort((a, b) => {
-    if (a.id === 'default-exp-cat') return 1;
-    if (b.id === 'default-exp-cat') return -1;
     const ai = catOrder.findIndex(c => c.id === a.id);
     const bi = catOrder.findIndex(c => c.id === b.id);
     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
