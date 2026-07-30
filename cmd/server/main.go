@@ -4439,12 +4439,8 @@ func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
 		return
 	}
-	if !a.AutoClaimEnabled {
-		writeErr(w, http.StatusForbidden, "auto claim is disabled for this agent")
-		return
-	}
-
 	// 尝试立即 claim（无等待路径）
+	// 注意：已分派的任务（dispatched_at IS NOT NULL）不受 auto_claim_enabled 限制
 	doClaim := func() (taskID string, err error) {
 		tid, err := s.db.NextClaimable(agentID)
 		if err != nil {
