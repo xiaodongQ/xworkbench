@@ -246,7 +246,7 @@ function loadExpCategoryList() {
       const isDefault = c.id === 'default-exp-cat';
       const dragAttrs = isDefault ? '' : `draggable="true" ondragstart="onExpCatDragStart(event,${i})" ondragover="onExpCatDragOver(event)" ondrop="onExpCatDrop(event,${i})" ondragend="onExpCatDragEnd(event)"`;
       const dragHandle = isDefault ? '' : '<span class="drag-handle" style="cursor:grab;margin-right:6px;color:var(--text-secondary)">⋮⋮</span>';
-      return `<div class="cat-row" ${dragAttrs} style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--border)">
+      return `<div class="cat-row" ${dragAttrs} style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px">
         <div style="display:flex;align-items:center;gap:6px">
           ${dragHandle}
           <span>${esc((c.icon || '') + ' ' + c.name)}</span>

@@ -33,7 +33,7 @@ function loadTaskCategoryList() {
       const isDefault = c.id === 'default-task-cat';
       const dragAttrs = `draggable="true" ondragstart="onTaskCatDragStart(event)" ondragover="onTaskCatDragOver(event)" ondrop="onTaskCatDrop(event)" ondragend="onTaskCatDragEnd(event)"`;
       const dragHandle = '<span class="drag-handle" style="cursor:grab;margin-right:6px">⋮⋮</span>';
-      return `<div class="cat-row" data-cat-id="${c.id}" data-index="${i}" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border)" ${dragAttrs}>
+      return `<div class="cat-row" data-cat-id="${c.id}" data-index="${i}" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border);font-size:12px" ${dragAttrs}>
         ${dragHandle}
         <span>${esc((c.icon || '') + ' ' + c.name)}</span>
         ${isDefault ? '<span style="font-size:10px;color:var(--text-secondary)">默认</span>' : ''}
