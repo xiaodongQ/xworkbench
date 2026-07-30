@@ -3558,14 +3558,16 @@ func (r *ExecutionCommentRepo) Delete(id string) error {
 }
 
 // NextClaimable 返回下一个可 claim 的 remote 任务（按 priority DESC, created_at ASC 排序）。
+// agentID 用于过滤 assigned_agent_id：只返回分配给此 agent 的任务（未指定 agent 的允许任意 agent 认领）。
 func (r *TaskRepo) NextClaimable(agentID string) (string, error) {
 	q := `SELECT id FROM tasks
 		WHERE status='pending' AND task_type='remote'
 		  AND (claimer_agent_id='' OR claimer_agent_id IS NULL)
+		  AND (assigned_agent_id='' OR assigned_agent_id IS NULL OR assigned_agent_id=?1)
 		ORDER BY priority DESC, created_at ASC
 		LIMIT 1`
 	var id string
-	err := r.db.QueryRow(q).Scan(&id)
+	err := r.db.QueryRow(q, agentID).Scan(&id)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
