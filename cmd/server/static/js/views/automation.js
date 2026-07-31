@@ -13,7 +13,15 @@ const _schedCatExpanded = JSON.parse(localStorage.getItem('sf-sched-cat-expanded
 function toggleSchedCategory(catId) {
   _schedCatExpanded[catId] = _schedCatExpanded[catId] === false ? true : false;
   localStorage.setItem('sf-sched-cat-expanded', JSON.stringify(_schedCatExpanded));
-  loadScheduled();
+  // 纯 DOM 切换：不再触发网络请求和重渲染
+  const arrow = document.getElementById('sched-cat-arrow-' + catId);
+  const items = document.getElementById('sched-cat-items-' + catId);
+  if (!items) return;
+  const isHidden = items.classList.contains('hidden');
+  items.classList.toggle('hidden');
+  if (arrow) {
+    arrow.style.transform = isHidden ? 'rotate(90deg)' : '';
+  }
 }
 
 function isSchedCategoryExpanded(catId) {
@@ -556,13 +564,13 @@ async function loadScheduled() {
             <tr class="task-category-header-row" onclick="toggleSchedCategory('${cat.id}')" style="cursor:pointer">
               <td colspan="6" style="padding:6px 12px;font-size:12px">
                 <div style="display:flex;align-items:center;gap:6px">
-                  <span style="font-size:12px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
+                  <span id="sched-cat-arrow-${cat.id}" style="font-size:12px;color:var(--text-secondary);transition:transform 0.15s;transform:${isExpanded ? 'rotate(90deg)' : ''}">▶</span>
                   <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
                   <span style="margin-left:auto;color:var(--text-secondary)">${sortedItems.length}</span>
                 </div>
               </td>
             </tr>
-          </tbody><tbody class="${isExpanded ? '' : 'hidden'}">` +
+          </tbody><tbody id="sched-cat-items-${cat.id}" class="${isExpanded ? '' : 'hidden'}">` +
           sortedItems.map(s => {
             const lastRun = s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '-';
             const nextRun = (s.enabled && s.next_run_at)

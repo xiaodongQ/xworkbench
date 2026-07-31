@@ -10,7 +10,15 @@ const _taskCatExpanded = JSON.parse(localStorage.getItem('sf-task-cat-expanded')
 function toggleTaskCategory(catId) {
   _taskCatExpanded[catId] = _taskCatExpanded[catId] === false ? true : false;
   localStorage.setItem('sf-task-cat-expanded', JSON.stringify(_taskCatExpanded));
-  renderTaskTable(tasks);
+  // 纯 DOM 切换：不再触发网络请求和重渲染
+  const arrow = document.getElementById('task-cat-arrow-' + catId);
+  const items = document.getElementById('task-cat-items-' + catId);
+  if (!items) return;
+  const isHidden = items.classList.contains('hidden');
+  items.classList.toggle('hidden');
+  if (arrow) {
+    arrow.style.transform = isHidden ? 'rotate(90deg)' : '';
+  }
 }
 
 function isTaskCategoryExpanded(catId) {
@@ -324,14 +332,14 @@ function renderTaskTable(list) {
             <tr class="task-category-header-row" onclick="toggleTaskCategory('${cat.id}')" style="cursor:pointer">
               <td colspan="5" style="padding:6px 12px;font-size:12px">
                 <div style="display:flex;align-items:center;gap:6px">
-                  <span style="font-size:12px;color:var(--text-secondary)">${isExpanded ? '▼' : '▶'}</span>
+                  <span id="task-cat-arrow-${cat.id}" style="font-size:12px;color:var(--text-secondary);transition:transform 0.15s;transform:${isExpanded ? 'rotate(90deg)' : ''}">▶</span>
                   <span>${esc((cat.icon || '') + ' ' + cat.name)}</span>
                   <span style="margin-left:auto;color:var(--text-secondary)">${items.length}</span>
                 </div>
               </td>
             </tr>
           </tbody>
-          <tbody class="${isExpanded ? '' : 'hidden'}">
+          <tbody id="task-cat-items-${cat.id}" class="${isExpanded ? '' : 'hidden'}">
             ${items.map(t => {
             const ops = taskOpsByStatus(t);
             return `<tr>

@@ -1457,7 +1457,8 @@ tr:last-child td { border-bottom: none; }
   right: 8px;
   width: 500px;
   max-width: 92vw;
-  height: calc(100vh - 16px);
+  height: 600px;
+  max-height: calc(100vh - 16px);
   z-index: 1200;
   background: var(--card-bg, #1e293b);
   border: 1px solid var(--border, #334155);
@@ -1506,7 +1507,7 @@ tr:last-child td { border-bottom: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--border, #334155);
   flex-shrink: 0;
   background: linear-gradient(to bottom, rgba(255,255,255,0.02), transparent);
@@ -1594,7 +1595,7 @@ tr:last-child td { border-bottom: none; }
 }
 .floating-chat-body .aichat-input-area {
   flex-shrink: 0;
-  padding: 12px 16px;
+  padding: 6px 16px;
   border-top: 1px solid var(--border, #334155);
   background: linear-gradient(to top, rgba(0,0,0,0.15), transparent);
 }
