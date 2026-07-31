@@ -139,6 +139,14 @@ func shellRunCommand(prompt string) ([]string, string, func(), error) {
 		return nil, "", nil, fmt.Errorf("create temp script: %w", err)
 	}
 	path := f.Name()
+	if runtime.GOOS == "windows" {
+		// 写入 UTF-8 BOM，防止 PowerShell 默认 ANSI(GBK) 导致中文乱码
+		if _, err := f.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
+			f.Close()
+			_ = os.Remove(path)
+			return nil, "", nil, fmt.Errorf("write UTF-8 BOM: %w", err)
+		}
+	}
 	if _, err := f.WriteString(prompt); err != nil {
 		f.Close()
 		_ = os.Remove(path)

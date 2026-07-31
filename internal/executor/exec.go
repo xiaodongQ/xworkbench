@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -84,8 +85,13 @@ func Run(ctx context.Context, cmd []string, dir string, stdin string, onChunk fu
 		}
 		return nil, err
 	}
-	// 强制子进程使用 UTF-8 编码，避免 shell 命令中文输出乱码
-	c.Env = append(os.Environ(), "LANG=zh_CN.UTF-8", "LC_ALL=zh_CN.UTF-8")
+	// 强制子进程使用 UTF-8 编码
+	if runtime.GOOS == "windows" {
+		// Windows 下 LANG/LC_ALL 对 cmd.exe/PowerShell 无效，改用 PYTHONIOENCODING
+		c.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
+	} else {
+		c.Env = append(os.Environ(), "LANG=zh_CN.UTF-8", "LC_ALL=zh_CN.UTF-8")
+	}
 
 	started := time.Now()
 	if err := c.Start(); err != nil {
@@ -191,6 +197,91 @@ func errStr(err error) string {
 
 // truncateCmd 把命令行拼成可读字符串,超过 200 字符截断(避免 AI CLI 的长 prompt
 // 把日志撑爆)。truncateCmd 同时会标记原长度,方便定位"是不是 prompt 太长"。
+// utf8Valid 检测 b 是否为有效 UTF-8 序列。
+func utf8Valid(b []byte) bool {
+	i := 0
+	for i < len(b) {
+		if b[i] < 0x80 {
+			i++
+			continue
+		}
+		// 多字节 UTF-8：统计高位连续 1 的数量（字节首字节）
+		n := 0
+		for ; n < 8 && i+n < len(b) && (b[i+n]&0xC0) == 0x80; n++ {
+		}
+		if n == 0 || n > 4 {
+			return false
+		}
+		// 检查首字节：n 个字节的合法首字节范围
+		valid := false
+		switch n {
+		case 2:
+			valid = b[i]&0xE0 == 0xC0
+		case 3:
+			valid = b[i]&0xF0 == 0xE0
+		case 4:
+			valid = b[i]&0xF8 == 0xF0
+		default:
+			return false
+		}
+		if !valid {
+			return false
+		}
+		i += n + 1
+	}
+	return true
+}
+
+// decodeRune 解码首个 UTF-8 码点，返回 (rune, consumedBytes)。
+func decodeRune(b []byte) (rune, int) {
+	if len(b) == 0 {
+		return 0, 0
+	}
+	if b[0] < 0x80 {
+		return rune(b[0]), 1
+	}
+	// 确定字节数
+	n := 0
+	for ; n < 8 && n < len(b) && (b[n]&0xC0) == 0x80; n++ {
+	}
+	if n < 1 || n > 4 {
+		return rune(b[0]), 1
+	}
+	// 合成 rune
+	var r rune
+	switch n {
+	case 2:
+		r = rune(b[0]&0x1F) << 6
+		r |= rune(b[1]&0x3F)
+	case 3:
+		r = rune(b[0]&0x0F) << 12
+		r |= rune(b[1]&0x3F) << 6
+		r |= rune(b[2]&0x3F)
+	case 4:
+		r = rune(b[0]&0x07) << 18
+		r |= rune(b[1]&0x3F) << 12
+		r |= rune(b[2]&0x3F) << 6
+		r |= rune(b[3]&0x3F)
+	default:
+		return rune(b[0]), 1
+	}
+	return r, n + 1
+}
+
+// readUTF8 读取文件内容，先尝试 UTF-8 解码，无效时返回原始内容（Latin1 映射）。
+// GBK 转码依赖 golang.org/x/text/encoding，暂不引入；当前兜底保留原始字节。
+func readUTF8(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	if utf8Valid(data) {
+		return string(data), nil
+	}
+	// 非 UTF-8 时兜底返回原始字节（Latin1 映射，保留每个字节值）
+	return string(data), nil
+}
+
 func truncateCmd(cmd []string) string {
 	full := strings.Join(cmd, " ")
 	const max = 200
