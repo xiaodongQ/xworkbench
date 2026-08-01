@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -465,7 +464,7 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 	}
 
 	// 解析 xw-sshpass 路径（直接复用 terminal.go 的逻辑）
-	xwBin := resolveXwSshpassBin()
+	xwBin := executor.ResolveXwSshpassBin()
 	if xwBin == "" {
 		msg := []byte("\r\n\x1b[31m[xworkbench] 未找到 xw-sshpass 二进制，请确认已安装\x1b[0m\r\n")
 		conn.WriteMessage(websocket.TextMessage, msg)
@@ -644,51 +643,6 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 
 	wg.Wait()
 	logger.Infof("pty: remote fully closed tab_id=%q", tabID)
-}
-
-// resolveXwSshpassBin 返回当前平台对应的 xw-sshpass 路径。
-// 优先从 tools/xw-sshpass/ 目录查找，找不到则尝试 PATH。
-func resolveXwSshpassBin() string {
-	goos := runtime.GOOS
-	goarch := runtime.GOARCH
-	osMap := map[string]string{
-		"darwin":  "darwin",
-		"linux":   "linux",
-		"windows": "windows",
-	}
-	osStr := osMap[goos]
-	if osStr == "" {
-		return ""
-	}
-	archStr := "amd64"
-	if goarch == "arm64" {
-		archStr = "arm64"
-	}
-	binName := fmt.Sprintf("xw-sshpass-%s-%s", osStr, archStr)
-	if goos == "windows" {
-		binName += ".exe"
-	}
-
-	// 1. 从 tools/xw-sshpass/ 目录查找
-	wd, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	toolsDir := filepath.Join(wd, "tools", "xw-sshpass")
-	binPath := filepath.Join(toolsDir, binName)
-	if _, err := os.Stat(binPath); err == nil {
-		return binPath
-	}
-
-	// 2. PATH 中查找
-	if bin, err := exec.LookPath(binName); err == nil {
-		return bin
-	}
-	// 3. 尝试不带平台后缀的 xw-sshpass
-	if bin, err := exec.LookPath("xw-sshpass"); err == nil {
-		return bin
-	}
-	return ""
 }
 
 // sessionIDFromCliType 将 cli_type 转为会话管理器 ID。

@@ -267,7 +267,8 @@ type ScheduledTask struct {
 	LastSessionID   string    `json:"last_session_id,omitempty"` // 跨执行续用 session_id
 	ResumeCount     int       `json:"resume_count"`              // 当前连续 resume 次数，达到 MaxResumeCount 后重置会话
 	CreatedAt       time.Time `json:"created_at"`
-	CategoryID      string    `json:"category_id,omitempty"`     // 分类 ID
+	CategoryID             string    `json:"category_id,omitempty"`              // 分类 ID
+	AssignedDirShortcutID  string    `json:"assigned_dir_shortcut_id,omitempty"`  // 远程执行目标 DirShortcut
 }
 
 // AppSetting KV 设置

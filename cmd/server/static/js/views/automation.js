@@ -632,11 +632,27 @@ async function showScheduledModal() {
       schedCategories.map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
   }
   document.getElementById('sched-category').value = '';  document.getElementById('sched-submit-btn').textContent = '创建';
+  // 加载远程目标机器列表
+  loadSchedAgentOptions();
   document.getElementById('scheduled-modal').classList.remove('hidden');
   onSchedTypeChange();
   setTimeout(() => document.getElementById('sched-name').focus(), 50);
 }
 function closeScheduledModal() { document.getElementById('scheduled-modal').classList.add('hidden'); }
+async function loadSchedAgentOptions() {
+  const sel = document.getElementById('sched-agent-id');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">本机执行（默认）</option>';
+  try {
+    const dirs = await fetchJSON(API + '/api/dir-shortcuts');
+    (dirs || []).filter(d => d.type === 'remote').forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = d.name + ' (' + d.remote_user + '@' + d.remote_host + ')';
+      sel.appendChild(opt);
+    });
+  } catch (e) { console.warn('loadSchedAgentOptions failed', e); }
+}
 function onSchedTypeChange() {
   const type = document.getElementById('sched-type').value;
   const modelSel = document.getElementById('sched-model');
@@ -677,6 +693,12 @@ async function editScheduled(id) {
       schedCategories.map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
   }
   document.getElementById('sched-category').value = s.category_id || '';  document.getElementById('sched-submit-btn').textContent = '保存';
+  // 加载远程目标机器列表，回显已有值
+  await loadSchedAgentOptions();
+  if (s.assigned_dir_shortcut_id) {
+    const sel = document.getElementById('sched-agent-id');
+    if (sel) sel.value = s.assigned_dir_shortcut_id;
+  }
   document.getElementById('scheduled-modal').classList.remove('hidden');
   // 编辑时：先设置已有模型值，再更新下拉框选项，最后恢复已有值（避免被全局默认值覆盖）
   const savedModel = s.model || '';
@@ -693,7 +715,7 @@ function submitScheduled() {
   const timeoutSec = parseInt(document.getElementById('sched-timeout').value) || 0;
   const enabled = document.getElementById('sched-enabled').checked;
   if (!name || !cron || !promptText) { alert('名称、Cron、Prompt 必填'); return; }
-  const body = {name, cron_expr:cron, command_type:type, prompt:promptText, model, timeout_sec:timeoutSec, enabled, category_id:document.getElementById('sched-category').value};
+  const body = {name, cron_expr:cron, command_type:type, prompt:promptText, model, timeout_sec:timeoutSec, enabled, category_id:document.getElementById('sched-category').value, assigned_dir_shortcut_id: document.getElementById('sched-agent-id')?.value || ''};
   const method = id ? 'PUT' : 'POST';
   const url = id ? '/api/scheduled/' + id : '/api/scheduled';
   fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})

@@ -27,6 +27,7 @@ type Scheduler struct {
 	cron    *cron.Cron
 	repo    *backend.ScheduledTaskRepo
 	execDB  *backend.ExecutionRepo
+	dirDB   *backend.DirShortcutRepo
 	hub     *hub.Hub
 	running bool
 
@@ -47,12 +48,13 @@ type Scheduler struct {
 	sf singleflight.Group
 }
 
-func New(repo *backend.ScheduledTaskRepo, execDB *backend.ExecutionRepo, h *hub.Hub) *Scheduler {
+func New(repo *backend.ScheduledTaskRepo, execDB *backend.ExecutionRepo, dirDB *backend.DirShortcutRepo, h *hub.Hub) *Scheduler {
 	loc, _ := time.LoadLocation("Local")
 	return &Scheduler{
 		cron:    cron.New(cron.WithLocation(loc)),
 		repo:    repo,
 		execDB:  execDB,
+		dirDB:   dirDB,
 		hub:     h,
 		entries: make(map[string]cron.EntryID),
 		nextRun: make(map[string]time.Time),
@@ -303,15 +305,28 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
-	res, _ := executor.Run(ctx, cmd, t.WorkingDir, stdin, func(chunk string) {
-		// chunk 推送走 exec 频道（handleExecStream 在前端已存在），
-		// 与 started/done 频道分离，避免每次 chunk 触发前端 loadScheduled() 重算 next_run_at 漂移。
-		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
-			"scheduled_task_id": t.ID,
-			"execution_id":      exec.ID,
-			"chunk":             chunk,
+
+	var res *executor.Result
+	if t.AssignedDirShortcutID != "" {
+		if ds, err := s.dirDB.GetByID(t.AssignedDirShortcutID); err == nil && ds.Type == backend.DirShortcutTypeRemote {
+			res, _ = executor.RunViaXwSshpass(ctx, ds, cmd, stdin, func(chunk string) {
+				s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+					"scheduled_task_id": t.ID,
+					"execution_id":      exec.ID,
+					"chunk":             chunk,
+				})
+			})
+		}
+	}
+	if res == nil {
+		res, _ = executor.Run(ctx, cmd, t.WorkingDir, stdin, func(chunk string) {
+			s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
+				"scheduled_task_id": t.ID,
+				"execution_id":      exec.ID,
+				"chunk":             chunk,
+			})
 		})
-	})
+	}
 
 	out, errOut := "", ""
 	exitCode := -1

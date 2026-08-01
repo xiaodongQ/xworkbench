@@ -189,6 +189,8 @@ func InitSchema(db *sql.DB) error {
 		last_execution_id TEXT,
 		last_session_id TEXT,
 			resume_count INTEGER DEFAULT 0,
+		category_id TEXT DEFAULT '',
+		assigned_dir_shortcut_id TEXT DEFAULT '',
 		created_at DATETIME
 	);
 	-- 注:app_settings 表于 2026-06 重构移除,所有 KV 偏好已迁至 config.json 顶层字段
@@ -466,6 +468,8 @@ func migrateScheduledTasksColumns(db *sql.DB) error {
 		{"timeout_sec", "timeout_sec INTEGER DEFAULT 0"},
 		{"last_session_id", "last_session_id TEXT"},
 		{"resume_count", "resume_count INTEGER DEFAULT 0"},
+		{"category_id", "category_id TEXT DEFAULT ''"},
+		{"assigned_dir_shortcut_id", "assigned_dir_shortcut_id TEXT DEFAULT ''"},
 	}
 	for _, a := range add {
 		if err := addCol(a.n, a.d); err != nil {
@@ -2726,10 +2730,10 @@ func (r *ScheduledTaskRepo) Create(t *ScheduledTask) error {
 	if categoryID == "" {
 		categoryID = "default-sched-cat"
 	}
-	q := `INSERT INTO scheduled_tasks (id,name,cron_expr,command_type,model,prompt,working_dir,enabled,timeout_sec,created_at,category_id)
-	        VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+	q := `INSERT INTO scheduled_tasks (id,name,cron_expr,command_type,model,prompt,working_dir,enabled,timeout_sec,created_at,category_id,assigned_dir_shortcut_id)
+	        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, t.ID, t.Name, t.CronExpr, t.CommandType, t.Model, t.Prompt,
-		t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, t.CreatedAt, categoryID)
+		t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, t.CreatedAt, categoryID, t.AssignedDirShortcutID)
 	if err != nil {
 		logger.Logger.Errorw("scheduled_tasks insert failed", "id", t.ID, "error", err.Error())
 		return err
@@ -2743,8 +2747,8 @@ func (r *ScheduledTaskRepo) Update(t *ScheduledTask) error {
 	if categoryID == "" {
 		categoryID = "default-sched-cat"
 	}
-	_, err := r.db.Exec(`UPDATE scheduled_tasks SET name=?, cron_expr=?, command_type=?, model=?, prompt=?, working_dir=?, enabled=?, timeout_sec=?, category_id=? WHERE id=?`,
-		t.Name, t.CronExpr, t.CommandType, t.Model, t.Prompt, t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, categoryID, t.ID)
+	_, err := r.db.Exec(`UPDATE scheduled_tasks SET name=?, cron_expr=?, command_type=?, model=?, prompt=?, working_dir=?, enabled=?, timeout_sec=?, category_id=?, assigned_dir_shortcut_id=? WHERE id=?`,
+		t.Name, t.CronExpr, t.CommandType, t.Model, t.Prompt, t.WorkingDir, boolToInt(t.Enabled), t.TimeoutSec, categoryID, t.AssignedDirShortcutID, t.ID)
 	if err != nil {
 		logger.Logger.Errorw("scheduled_tasks update failed", "id", t.ID, "error", err.Error())
 		return err
@@ -2765,12 +2769,12 @@ func (r *ScheduledTaskRepo) Delete(id string) error {
 
 func (r *ScheduledTaskRepo) Get(id string) (*ScheduledTask, error) {
 	var t ScheduledTask
-	var model, prompt, workdir, lastStatus, lastExecID, lastSessionID, categoryID sql.NullString
+	var model, prompt, workdir, lastStatus, lastExecID, lastSessionID, categoryID, assignedDirShortcutID sql.NullString
 	var lastRunAt sql.NullTime
 	var enabled, resumeCount int
-	err := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at,category_id
+	err := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at,category_id,assigned_dir_shortcut_id
 	        FROM scheduled_tasks WHERE id=?`, id).Scan(&t.ID, &t.Name, &t.CronExpr, &t.CommandType,
-		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt, &categoryID)
+		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt, &categoryID, &assignedDirShortcutID)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("scheduled_task %s not found", id)
 	}
@@ -2786,6 +2790,7 @@ func (r *ScheduledTaskRepo) Get(id string) (*ScheduledTask, error) {
 	t.ResumeCount = resumeCount
 	t.Enabled = enabled != 0
 	t.CategoryID = categoryID.String
+	t.AssignedDirShortcutID = assignedDirShortcutID.String
 	if lastRunAt.Valid {
 		t.LastRunAt = &lastRunAt.Time
 	}
@@ -2802,14 +2807,14 @@ func (r *ScheduledTaskRepo) ListEnabled() ([]*ScheduledTask, error) {
 
 // FindByName 按 name 精确查找（导入去重使用）。不存在返 nil, nil。
 func (r *ScheduledTaskRepo) FindByName(name string) (*ScheduledTask, error) {
-	row := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at
+	row := r.db.QueryRow(`SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at,category_id,assigned_dir_shortcut_id
 		FROM scheduled_tasks WHERE name=? LIMIT 1`, name)
 	var t ScheduledTask
-	var model, prompt, workdir, lastStatus, lastExecID, lastSessionID sql.NullString
+	var model, prompt, workdir, lastStatus, lastExecID, lastSessionID, categoryID, assignedDSID sql.NullString
 	var lastRunAt sql.NullTime
 	var enabled, resumeCount int
 	if err := row.Scan(&t.ID, &t.Name, &t.CronExpr, &t.CommandType,
-		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt); err != nil {
+		&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt, &categoryID, &assignedDSID); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -2822,6 +2827,8 @@ func (r *ScheduledTaskRepo) FindByName(name string) (*ScheduledTask, error) {
 	t.LastExecutionID = lastExecID.String
 	t.LastSessionID = lastSessionID.String
 	t.ResumeCount = resumeCount
+	t.CategoryID = categoryID.String
+	t.AssignedDirShortcutID = assignedDSID.String
 	t.Enabled = enabled != 0
 	if lastRunAt.Valid {
 		t.LastRunAt = &lastRunAt.Time
@@ -2830,7 +2837,7 @@ func (r *ScheduledTaskRepo) FindByName(name string) (*ScheduledTask, error) {
 }
 
 func (r *ScheduledTaskRepo) listWhere(where string) ([]*ScheduledTask, error) {
-	q := `SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at,category_id
+	q := `SELECT id,name,cron_expr,command_type,model,prompt,working_dir,enabled,last_run_at,last_status,last_execution_id,last_session_id,resume_count,created_at,category_id,assigned_dir_shortcut_id
 	        FROM scheduled_tasks ` + where + ` ORDER BY created_at DESC`
 	rows, err := r.db.Query(q)
 	if err != nil {
@@ -2840,11 +2847,11 @@ func (r *ScheduledTaskRepo) listWhere(where string) ([]*ScheduledTask, error) {
 	var out []*ScheduledTask
 	for rows.Next() {
 		var t ScheduledTask
-		var model, prompt, workdir, lastStatus, lastExecID, lastSessionID, categoryID sql.NullString
+		var model, prompt, workdir, lastStatus, lastExecID, lastSessionID, categoryID, assignedDSID sql.NullString
 		var lastRunAt sql.NullTime
 		var enabled, resumeCount int
 		if err := rows.Scan(&t.ID, &t.Name, &t.CronExpr, &t.CommandType,
-			&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt, &categoryID); err != nil {
+			&model, &prompt, &workdir, &enabled, &lastRunAt, &lastStatus, &lastExecID, &lastSessionID, &resumeCount, &t.CreatedAt, &categoryID, &assignedDSID); err != nil {
 			return nil, err
 		}
 		t.Model = model.String
@@ -2854,8 +2861,9 @@ func (r *ScheduledTaskRepo) listWhere(where string) ([]*ScheduledTask, error) {
 		t.LastExecutionID = lastExecID.String
 		t.LastSessionID = lastSessionID.String
 		t.ResumeCount = resumeCount
-		t.Enabled = enabled != 0
 		t.CategoryID = categoryID.String
+		t.AssignedDirShortcutID = assignedDSID.String
+		t.Enabled = enabled != 0
 		if lastRunAt.Valid {
 			t.LastRunAt = &lastRunAt.Time
 		}

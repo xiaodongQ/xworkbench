@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"unicode"
@@ -338,7 +337,7 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 	}
 
 	// 解析 xw-sshpass 路径
-	xwBin := resolveXwSshpassBin()
+	xwBin := executor.ResolveXwSshpassBin()
 	if xwBin == "" {
 		conn.WriteMessage(websocket.TextMessage,
 			[]byte("\r\n\x1b[31m[xworkbench] 未找到 xw-sshpass 二进制，请确认已安装\x1b[0m\r\n"))
@@ -533,46 +532,6 @@ func (r *windowsWsReader) Read(p []byte) (int, error) {
 		return copy(p, data), nil
 	}
 	return 0, nil
-}
-
-// resolveXwSshpassBin 返回当前平台对应的 xw-sshpass 路径。
-func resolveXwSshpassBin() string {
-	goos := runtime.GOOS
-	goarch := runtime.GOARCH
-	osMap := map[string]string{
-		"darwin":  "darwin",
-		"linux":   "linux",
-		"windows": "windows",
-	}
-	osStr := osMap[goos]
-	if osStr == "" {
-		return ""
-	}
-	archStr := "amd64"
-	if goarch == "arm64" {
-		archStr = "arm64"
-	}
-	binName := fmt.Sprintf("xw-sshpass-%s-%s", osStr, archStr)
-	if goos == "windows" {
-		binName += ".exe"
-	}
-
-	wd, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	toolsDir := filepath.Join(wd, "tools", "xw-sshpass")
-	binPath := filepath.Join(toolsDir, binName)
-	if _, err := os.Stat(binPath); err == nil {
-		return binPath
-	}
-	if bin, err := exec.LookPath(binName); err == nil {
-		return bin
-	}
-	if bin, err := exec.LookPath("xw-sshpass"); err == nil {
-		return bin
-	}
-	return ""
 }
 
 // sessionIDFromCliType 将 cli_type 转为会话管理器 ID。

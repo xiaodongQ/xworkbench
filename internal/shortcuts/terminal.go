@@ -6,8 +6,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/xiaodongQ/xworkbench/internal/backend"
@@ -74,48 +72,6 @@ func DefaultTerminal() string {
 
 // buildRemoteArgs 已迁移到 internal/executor/ssh_command_builder.go 的 BuildSSHCommand。
 
-// resolveXwSshpassBin 返回当前平台对应的 xw-sshpass 路径。
-// 优先从 tools/xw-sshpass/ 目录查找，找不到则尝试 PATH。
-func resolveXwSshpassBin() string {
-	goos := runtime.GOOS
-	goarch := runtime.GOARCH
-	osMap := map[string]string{
-		"darwin":  "darwin",
-		"linux":   "linux",
-		"windows": "windows",
-	}
-	osStr := osMap[goos]
-	if osStr == "" {
-		return ""
-	}
-	archStr := "amd64"
-	if goarch == "arm64" {
-		archStr = "arm64"
-	}
-	binName := fmt.Sprintf("xw-sshpass-%s-%s", osStr, archStr)
-	if goos == "windows" {
-		binName += ".exe"
-	}
-
-	// 1. 从 tools/xw-sshpass/ 目录查找（cwd 为项目根）
-	toolsDir := filepath.Join(getProjectRoot(), "tools", "xw-sshpass")
-	binPath := filepath.Join(toolsDir, binName)
-	if _, err := os.Stat(binPath); err == nil {
-		return binPath
-	}
-
-	// 2. fallback 到 PATH
-	if bin, err := exec.LookPath(binName); err == nil {
-		return bin
-	}
-	// 3. 尝试不带平台后缀的 xw-sshpass
-	if bin, err := exec.LookPath("xw-sshpass"); err == nil {
-		return bin
-	}
-
-	return ""
-}
-
 // getProjectRoot 返回项目根目录（xworkbench 二进制所在目录，即 cwd）。
 // xworkbench 通过 scripts/run.sh 启动时，cwd 为项目根目录。
 func getProjectRoot() string {
@@ -158,7 +114,7 @@ func openRemoteDirShortcutImpl(ctx context.Context, dir *backend.DirShortcut, te
 		"remotePath", dir.RemotePath, "authMethod", dir.AuthMethod)
 
 	// 统一使用 xw-sshpass 处理远程连接（支持密码和密钥认证）
-	xwBin := resolveXwSshpassBin()
+	xwBin := executor.ResolveXwSshpassBin()
 	if xwBin == "" {
 		return fmt.Errorf("xw-sshpass not found, please build it first")
 	}

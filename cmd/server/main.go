@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"embed"
 	"encoding/json"
@@ -930,7 +929,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		var res *executor.Result
 		var runErr error
 		if remoteDS != nil {
-			res, runErr = runViaXwSshpass(ctx, remoteDS, cmd, stdin, chunkCB)
+			res, runErr = executor.RunViaXwSshpass(ctx, remoteDS, cmd, stdin, chunkCB)
 		} else {
 			// AI 任务 CWD 走沙盒（data/ai-sandbox/），避免 AI 写文件污染源码树
 			// CWD = 项目根（继承父进程），让 AI 能 ls/Read 项目文件；
@@ -1004,123 +1003,6 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 			return "local"
 		}(),
 	})
-}
-
-// runViaXwSshpass 通过 xw-sshpass 子进程在远程机器上执行命令。
-func runViaXwSshpass(ctx context.Context, ds *backend.DirShortcut, cmd []string, stdin string, chunkCB func(string)) (*executor.Result, error) {
-	xwBin := resolveXwSshpassBin()
-	if xwBin == "" {
-		return nil, fmt.Errorf("xw-sshpass binary not found")
-	}
-
-	userHost := ds.RemoteUser
-	if userHost == "" {
-		userHost = "root"
-	}
-	userHost = userHost + "@" + ds.RemoteHost
-	if ds.RemotePort != "" && ds.RemotePort != "22" {
-		userHost = userHost + ":" + ds.RemotePort
-	}
-
-	var args []string
-	if ds.AuthMethod == "key" {
-		keyPath := executor.ResolveKeyPath(ds)
-		if keyPath == "" {
-			return nil, fmt.Errorf("ssh key not found")
-		}
-		args = append(args, "-i", keyPath)
-	} else {
-		if ds.RemotePassword == "" {
-			return nil, fmt.Errorf("no password or key configured for %s", ds.Name)
-		}
-		args = append(args, "-p", ds.RemotePassword)
-	}
-	args = append(args, "ssh", userHost)
-	// Shell wrapper:
-	// 1. mkdir ~/xworkbench-task 并在该目录执行（避免污染 HOME，无需 trust）
-	// 2. source rc files 加载完整 PATH
-	// 3. zsh 优先，fallback bash
-	cmdStr := strings.Join(cmd, " ")
-	escaped := strings.ReplaceAll(cmdStr, "'", "'\\''")
-	shellCmd := fmt.Sprintf(
-		`mkdir -p ~/xworkbench-task && cd ~/xworkbench-task && command -v zsh >/dev/null 2>&1 && zsh -c 'source ~/.zshrc 2>/dev/null; %s' || bash -c 'source ~/.bashrc 2>/dev/null; %s'`,
-		escaped, escaped)
-	args = append(args, shellCmd)
-
-	logger.Infow("task run: xw-sshpass", "bin", xwBin, "args", args)
-
-	execCmd := osexec.CommandContext(ctx, xwBin, args...)
-	var outBuilder, errBuilder strings.Builder
-
-	stdoutPipe, err := execCmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	stderrPipe, err := execCmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
-	// 将 prompt 通过 stdin 传给远程 claude -p
-	if stdin != "" {
-		stdinPipe, err := execCmd.StdinPipe()
-		if err != nil {
-			return nil, err
-		}
-		go func() {
-			defer stdinPipe.Close()
-			stdinPipe.Write([]byte(stdin))
-		}()
-	}
-	if err := execCmd.Start(); err != nil {
-		return nil, fmt.Errorf("xw-sshpass start: %w", err)
-	}
-
-	outDone := make(chan struct{})
-	go func() {
-		scanner := bufio.NewScanner(stdoutPipe)
-		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text() + "\n"
-			outBuilder.WriteString(line)
-			if chunkCB != nil {
-				chunkCB(line)
-			}
-		}
-		close(outDone)
-	}()
-
-	errDone := make(chan struct{})
-	go func() {
-		scanner := bufio.NewScanner(stderrPipe)
-		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := "[err] " + scanner.Text() + "\n"
-			errBuilder.WriteString(line)
-			if chunkCB != nil {
-				chunkCB(line)
-			}
-		}
-		close(errDone)
-	}()
-
-	<-outDone
-	<-errDone
-
-	waitErr := execCmd.Wait()
-	exitCode := 0
-	if waitErr != nil {
-		if exitErr, ok := waitErr.(*osexec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			exitCode = -1
-		}
-	}
-
-	return &executor.Result{
-		Output:   outBuilder.String(),
-		ErrorOut: errBuilder.String(),
-		ExitCode: exitCode,
-	}, nil
 }
 
 func (s *APIServer) handleTaskUnclaim(w http.ResponseWriter, r *http.Request) {
@@ -1321,6 +1203,13 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 			}
 		}
 	}
+	if remoteDS == nil && orig.ScheduledTaskID != "" {
+		if task, err := s.schedDB.Get(orig.ScheduledTaskID); err == nil && task.AssignedDirShortcutID != "" {
+			if ds, err := s.dirDB.GetByID(task.AssignedDirShortcutID); err == nil && ds.Type == backend.DirShortcutTypeRemote {
+				remoteDS = ds
+			}
+		}
+	}
 	buildPrompt := req.Prompt
 	// 本地任务才拼输出目录约定，远程任务 skip（远端没有这个路径）
 	if remoteDS == nil && orig.TaskID != "" {
@@ -1385,7 +1274,7 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		}
 		var res *executor.Result
 		if remoteDS != nil {
-			res, _ = runViaXwSshpass(ctx, remoteDS, cmd, stdin, chunkCB)
+			res, _ = executor.RunViaXwSshpass(ctx, remoteDS, cmd, stdin, chunkCB)
 		} else {
 			res, _ = executor.Run(ctx, cmd, "", stdin, chunkCB)
 		}
@@ -2801,6 +2690,7 @@ func (s *APIServer) handleScheduledCreate(w http.ResponseWriter, r *http.Request
 		Enabled     bool   `json:"enabled"`
 		CategoryID  string `json:"category_id"`
 		TimeoutSec  int    `json:"timeout_sec"`
+		AssignedDirShortcutID string `json:"assigned_dir_shortcut_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -2821,6 +2711,7 @@ func (s *APIServer) handleScheduledCreate(w http.ResponseWriter, r *http.Request
 		Enabled:     req.Enabled,
 		CategoryID:  req.CategoryID,
 		TimeoutSec:  req.TimeoutSec,
+		AssignedDirShortcutID: req.AssignedDirShortcutID,
 		CreatedAt:   time.Now(),
 	}
 	if err := s.schedDB.Create(t); err != nil {
@@ -2845,6 +2736,7 @@ func (s *APIServer) handleScheduledUpdate(w http.ResponseWriter, r *http.Request
 		Enabled     bool   `json:"enabled"`
 		CategoryID  string `json:"category_id"`
 		TimeoutSec  int    `json:"timeout_sec"`
+		AssignedDirShortcutID string `json:"assigned_dir_shortcut_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -2861,6 +2753,7 @@ func (s *APIServer) handleScheduledUpdate(w http.ResponseWriter, r *http.Request
 		Enabled:     req.Enabled,
 		CategoryID:  req.CategoryID,
 		TimeoutSec:  req.TimeoutSec,
+		AssignedDirShortcutID: req.AssignedDirShortcutID,
 	}
 	if err := s.schedDB.Update(t); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -3518,7 +3411,7 @@ func main() {
 	schedRepo := backend.NewScheduledTaskRepo(db)
 	evalRepo := backend.NewEvaluationRepo(db)
 	h := hub.New()
-	sch := scheduler.New(schedRepo, execRepo, h)
+	sch := scheduler.New(schedRepo, execRepo, dirRepo, h)
 	if err := sch.AutoStart(); err != nil {
 		logger.Errorf("[scheduler] auto start failed: %v", err)
 	}
