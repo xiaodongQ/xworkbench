@@ -4,37 +4,36 @@ xworkbench 工作台 Agent CLI 工具，供 Claude Code 等 Agent 操作工作�
 
 ## 安装
 
-### 方式一：从 xworkbench 服务器下载（推荐）
+### 方式一：一键安装（推荐）
 
-如果你的 xworkbench 服务器已运行，可以直接下载对应平台的二进制：
+如果 xworkbench 服务器已运行，执行安装脚本即可：
 
 ```bash
-curl http://localhost:8902/api/xworkbench-cli/download -o xworkbench-cli
-chmod +x xworkbench-cli
+curl http://localhost:8902/api/xworkbench-cli/install | bash
 ```
 
-服务器会自动检测你的操作系统和架构。也可以手动指定：
-```bash
-curl "http://localhost:8902/api/xworkbench-cli/download?os=darwin&arch=amd64" -o xworkbench-cli
-```
+安装脚本会自动：
+1. 检测 Claude Code 或 CodeBuddy 环境
+2. 下载对应平台的二进制
+3. 下载 SKILL.md 和 README.md
+4. 安装到 `~/.claude/skills/xworkbench-cli/` 或 `~/.codebuddy/skills/xworkbench-cli/`
 
-### 方式二：从源码构建
+### 方式二：手动安装
 
-1. 克隆 xworkbench-cli 仓库
-2. 编译对应平台二进制：
+1. 下载二进制：
    ```bash
-   cd cmd/xworkbench-cli
-   GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o xworkbench-cli-darwin-amd64 .
-   GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o xworkbench-cli-linux-amd64 .
-   GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o xworkbench-cli-windows-amd64.exe .
+   curl http://localhost:8902/api/xworkbench-cli/download -o xworkbench-cli
+   chmod +x xworkbench-cli
    ```
-3. 选择对应平台的二进制重命名为 `xworkbench-cli`
-
-### 3. 拷贝到 skills 目录
-
-```bash
-cp xworkbench-cli ~/.claude/skills/xworkbench-cli/
-```
+2. 下载 SKILL.md：
+   ```bash
+   curl http://localhost:8902/api/xworkbench-cli/skill.md -o SKILL.md
+   ```
+3. 拷贝到 skills 目录：
+   ```bash
+   mkdir -p ~/.claude/skills/xworkbench-cli/
+   cp xworkbench-cli SKILL.md ~/.claude/skills/xworkbench-cli/
+   ```
 
 ## 使用方法
 
