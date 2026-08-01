@@ -4,9 +4,9 @@ xworkbench 工作台 Agent CLI 工具，供 Claude Code 等 Agent 操作工作�
 
 ## 安装
 
-1. 从 xworkbench-cli 仓库构建或下载 `xworkbench-cli` 二进制
-2. 确保二进制有执行权限：`chmod +x xworkbench-cli`
-3. 放入 Agent 的 tools 目录
+1. 从 xworkbench-cli 仓库获取 `xworkbench-cli-skill` 目录
+2. 确保 `xworkbench-cli` 二进制有执行权限：`chmod +x xworkbench-cli`
+3. 拷贝到 Claude Code 的 skills 目录：`cp -r xworkbench-cli-skill ~/.claude/skills/`
 
 ## 使用方法
 
