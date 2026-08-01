@@ -293,18 +293,10 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/skills/execute", s.handleSkillsExecute)
 	mux.HandleFunc("POST /api/skills/create", s.handleSkillsCreate)
 
-<<<<<<< HEAD
-=======
-	// xwcli 安装脚本（公开，无需认证）
-	mux.HandleFunc("GET /api/xwcli/install.sh", s.handleXwcliInstall)
-	mux.HandleFunc("GET /api/xwcli/{filename}", s.handleXwcliDownload)
-
-	// xworkbench-cli 下载和安装（公开，无需认证）
 	mux.HandleFunc("GET /api/xworkbench-cli/download", s.handleXworkbenchCliDownload)
 	mux.HandleFunc("GET /api/xworkbench-cli/install", s.handleXworkbenchCliInstall)
 	mux.HandleFunc("GET /api/xworkbench-cli/skill.md", s.handleXworkbenchCliSkillMD)
 
->>>>>>> 95cfbe2 (feat: add xworkbench-cli download API endpoint)
 	// 评论
 	mux.HandleFunc("GET /api/tasks/{id}/comments", s.handleCommentList)
 	mux.HandleFunc("POST /api/tasks/{id}/comments", s.handleCommentCreate)
