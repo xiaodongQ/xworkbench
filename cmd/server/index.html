@@ -214,7 +214,7 @@
       <select id="filter-task-type">
         <option value="">全部类型</option>
         <option value="manual">本地手动</option>
-        <option value="remote">远程 Agent</option>
+        <option value="remote">远程</option>
       </select>
       <select id="filter-task-category">
         <option value="">全部分类</option>
@@ -592,7 +592,7 @@
       .relay-panel .panel-doc.open .panel-doc-body { display: block; }
       .relay-panel .result-box { margin-top: 10px; padding: 10px; border-radius: 4px; background: rgba(0,0,0,0.05); font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow-y: auto; display: none; font-family: monospace; }
       [data-theme="dark"] .relay-panel .result-box { background: rgba(0,0,0,0.3); color: #e2e8f0; border: 1px solid #334155; }
-      /* 终端风格代码块（xwcli 安装命令等），自适应明暗主题 */
+      /* 终端风格代码块，自适应明暗主题 */
       .cmd-terminal { background: #f8fafc; color: #1d4ed8; font-family: monospace; font-size: 11px; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; cursor: pointer; min-height: 40px; border: 1px solid #cbd5e1; }
       [data-theme="dark"] .cmd-terminal { background: #1e293b; color: #67e8f9; border-color: #334155; }
       .relay-panel .form-row { display: flex; gap: 10px; margin-top: 8px; }
@@ -757,37 +757,7 @@
         </div>
       </div>
     </div>
-
-    <!-- 远程 Agent 管理 -->
-    <div class="widget" style="margin-top:16px">
-      <div class="widget-title" style="cursor:pointer" onclick="toggleApiDoc('agent-mgmt')">
-        <span>🤖 远程 Agent 管理</span>
-        <span style="font-size:11px;color:var(--text-secondary)">▶ 点击展开/收起</span>
-      </div>
-      <div id="agent-mgmt" class="hidden" style="margin-top:10px">
-        <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
-          <select id="agent-filter-status" onchange="loadAgents()" style="font-size:12px">
-            <option value="">全部状态</option>
-            <option value="online">仅在线</option>
-            <option value="offline">仅离线</option>
-          </select>
-          <button class="btn btn-small" onclick="loadAgents()">🔄 刷新</button>
-          <span style="font-size:11px;color:var(--text-secondary);margin-left:auto">
-            默认心跳超时 30s · 任务超时 10min（后台自动释放）
-          </span>
-        </div>
-        <!-- xwcli 安装命令 -->
-        <div style="background:var(--hover);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
-          <div style="font-size:12px;font-weight:600;margin-bottom:6px">📥 分发 xwcli 到新机器</div>
-          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">在目标 Linux 机器运行以下命令安装并注册 xwcli agent：</div>
-          <div id="xwcli-install-cmd" class="cmd-terminal" title="点击复制" onclick="copyXwcliInstallCmd(this)"></div>
-        </div>
-        <div id="agents-table" style="font-size:12px">
-          <div style="color:var(--text-secondary);padding:20px;text-align:center">加载中...</div>
-        </div>
-      </div>
-    </div>
-  </div>
+</div>
 </main>
 </div>
 
@@ -847,7 +817,7 @@
 
       <!-- 目标机器选择（仅 task_type=remote 时显示，独立一行） -->
       <div id="task-agent-group" class="form-group hidden">
-        <label>目标机器 <span class="field-hint" id="task-agent-hint">（从已注册 agent 中选择）</span></label>
+        <label>目标机器 <span class="field-hint" id="task-agent-hint">（从 dir_shortcut 中选择）</span></label>
         <select id="task-agent-id" style="width:100%">
           <option value="">加载中...</option>
         </select>
@@ -1417,6 +1387,10 @@
       <label style="font-size:12px">任务 <span class="field-hint">Title</span></label>
       <div id="run-task-title" style="font-size:13px;color:var(--text-secondary);padding:6px 8px;background:var(--hover);border-radius:4px"></div>
     </div>
+    <div class="form-group" style="margin-bottom:10px">
+      <label style="font-size:12px">任务描述</label>
+      <div id="run-task-desc" style="font-size:12px;color:var(--text-secondary);padding:6px 8px;background:var(--hover);border-radius:4px;white-space:pre-wrap;max-height:80px;overflow-y:auto;line-height:1.5"></div>
+    </div>
     <div class="form-group" id="run-task-acceptance-group" style="margin-bottom:10px">
       <label style="font-size:12px">验收标准</label>
       <div id="run-task-acceptance" style="font-size:12px;color:var(--text-secondary);padding:6px 8px;background:var(--hover);border-radius:4px;white-space:pre-wrap;max-height:60px;overflow-y:auto;line-height:1.5"></div>
@@ -1446,6 +1420,7 @@
       <select id="run-task-agent" style="font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);width:100%">
         <option value="">本机执行（默认）</option>
       </select>
+      <div id="run-task-agent-hint" style="display:none;font-size:11px;color:#f59e0b;margin-top:4px">远程任务运行位置已锁定，请在编辑任务中修改</div>
     </div>
     <div class="form-group" style="margin-bottom:10px" id="run-task-resume-group">
       <label style="font-size:12px">续传 Session</label>
@@ -1602,7 +1577,7 @@
 <script src="/static/js/views/aichat.js"></script>
 <script src="/static/js/views/terminal.js"></script>
 <script src="/static/js/views/relay.js"></script>
-<script src="/static/js/views/agents.js"></script>
+
 <script src="/static/js/views/config.js"></script>
 
 <!-- Init: 全局事件 + 首次加载 dashboard + widget 侧栏 -->

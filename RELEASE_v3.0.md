@@ -47,7 +47,6 @@
 - 修复 Anthropic blocks 序列化和 OpenAI ToolCalls 字段
 - 修复会话 session_id 解析失败时的重建逻辑
 - 修复 Windows 子进程清理残留问题
-- 修复 xwcli 安装命令从不显示的 bug
 - SQLite DATE() 函数替换为 substr()，避免 monotonic clock 格式异常
 
 ## 🏗️ Architecture Highlights

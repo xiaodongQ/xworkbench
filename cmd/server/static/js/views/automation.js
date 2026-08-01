@@ -1315,6 +1315,29 @@ function _startExecAutoRefresh() {
 }
 _startExecAutoRefresh(); // 启动一次，30s 兜底
 
+// splitActionFromResult 从动作清单文本中拆出 AI 自评动作项和最终执行结果。
+// 动作项是结构化的 "命令:/退出码:/工具调用:/验证步骤:" 块，
+// 结果通常是最后的表格、总结文本等。
+function splitActionFromResult(text) {
+  if (!text) return { actions: '', result: '' };
+  const lines = text.split('\n');
+  // 从后往前找到第一个非空且不匹配动作项模式的行作为结果起点
+  let resultStart = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    // 动作项特征: Exit code:/退出码:、命令:、工具调用:、验证步骤:、- */1. 开头的列表
+    if (line.startsWith('- ') || line.startsWith('* ') || /^\d+\.\s/.test(line) ||
+        /^(Exit code|退出码|命令|工具调用|验证步骤)[:：]/.test(line)) {
+      resultStart = i + 1;
+      break;
+    }
+  }
+  const actions = lines.slice(0, resultStart).join('\n').trim();
+  const result = lines.slice(resultStart).join('\n').trim();
+  return { actions, result };
+}
+
 // renderExecOutput 解析 `claude -p --output-format json` 的输出,提取 result 字段。
 // 返回结构化对象 { reply, meta:[{key,value}], actions } 供 renderExecOutputAsMarkdown
 // 按段渲染出三个不同样式的卡片。非 JSON / 解析失败 fallback 返回 { raw }。
@@ -1332,9 +1355,14 @@ function renderExecOutput(raw) {
     const actionReportIdx = resultText.indexOf('## 动作清单');
     let aiReply = resultText;
     let actionReport = '';
+    let finalResult = '';
     if (actionReportIdx !== -1) {
       aiReply = resultText.slice(0, actionReportIdx).trim();
       actionReport = resultText.slice(actionReportIdx);
+      // 从动作清单中拆出最终执行结果（动作项 vs 结果表格/总结）
+      const split = splitActionFromResult(actionReport);
+      actionReport = split.actions || '';
+      finalResult = split.result || '';
     }
 
     // 2. AI CLI 执行信息(数组形式,key/value 分开,渲染时高亮 key)
@@ -1351,6 +1379,7 @@ function renderExecOutput(raw) {
       reply: aiReply || null,
       meta,
       actions: actionReport || null,
+      result: finalResult || null,
     };
   }
   // cbc 最终输出也是 {type:"result", result:"..."},与 claude 结构一致
@@ -1361,9 +1390,13 @@ function renderExecOutput(raw) {
         const actionReportIdx = resultText.indexOf('## 动作清单');
         let aiReply = resultText;
         let actionReport = '';
+        let finalResult = '';
         if (actionReportIdx !== -1) {
           aiReply = resultText.slice(0, actionReportIdx).trim();
           actionReport = resultText.slice(actionReportIdx);
+          const split = splitActionFromResult(actionReport);
+          actionReport = split.actions || '';
+          finalResult = split.result || '';
         }
         const meta = [];
         if (item.num_turns != null) meta.push({ key: 'num_turns', value: String(item.num_turns) });
@@ -1373,6 +1406,7 @@ function renderExecOutput(raw) {
           reply: aiReply || null,
           meta,
           actions: actionReport || null,
+          result: finalResult || null,
         };
       }
     }
@@ -1472,7 +1506,16 @@ function renderExecOutputAsMarkdown(el, sections) {
       '</div>'
     );
   }
-  // 2) AI CLI 执行信息
+  // 2) 执行结果（从动作清单中拆出的最终汇总/表格）
+  if (sections.result) {
+    parts.push(
+      '<div class="exec-md-section exec-md-section-result">' +
+        '<div class="exec-md-section-header">📊 执行结果</div>' +
+        '<div class="exec-md-section-body md-output">' + renderBody(sections.result) + '</div>' +
+      '</div>'
+    );
+  }
+  // 3) AI CLI 执行信息
   if (sections.meta && sections.meta.length) {
     const items = sections.meta.map(m =>
       '<span class="exec-md-meta-item">' +
@@ -1488,7 +1531,7 @@ function renderExecOutputAsMarkdown(el, sections) {
       '</div>'
     );
   }
-  // 3) AI 自评动作清单(辅助评估)
+  // 4) AI 自评动作清单(辅助评估)
   if (sections.actions) {
     parts.push(
       '<div class="exec-md-section exec-md-section-actions">' +

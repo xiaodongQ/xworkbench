@@ -65,25 +65,50 @@ func streamLines(r io.Reader, isErr bool, onChunk func(string), builder *strings
 	}
 }
 
-// ensureRemoteBinary 通过 `which <bin>` 检查远端是否安装了 CLI 工具。
-// 返回 (absPath, error)。未安装返回 ("", fmt.Errorf("..."))。
-// 用 ssh client 的一个新 session 跑，不复用 runOnClient 避免污染。
+// ensureRemoteBinary 检查远端是否安装了 CLI 工具，返回绝对路径。
+// 非交互 SSH 的 PATH 很窄，需要依次尝试多种方式加载完整环境。
 func ensureRemoteBinary(client *ssh.Client, bin string) (string, error) {
 	if bin == "" {
 		return "", fmt.Errorf("binary name is empty")
 	}
-	sess, err := client.NewSession()
+	for _, cmd := range []string{
+		// 1. 当前窄 PATH
+		fmt.Sprintf("command -v %s 2>/dev/null", bin),
+		// 2. 常见标准路径
+		fmt.Sprintf("test -x /usr/local/bin/%s && echo /usr/local/bin/%s", bin, bin),
+		fmt.Sprintf("test -x $HOME/.local/bin/%s && echo $HOME/.local/bin/%s", bin, bin),
+		fmt.Sprintf("test -x /opt/homebrew/bin/%s && echo /opt/homebrew/bin/%s", bin, bin),
+		// 3. source .zshrc / .bashrc（PATH 通常配在这些 rc 文件里）
+		fmt.Sprintf("zsh -c 'source ~/.zshenv 2>/dev/null; source ~/.zshrc 2>/dev/null; command -v %s' 2>/dev/null", bin),
+		fmt.Sprintf("bash -c 'set +m; source ~/.bashrc 2>/dev/null; command -v %s' 2>/dev/null", bin),
+		// 4. login shell
+		fmt.Sprintf("bash -l -c 'command -v %s' 2>/dev/null", bin),
+		// 5. find 兜底扫描
+		fmt.Sprintf("find /usr/local /opt /home -maxdepth 6 -name %s -type f -executable 2>/dev/null | head -1", bin),
+	} {
+		sess, err := client.NewSession()
+		if err != nil {
+			return "", fmt.Errorf("ensure: new session: %w", err)
+		}
+		out, sessErr := sess.Output(cmd)
+		sess.Close()
+		if sessErr != nil {
+			continue
+		}
+		p := strings.TrimSpace(string(out))
+		if p != "" {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("binary %q not found on remote", bin)
+}
+
+// EnsureRemoteBinary 连接远端并检查指定二进制是否存在。返回其绝对路径。
+func EnsureRemoteBinary(cfg SSHConfig, bin string) (string, error) {
+	client, err := dialSSH(cfg)
 	if err != nil {
-		return "", fmt.Errorf("ensure: new session: %w", err)
+		return "", fmt.Errorf("ssh dial: %w", err)
 	}
-	defer sess.Close()
-	out, err := sess.Output(fmt.Sprintf("which %s 2>/dev/null", bin))
-	if err != nil {
-		return "", fmt.Errorf("binary %q not found on remote: %w", bin, err)
-	}
-	p := strings.TrimSpace(string(out))
-	if p == "" {
-		return "", fmt.Errorf("binary %q not found on remote (which returned empty)", bin)
-	}
-	return p, nil
+	defer client.Close()
+	return ensureRemoteBinary(client, bin)
 }

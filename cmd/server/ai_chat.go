@@ -177,7 +177,7 @@ func (s *APIServer) handleAIChat(w http.ResponseWriter, r *http.Request) {
 			toolCtx, toolCancel := context.WithTimeout(ctx, aiChatToolBudget)
 			tc.Result = ExecuteTool(
 				toolCtx,
-				s.db, s.expDB, s.execDB, s.agentDB,
+				s.db, s.expDB, s.execDB,
 				s.linkDB, s.dirDB,
 				s.schedDB, s.sch,
 				s.memoryStore,

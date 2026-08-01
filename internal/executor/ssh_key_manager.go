@@ -143,13 +143,19 @@ func BuildSSHConfigFromDirShortcut(dir *backend.DirShortcut) SSHConfig {
 		authMethod = "password"
 	}
 
+	// 仅 key 模式才解析 KeyPath，password 模式不设（避免误用）
+	keyPath := ""
+	if authMethod == "key" {
+		keyPath = ResolveKeyPath(dir)
+	}
+
 	return SSHConfig{
 		Host:         dir.RemoteHost,
 		Port:         port,
 		User:         dir.RemoteUser,
 		AuthMethod:   authMethod,
 		Password:     dir.RemotePassword,
-		KeyPath:      ResolveKeyPath(dir),
+		KeyPath:      keyPath,
 		KeyPassword:  dir.KeyPassword,
 		TimeoutSec:   10,
 	}

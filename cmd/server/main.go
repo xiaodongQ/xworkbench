@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"embed"
 	"encoding/json"
@@ -33,7 +34,6 @@ import (
 	loglib "github.com/xiaodongQ/xworkbench/internal/logger"
 	"github.com/xiaodongQ/xworkbench/internal/memory"
 	"github.com/xiaodongQ/xworkbench/internal/paths"
-	"github.com/xiaodongQ/xworkbench/internal/ratelimit"
 	"github.com/xiaodongQ/xworkbench/internal/relay"
 	"github.com/xiaodongQ/xworkbench/internal/scheduler"
 	"github.com/xiaodongQ/xworkbench/internal/skill"
@@ -67,7 +67,6 @@ type APIServer struct {
 	schedCatDB   *backend.ScheduledTaskCategoryRepo
 	schedDB      *backend.ScheduledTaskRepo
 	evalDB       *backend.EvaluationRepo
-	agentDB      *backend.AgentRepo
 	eventDB      *backend.TaskEventRepo
 	cmtDB        *backend.TaskCommentRepo
 	execCmtDB    *backend.ExecutionCommentRepo
@@ -93,7 +92,7 @@ func NewAPIServer(
 	linkCatDB *backend.LinkCategoryRepo, dirCatDB *backend.DirCategoryRepo,
 	taskCatDB *backend.TaskCategoryRepo, schedCatDB *backend.ScheduledTaskCategoryRepo,
 	schedDB *backend.ScheduledTaskRepo,
-	evalDB *backend.EvaluationRepo, agentDB *backend.AgentRepo,
+	evalDB *backend.EvaluationRepo,
 	eventDB *backend.TaskEventRepo,
 	cmtDB *backend.TaskCommentRepo,
 	execCmtDB *backend.ExecutionCommentRepo,
@@ -104,7 +103,7 @@ func NewAPIServer(
 		db: db, expDB: expDB, expCatDB: expCatDB, execDB: execDB,
 		linkDB: linkDB, dirDB: dirDB, linkCatDB: linkCatDB, dirCatDB: dirCatDB, taskCatDB: taskCatDB, schedCatDB: schedCatDB,
 		schedDB: schedDB, evalDB: evalDB,
-		agentDB: agentDB, eventDB: eventDB,
+		eventDB: eventDB,
 		cmtDB: cmtDB, execCmtDB: execCmtDB,
 		sch: sch, hub: h,
 		relayHandler: relay.NewRelayHandler(relayRepo),
@@ -162,7 +161,6 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("PUT /api/tasks/{id}", s.handleTaskUpdate)
 	mux.HandleFunc("PUT /api/tasks/{id}/status", s.handleTaskStatus)
 	mux.HandleFunc("POST /api/tasks/{id}/unclaim", s.handleTaskUnclaim)
-	mux.HandleFunc("POST /api/tasks/{id}/dispatch", s.handleTaskDispatch)
 	mux.HandleFunc("POST /api/tasks/{id}/run", s.handleTaskRun)
 	mux.HandleFunc("POST /api/tasks/{id}/cancel", s.handleTaskCancel)
 	mux.HandleFunc("DELETE /api/tasks/{id}", s.handleTaskDelete)
@@ -282,42 +280,8 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("POST /api/relay/proxy", relayAuth(s.relayHandler.HandleRelayProxy))
 	mux.HandleFunc("GET /api/relay/stats", relayAuth(s.relayHandler.HandleRelayStats))
 
-	// 远程 Agent API（带速率限制）
-	// 注意：单独一个 sub-mux 给 agent 路由，避免与主 mux 冲突
-	rateLimitPerMin := parseInt(os.Getenv("RATE_LIMIT_PER_MIN"), 60)
-	agentMux := http.NewServeMux()
-	agentMux.HandleFunc("POST /api/agents/register", s.handleAgentRegister)
-	agentMux.HandleFunc("POST /api/agents/{id}/heartbeat", s.handleAgentHeartbeat)
-	agentMux.HandleFunc("POST /api/tasks/{id}/claim", s.handleTaskClaim)
-	agentMux.HandleFunc("POST /api/tasks/{id}/report", s.handleTaskReport)
-	agentMux.HandleFunc("GET /api/tasks/claim-next", s.handleTaskClaimNext)
-	agentMux.HandleFunc("POST /api/tasks/claim-next", s.handleTaskClaimNext)
-	// agent API 套上速率限制 middleware（默认 60/min，可由 RATE_LIMIT_PER_MIN 调整；0 = 禁用）
-	{
-		var agentHandler http.Handler = agentMux
-		if rateLimitPerMin > 0 {
-			limiter := ratelimit.New(rateLimitPerMin)
-			agentHandler = limiter.Middleware()(agentMux)
-		}
-		// 挂在主 mux 上（路径完全匹配，使用更具体的 path pattern）
-		mux.Handle("POST /api/agents/register", agentHandler)
-		mux.Handle("POST /api/agents/{id}/heartbeat", agentHandler)
-		mux.Handle("POST /api/tasks/{id}/claim", agentHandler)
-		mux.Handle("POST /api/tasks/{id}/report", agentHandler)
-		mux.Handle("GET /api/tasks/claim-next", agentHandler)
-		mux.Handle("POST /api/tasks/claim-next", agentHandler)
-	}
-
 	// 审计 + 依赖
 	mux.HandleFunc("GET /api/tasks/{id}/events", s.handleTaskEvents)
-
-	// 远程 Agent 管理 API（主用户调用，不限频、不需要 agent token）
-	mux.HandleFunc("GET /api/agents", s.handleAgentsList)
-	mux.HandleFunc("POST /api/agents/{id}/release-tasks", s.handleAgentReleaseTasks)
-	mux.HandleFunc("POST /api/agents/{id}/reset-token", s.handleAgentResetToken)
-	mux.HandleFunc("POST /api/agents/{id}/auto-claim", s.handleAgentSetAutoClaim)
-	mux.HandleFunc("POST /api/agents/{id}/bind-dir-shortcut", s.handleAgentSetBoundDirShortcut)
-	mux.HandleFunc("DELETE /api/agents/{id}", s.handleAgentDelete)
 
 	// 数据管理：导入 / 导出 / 备份
 	mux.HandleFunc("GET /api/config/export", s.handleConfigExport)
@@ -328,10 +292,6 @@ func (s *APIServer) routes() {
 	mux.HandleFunc("GET /api/skills", s.handleSkillsList)
 	mux.HandleFunc("POST /api/skills/execute", s.handleSkillsExecute)
 	mux.HandleFunc("POST /api/skills/create", s.handleSkillsCreate)
-
-	// xwcli 安装脚本（公开，无需认证）
-	mux.HandleFunc("GET /api/xwcli/install.sh", s.handleXwcliInstall)
-	mux.HandleFunc("GET /api/xwcli/{filename}", s.handleXwcliDownload)
 
 	// 评论
 	mux.HandleFunc("GET /api/tasks/{id}/comments", s.handleCommentList)
@@ -382,6 +342,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Prompt           string   `json:"prompt"`             // 执行用 prompt
 		GoalMode         bool     `json:"goal_mode"`           // 是否启用 Goal 目标模式
 		AssignedAgentID  string   `json:"assigned_agent_id"`   // 指定的远程 agent（task_type=remote）
+		AssignedDirShortcutID string `json:"assigned_dir_shortcut_id"` // 远程执行目标 DirShortcut ID
 		CategoryID       string   `json:"category_id"`         // 任务分类 ID
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -404,6 +365,7 @@ func (s *APIServer) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Prompt:           req.Prompt,
 		GoalMode:         req.GoalMode,
 		AssignedAgentID:  req.AssignedAgentID,
+		AssignedDirShortcutID: req.AssignedDirShortcutID,
 		CategoryID:       req.CategoryID,
 	}
 	if err := s.db.Create(task); err != nil {
@@ -442,11 +404,12 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		Acceptance    string   `json:"acceptance"`
 		// Priority 用指针：nil=未传，&0=显式设为 0。
 		Priority *int `json:"priority,omitempty"`
-		CommandType  string   `json:"command_type"`
-		Model        string   `json:"model"`
-		Prompt       string   `json:"prompt"`
-		GoalMode     *bool    `json:"goal_mode"` // 指针：nil=未传，保持原值
-		CategoryID   string   `json:"category_id"`
+		CommandType            string `json:"command_type"`
+		Model                  string `json:"model"`
+		Prompt                 string `json:"prompt"`
+		GoalMode               *bool  `json:"goal_mode"` // 指针：nil=未传，保持原值
+		CategoryID             string `json:"category_id"`
+		AssignedDirShortcutID  string `json:"assigned_dir_shortcut_id"` // 远程执行目标 DirShortcut
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -465,6 +428,7 @@ func (s *APIServer) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	task.Model = req.Model
 	task.Prompt = req.Prompt
 	task.CategoryID = req.CategoryID
+	task.AssignedDirShortcutID = req.AssignedDirShortcutID
 	if req.Priority != nil {
 		task.Priority = *req.Priority
 	}
@@ -811,74 +775,65 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 	if req.Model == "" {
 		req.Model = task.Model
 	}
+
+	// 决定执行位置（在构造 prompt 之前确定，以便远程任务用不同的输出目录约定）：
+	// 1. body.agent_id（运行弹窗中手动选择的执行机器，优先）
+	// 2. task.AssignedDirShortcutID（创建任务时指定的远程机器）
+	var sshCfg *executor.SSHConfig
+	var remoteDS *backend.DirShortcut // 保存 DirShortcut，供 xw-sshpass 子进程使用
+	if req.AgentID != "" {
+		if ds, err := s.dirDB.GetByID(req.AgentID); err == nil && ds != nil && ds.Type == backend.DirShortcutTypeRemote {
+			cfg := executor.BuildSSHConfigFromDirShortcut(ds)
+			if cfg.Host != "" {
+				sshCfg = &cfg
+				remoteDS = ds
+			}
+		}
+	}
+	if sshCfg == nil && task.AssignedDirShortcutID != "" {
+		if ds, err := s.dirDB.GetByID(task.AssignedDirShortcutID); err == nil && ds != nil && ds.Type == backend.DirShortcutTypeRemote {
+			cfg := executor.BuildSSHConfigFromDirShortcut(ds)
+			if cfg.Host != "" {
+				sshCfg = &cfg
+				remoteDS = ds
+			}
+		}
+	}
+
 	// 构造 rich prompt: task 全字段 + 多经验内容注入
 	var prompt string
 	if req.Prompt != "" {
 		// 显式传了 prompt 就用显式的(保留原有行为)
 		prompt = req.Prompt
 	} else {
-		// 没用 body.prompt,自动从 task + 多 experience 组装
-		// 修复：用 BuildTaskPromptWithOutput（含经验库 + 输出目录约定）而非 BuildTaskPromptShort（不含经验）
-		// 原因：手动任务执行与 agent claim 一致需把经验库喂给 AI CLI；
-		// 同时 system prompt 显式告诉 AI「把生成的文件写到 data/ai-task-dir/<task_id>/」
 		exps := s.loadExperiencesForTask(task)
-		prompt = taskpkg.BuildTaskPromptWithOutput(task, paths.AITaskDir(id), exps...)
-		if prompt == "" {
-			logger.Warnw("task run rejected: empty prompt after BuildTaskPrompt",
-				"task_id", id,
-				"command_type", req.CommandType,
-			)
-			writeErr(w, http.StatusBadRequest, "task has no description and no experience content")
-			return
+		if sshCfg != nil {
+			// 远程任务：仅注入经验库内容，不包含本地输出目录约定
+			base := taskpkg.BuildTaskPrompt(task, exps...)
+			if base == "" {
+				logger.Warnw("task run rejected: empty prompt after BuildTaskPrompt", "task_id", id)
+				writeErr(w, http.StatusBadRequest, "task has no description and no experience content")
+				return
+			}
+			prompt = base
+		} else {
+			// 本地任务：含经验库 + 输出目录约定（避免 AI 污染源码树）
+			prompt = taskpkg.BuildTaskPromptWithOutput(task, paths.AITaskDir(id), exps...)
+			if prompt == "" {
+				logger.Warnw("task run rejected: empty prompt after BuildTaskPromptWithOutput",
+					"task_id", id,
+					"command_type", req.CommandType,
+				)
+				writeErr(w, http.StatusBadRequest, "task has no description and no experience content")
+				return
+			}
 		}
 	}
 	// Goal 模式：request body 优先，否则 fallback 到 task.GoalMode
-	// claude/cbc 执行时 prompt 前加 /goal 前缀
 	if (req.GoalMode || task.GoalMode) && (req.CommandType == "claude" || req.CommandType == "cbc") {
 		prompt = "/goal " + prompt
 	}
 	req.Prompt = prompt
-
-	// 决定执行位置：agent_id 非空 + 绑定 dir_shortcut → SSH 远端；否则本机。
-	var sshCfg *executor.SSHConfig
-	if req.AgentID != "" {
-		ag, err := s.agentDB.GetByID(req.AgentID)
-		if err != nil {
-			writeErr(w, http.StatusNotFound, "agent not found: "+err.Error())
-			return
-		}
-		if ag.BoundDirShortcutID == "" {
-			writeErr(w, http.StatusBadRequest,
-				fmt.Sprintf("agent %s has no bound_dir_shortcut_id; bind it to a remote dir_shortcut first", ag.Name))
-			return
-		}
-		ds, err := s.dirDB.GetByID(ag.BoundDirShortcutID)
-		if err != nil || ds == nil {
-			writeErr(w, http.StatusNotFound, "bound dir_shortcut not found")
-			return
-		}
-		if ds.Type != backend.DirShortcutTypeRemote {
-			writeErr(w, http.StatusBadRequest, "bound dir_shortcut is not type=remote")
-			return
-		}
-		if ds.RemoteHost == "" || ds.RemoteUser == "" {
-			writeErr(w, http.StatusBadRequest, "bound dir_shortcut missing remote_host/remote_user")
-			return
-		}
-		sshCfg = &executor.SSHConfig{
-			Host:       ds.RemoteHost,
-			User:       ds.RemoteUser,
-			AuthMethod: ds.AuthMethod,
-			Password:   ds.RemotePassword,
-			KeyPath:    ds.KeyPath,
-			Port:       22, // 暂不暴露到 UI；未来加
-			TimeoutSec: 10,
-		}
-		logger.Infow("task run: routing to agent via SSH",
-			"task_id", id, "agent_id", req.AgentID,
-			"agent_name", ag.Name, "dir_shortcut_id", ds.ID, "dir_shortcut_name", ds.Name,
-			"remote_host", ds.RemoteHost, "remote_user", ds.RemoteUser)
-	}
 
 	// 构造命令（带可选 --resume；可选 --dangerously-skip-permissions）
 	skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
@@ -970,8 +925,8 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		}
 		var res *executor.Result
 		var runErr error
-		if sshCfg != nil {
-			res, runErr = executor.RunSSHViaConfig(ctx, *sshCfg, cmd, stdin, chunkCB)
+		if remoteDS != nil {
+			res, runErr = runViaXwSshpass(ctx, remoteDS, cmd, stdin, chunkCB)
 		} else {
 			// AI 任务 CWD 走沙盒（data/ai-sandbox/），避免 AI 写文件污染源码树
 			// CWD = 项目根（继承父进程），让 AI 能 ls/Read 项目文件；
@@ -1047,6 +1002,123 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// runViaXwSshpass 通过 xw-sshpass 子进程在远程机器上执行命令。
+func runViaXwSshpass(ctx context.Context, ds *backend.DirShortcut, cmd []string, stdin string, chunkCB func(string)) (*executor.Result, error) {
+	xwBin := resolveXwSshpassBin()
+	if xwBin == "" {
+		return nil, fmt.Errorf("xw-sshpass binary not found")
+	}
+
+	userHost := ds.RemoteUser
+	if userHost == "" {
+		userHost = "root"
+	}
+	userHost = userHost + "@" + ds.RemoteHost
+	if ds.RemotePort != "" && ds.RemotePort != "22" {
+		userHost = userHost + ":" + ds.RemotePort
+	}
+
+	var args []string
+	if ds.AuthMethod == "key" {
+		keyPath := executor.ResolveKeyPath(ds)
+		if keyPath == "" {
+			return nil, fmt.Errorf("ssh key not found")
+		}
+		args = append(args, "-i", keyPath)
+	} else {
+		if ds.RemotePassword == "" {
+			return nil, fmt.Errorf("no password or key configured for %s", ds.Name)
+		}
+		args = append(args, "-p", ds.RemotePassword)
+	}
+	args = append(args, "ssh", userHost)
+	// Shell wrapper:
+	// 1. mkdir ~/xworkbench-task 并在该目录执行（避免污染 HOME，无需 trust）
+	// 2. source rc files 加载完整 PATH
+	// 3. zsh 优先，fallback bash
+	cmdStr := strings.Join(cmd, " ")
+	escaped := strings.ReplaceAll(cmdStr, "'", "'\\''")
+	shellCmd := fmt.Sprintf(
+		`mkdir -p ~/xworkbench-task && cd ~/xworkbench-task && command -v zsh >/dev/null 2>&1 && zsh -c 'source ~/.zshrc 2>/dev/null; %s' || bash -c 'source ~/.bashrc 2>/dev/null; %s'`,
+		escaped, escaped)
+	args = append(args, shellCmd)
+
+	logger.Infow("task run: xw-sshpass", "bin", xwBin, "args", args)
+
+	execCmd := osexec.CommandContext(ctx, xwBin, args...)
+	var outBuilder, errBuilder strings.Builder
+
+	stdoutPipe, err := execCmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	stderrPipe, err := execCmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	// 将 prompt 通过 stdin 传给远程 claude -p
+	if stdin != "" {
+		stdinPipe, err := execCmd.StdinPipe()
+		if err != nil {
+			return nil, err
+		}
+		go func() {
+			defer stdinPipe.Close()
+			stdinPipe.Write([]byte(stdin))
+		}()
+	}
+	if err := execCmd.Start(); err != nil {
+		return nil, fmt.Errorf("xw-sshpass start: %w", err)
+	}
+
+	outDone := make(chan struct{})
+	go func() {
+		scanner := bufio.NewScanner(stdoutPipe)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text() + "\n"
+			outBuilder.WriteString(line)
+			if chunkCB != nil {
+				chunkCB(line)
+			}
+		}
+		close(outDone)
+	}()
+
+	errDone := make(chan struct{})
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := "[err] " + scanner.Text() + "\n"
+			errBuilder.WriteString(line)
+			if chunkCB != nil {
+				chunkCB(line)
+			}
+		}
+		close(errDone)
+	}()
+
+	<-outDone
+	<-errDone
+
+	waitErr := execCmd.Wait()
+	exitCode := 0
+	if waitErr != nil {
+		if exitErr, ok := waitErr.(*osexec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+
+	return &executor.Result{
+		Output:   outBuilder.String(),
+		ErrorOut: errBuilder.String(),
+		ExitCode: exitCode,
+	}, nil
+}
+
 func (s *APIServer) handleTaskUnclaim(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.db.UpdateStatus(id, backend.TaskStatusPending, ""); err != nil {
@@ -1054,49 +1126,6 @@ func (s *APIServer) handleTaskUnclaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"id": id, "status": "pending"})
-}
-
-// handleTaskDispatch 手动分派远程任务给指定 agent（设置 dispatched_at 时间戳）。
-func (s *APIServer) handleTaskDispatch(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var req struct {
-		AgentID string `json:"agent_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if req.AgentID == "" {
-		writeErr(w, http.StatusBadRequest, "agent_id is required")
-		return
-	}
-
-	task, err := s.db.Get(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "task not found")
-		return
-	}
-	if task.Status != backend.TaskStatusPending {
-		writeErr(w, http.StatusConflict, "only pending tasks can be dispatched")
-		return
-	}
-	if task.TaskType != backend.TaskTypeRemote {
-		writeErr(w, http.StatusBadRequest, "only remote tasks can be dispatched")
-		return
-	}
-
-	now := time.Now()
-	if err := s.db.DispatchTask(id, req.AgentID, now); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	logger.Infow("task dispatched", "task_id", id, "agent_id", req.AgentID)
-	writeJSON(w, map[string]any{
-		"task_id": id,
-		"agent_id": req.AgentID,
-		"dispatched_at": now,
-	})
 }
 
 func (s *APIServer) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
@@ -1279,12 +1308,18 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 	if model == "" {
 		model = orig.Model
 	}
-	// 拼上输出目录约定：让 AI 知道继续对话时写文件往 data/ai-task-dir/<taskID>/ 落
-	// （原 exec 已有 taskID；非 task 来源的 exec 用 orig.TaskID 为空 → 不拼）
-	// 用 buildPrompt 而非直接改 req.Prompt，保留 req.Prompt 作为「用户原始输入」
-	// 存到 exec.Prompt 字段用于前端显示。
-	buildPrompt := req.Prompt
+	// 检查是否为远程任务的继续对话（需在 prompt 构造前确定，避免拼本地目录路径）
+	var remoteDS *backend.DirShortcut
 	if orig.TaskID != "" {
+		if task, err := s.db.Get(orig.TaskID); err == nil && task.AssignedDirShortcutID != "" {
+			if ds, err := s.dirDB.GetByID(task.AssignedDirShortcutID); err == nil && ds.Type == backend.DirShortcutTypeRemote {
+				remoteDS = ds
+			}
+		}
+	}
+	buildPrompt := req.Prompt
+	// 本地任务才拼输出目录约定，远程任务 skip（远端没有这个路径）
+	if remoteDS == nil && orig.TaskID != "" {
 		buildPrompt = req.Prompt + fmt.Sprintf(taskpkg.OutputDirHintTpl, paths.AITaskDir(orig.TaskID))
 	}
 	skip := config.AppConfig != nil && config.AppConfig.DangerouslySkipPermissions
@@ -1338,14 +1373,18 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		if cleanup != nil {
 			defer cleanup()
 		}
-		// CWD = 项目根（继承父进程），让 AI 能 ls/Read 项目文件；
-		// system prompt 已约定写文件到 data/ai-task-dir/<task_id>/（BuildTaskPromptWithOutput 拼接）。
-		res, _ := executor.Run(ctx, cmd, "", stdin, func(chunk string) {
+		chunkCB := func(chunk string) {
 			s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 				"execution_id": exec.ID,
 				"chunk":        chunk,
 			})
-		})
+		}
+		var res *executor.Result
+		if remoteDS != nil {
+			res, _ = runViaXwSshpass(ctx, remoteDS, cmd, stdin, chunkCB)
+		} else {
+			res, _ = executor.Run(ctx, cmd, "", stdin, chunkCB)
+		}
 		out, errOut := "", ""
 		exitCode := -1
 		if res != nil {
@@ -3193,6 +3232,16 @@ func (s *APIServer) handleTodoArchive(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"line_no": lineNo, "status": "archived"})
 }
 
+// extractBearerToken 从 Authorization header 提取 Bearer token。
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if len(auth) > len(prefix) && auth[:len(prefix)] == prefix {
+		return auth[len(prefix):]
+	}
+	return ""
+}
+
 // Helpers
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -3476,7 +3525,6 @@ func main() {
 		logger.Fatalw("init relay schema failed", "err", err)
 	}
 
-	agentRepo := backend.NewAgentRepo(db)
 	eventRepo := backend.NewTaskEventRepo(db)
 	cmtRepo := backend.NewTaskCommentRepo(db)
 	execCmtRepo := backend.NewExecutionCommentRepo(db)
@@ -3540,13 +3588,8 @@ func main() {
 
 	srv := NewAPIServer(taskRepo, expRepo, expCatRepo, execRepo,
 		linkRepo, dirRepo, linkCatRepo, dirCatRepo, taskCatRepo, schedCatRepo,
-		schedRepo, evalRepo, agentRepo,
+		schedRepo, evalRepo,
 		eventRepo, cmtRepo, execCmtRepo, sch, h, relayRepo)
-
-	// 后台 goroutine：心跳超时检测
-	// Agent >30s 未心跳 → 标记为 offline，并把该 agent 手上未完成的任务还回 pending 池
-	// 任务 claim >10min 未完成 → 强制释放回 pending 池（防心跳还在但任务托死）
-	startAgentHeartbeatChecker(agentRepo, taskRepo, eventRepo, h, 30*time.Second, 10*time.Minute)
 
 	addr := *addrFlag
 	if addr == "" {
@@ -4019,246 +4062,6 @@ func (s *APIServer) runLoopBackground(taskID string, req struct {
 	})
 }
 
-// ---- Remote Agent Handlers ----
-
-// handleAgentRegister Agent 注册。生成 agent_id 和一个随机 token（存 hash）。
-func (s *APIServer) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name         string `json:"name"`
-		Capabilities string `json:"capabilities"`
-		Version      string `json:"version"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	// 生成 agent id 和 token
-	agentID := uuid.New().String()
-	token := uuid.New().String()
-	tokenHash := backend.HashToken(token) // SHA-256 hash，不存明文
-
-	a := &backend.Agent{
-		ID:           agentID,
-		Name:         req.Name,
-		TokenHash:    tokenHash,
-		Capabilities: req.Capabilities,
-		Version:      req.Version,
-		Status:       "online",
-		CreatedAt:    time.Now(),
-	}
-	if err := s.agentDB.Register(a); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	logger.Infow("agent registered", "agent_id", agentID, "name", req.Name)
-	writeJSON(w, map[string]any{
-		"agent_id":      agentID,
-		"token":         token, // 仅此时返回，之后不再暴露
-		"name":          req.Name,
-		"status":        "online",
-		"registered_at": a.CreatedAt,
-	})
-}
-
-// handleAgentHeartbeat Agent 心跳。Header: Authorization: Bearer <token>
-func (s *APIServer) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	token := extractBearerToken(r)
-	if token == "" {
-		writeErr(w, http.StatusUnauthorized, "missing token")
-		return
-	}
-	// 验证 token
-	a, err := s.agentDB.GetByToken(token)
-	if err != nil || a.ID != agentID {
-		writeErr(w, http.StatusUnauthorized, "invalid token")
-		return
-	}
-	var req struct {
-		Status        string `json:"status"`
-		CurrentTaskID string `json:"current_task_id"`
-	}
-	json.NewDecoder(r.Body).Decode(&req) // body 可选
-
-	updated, err := s.agentDB.UpdateHeartbeat(agentID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]any{
-		"ok":          true,
-		"server_time": time.Now(),
-		"agent":       updated,
-	})
-}
-
-// handleTaskClaim 远程 Agent claim 任务。
-func (s *APIServer) handleTaskClaim(w http.ResponseWriter, r *http.Request) {
-	taskID := r.PathValue("id")
-	token := extractBearerToken(r)
-	if token == "" {
-		writeErr(w, http.StatusUnauthorized, "missing token")
-		return
-	}
-	var req struct {
-		AgentID string `json:"agent_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// 验证 token 对应 agent
-	a, err := s.agentDB.GetByToken(token)
-	if err != nil || a.ID != req.AgentID {
-		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
-		return
-	}
-	if err := s.db.ClaimTask(taskID, req.AgentID); err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	task, _ := s.db.Get(taskID)
-	task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
-	experiences := s.loadExperiencesForTask(task)
-	// 预生成 agent 可直接用的完整 prompt（含 task 三要素 + 经验库内容 + 输出目录约定）
-	// agent 端无需自己拼 prompt，直接调 claude CLI 时把这个字段作为 stdin/参数传入。
-	// 输出目录约定告诉 agent「把文件写到 data/ai-task-dir/<task_id>/」。
-	prompt := taskpkg.BuildTaskPromptWithOutput(task, paths.AITaskDir(taskID), experiences...)
-	// 审计
-	s.eventDB.Record(&backend.TaskEvent{
-		TaskID: taskID, EventType: "claimed",
-		Actor: "agent:" + req.AgentID, CreatedAt: time.Now(),
-	})
-	writeJSON(w, map[string]any{
-		"status":      "claimed",
-		"task":        task,
-		"experiences": experiences,
-		"prompt":      prompt,
-	})
-}
-
-// handleTaskReport 远程 Agent 上报执行结果。
-func (s *APIServer) handleTaskReport(w http.ResponseWriter, r *http.Request) {
-	taskID := r.PathValue("id")
-	token := extractBearerToken(r)
-	if token == "" {
-		writeErr(w, http.StatusUnauthorized, "missing token")
-		return
-	}
-	var req struct {
-		AgentID         string   `json:"agent_id"`
-		Status          string   `json:"status"`
-		ResultOutput    string   `json:"result_output"`
-		EvaluationScore *float64 `json:"evaluation_score"`
-		LastError       string   `json:"last_error"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// 验证 token
-	a, err := s.agentDB.GetByToken(token)
-	if err != nil || a.ID != req.AgentID {
-		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
-		return
-	}
-	if req.Status == "" {
-		req.Status = backend.TaskStatusArchived
-	}
-	if err := s.db.ReportTask(taskID, req.AgentID, req.Status, req.ResultOutput, req.EvaluationScore, req.LastError); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	logger.Infow("task report received", "task_id", taskID, "agent_id", req.AgentID, "status", req.Status)
-	// 审计
-	scoreStr := "null"
-	if req.EvaluationScore != nil {
-		scoreStr = fmt.Sprintf("%v", *req.EvaluationScore)
-	}
-	s.eventDB.Record(&backend.TaskEvent{
-		TaskID: taskID, EventType: "reported",
-		Actor:     "agent:" + req.AgentID,
-		Payload:   fmt.Sprintf(`{"status":"%s","score":%s}`, req.Status, scoreStr),
-		CreatedAt: time.Now(),
-	})
-	// WebSocket 广播任务状态变更
-	task, _ := s.db.Get(taskID)
-	s.hub.Broadcast(wsmsg.ChannelTask, map[string]any{
-		"task_id": taskID,
-		"status":  req.Status,
-		"task":    task,
-	})
-	writeJSON(w, map[string]any{"ok": true, "task_id": taskID})
-}
-
-// extractBearerToken 从 Authorization header 提取 Bearer token。
-func extractBearerToken(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	if !strings.HasPrefix(h, "Bearer ") {
-		return ""
-	}
-	return strings.TrimPrefix(h, "Bearer ")
-}
-
-// startAgentHeartbeatChecker 启动后台 goroutine 定期检查 agent 心跳 + 任务超时。
-// 1) 心跳超时（默认 30s）：agent 标记 offline，手上任务还回 pending
-// 2) 任务超时（默认 10min）：claimed 太久未完成的任务也强制释放，避免 agent 心跳还在但任务托死
-func startAgentHeartbeatChecker(agentRepo *backend.AgentRepo, taskRepo *backend.TaskRepo, eventRepo *backend.TaskEventRepo, h *hub.Hub, hbTimeout time.Duration, taskTimeout time.Duration) {
-	go func() {
-		ticker := time.NewTicker(hbTimeout / 2) // 每半个心跳周期检查一次
-		defer ticker.Stop()
-		for range ticker.C {
-			// 1) agent 心跳超时
-			stale, err := agentRepo.ListStaleAgents(int(hbTimeout.Seconds()))
-			if err != nil {
-				logger.Errorw("list stale agents failed", "err", err)
-			} else {
-				for _, agentID := range stale {
-					if err := agentRepo.SetStatusOffline(agentID); err != nil {
-						logger.Errorw("set agent offline failed", "agent_id", agentID, "err", err)
-						continue
-					}
-					released, _ := taskRepo.ReleaseTasksFromAgent(agentID)
-					logger.Warnw("agent heartbeat timeout", "agent_id", agentID, "released_tasks", released)
-					eventRepo.Record(&backend.TaskEvent{
-						TaskID: "", EventType: "heartbeat_lost",
-						Actor:     "system:" + agentID,
-						Payload:   fmt.Sprintf(`{"released_tasks":%d}`, released),
-						CreatedAt: time.Now(),
-					})
-					h.Broadcast(wsmsg.ChannelAgent, map[string]any{
-						"event":          "agent_offline",
-						"agent_id":       agentID,
-						"released_tasks": released,
-					})
-				}
-			}
-			// 2) 任务超时
-			released, err := taskRepo.ReleaseStaleTasks(int(taskTimeout.Seconds()))
-			if err != nil {
-				logger.Errorw("release stale tasks failed", "err", err)
-			} else if released > 0 {
-				logger.Warnw("released stale tasks", "count", released, "timeout_sec", int(taskTimeout.Seconds()))
-				eventRepo.Record(&backend.TaskEvent{
-					TaskID: "", EventType: "task_timeout",
-					Actor:     "system",
-					Payload:   fmt.Sprintf(`{"count":%d,"timeout_sec":%d}`, released, int(taskTimeout.Seconds())),
-					CreatedAt: time.Now(),
-				})
-				h.Broadcast(wsmsg.ChannelAgent, map[string]any{
-					"event":  "tasks_released",
-					"count":  released,
-					"reason": "task_claim_timeout",
-				})
-			}
-		}
-	}()
-}
-
 // ---- 审计 + 依赖 Handlers ----
 
 // handleTaskEvents 返回某 task 的所有审计事件（时间倒序）。
@@ -4402,260 +4205,6 @@ func (s *APIServer) handleExecutionCommentDelete(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, map[string]string{"id": id, "status": "deleted"})
-}
-
-// handleTaskClaimNext 任务优先级队列：自动领下一个最高优先级任务。
-// 支持 GET (long-poll, ?timeout=30) 和 POST (即时返回)。
-// 找不到可领任务时返回 204。
-// (在 agentHandler 注册时被 ratelimit 包裹)
-func (s *APIServer) handleTaskClaimNext(w http.ResponseWriter, r *http.Request) {
-	token := extractBearerToken(r)
-	if token == "" {
-		writeErr(w, http.StatusUnauthorized, "missing token")
-		return
-	}
-	var agentID string
-	var timeoutSec int
-
-	if r.Method == "GET" {
-		// Long-poll: agent 每隔 N 秒轮询，等有任务再返回
-		agentID = r.URL.Query().Get("agent_id")
-		timeoutSec = parseInt(r.URL.Query().Get("timeout"), 10)
-		if timeoutSec <= 0 || timeoutSec > 60 {
-			timeoutSec = 10
-		}
-	} else {
-		var req struct{ AgentID string `json:"agent_id"` }
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		agentID = req.AgentID
-		timeoutSec = 0 // POST 即时返回，不等待
-	}
-
-	a, err := s.agentDB.GetByToken(token)
-	if err != nil || a.ID != agentID {
-		writeErr(w, http.StatusUnauthorized, "invalid token or agent_id mismatch")
-		return
-	}
-	// 尝试立即 claim（无等待路径）
-	// 注意：已分派的任务（dispatched_at IS NOT NULL）不受 auto_claim_enabled 限制
-	doClaim := func() (taskID string, err error) {
-		tid, err := s.db.NextClaimable(agentID)
-		if err != nil {
-			return "", err
-		}
-		if tid == "" {
-			return "", nil
-		}
-		if err := s.db.ClaimTask(tid, agentID); err != nil {
-			return "", err
-		}
-		return tid, nil
-	}
-
-	taskID, err := doClaim()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	// 无任务 → long-poll 等候
-	if taskID == "" && timeoutSec > 0 {
-		logger.Infow("claim-next: no task, starting long-poll", "agent_id", agentID, "timeout_sec", timeoutSec)
-		type claimResult struct {
-			taskID string
-			err    error
-		}
-		resultCh := make(chan claimResult, 1)
-		go func() {
-			for elapsed := 0; elapsed < timeoutSec; elapsed += 2 {
-				time.Sleep(2 * time.Second)
-				tid, err := doClaim()
-				if err != nil {
-					resultCh <- claimResult{"", err}
-					return
-				}
-				if tid != "" {
-					resultCh <- claimResult{tid, nil}
-					return
-				}
-			}
-			resultCh <- claimResult{"", nil} // timeout 后返回空
-		}()
-
-		select {
-		case res := <-resultCh:
-			if res.err != nil {
-				writeErr(w, http.StatusInternalServerError, res.err.Error())
-				return
-			}
-			taskID = res.taskID
-		case <-r.Context().Done():
-			return // 客户端断开
-		}
-	}
-
-	if taskID == "" {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	// Claim 成功 → 构建响应
-	task, _ := s.db.Get(taskID)
-	task.ExperienceIDs, _ = s.db.ListExperienceIDsForTask(taskID)
-	experiences := s.loadExperiencesForTask(task)
-	prompt := taskpkg.BuildTaskPromptWithOutput(task, paths.AITaskDir(taskID), experiences...)
-	s.eventDB.Record(&backend.TaskEvent{
-		TaskID: taskID, EventType: "claimed_via_priority",
-		Actor: "agent:" + agentID, CreatedAt: time.Now(),
-	})
-	writeJSON(w, map[string]any{
-		"status":      "claimed",
-		"task_id":     taskID,
-		"task":        task,
-		"experiences": experiences,
-		"prompt":      prompt,
-		"output_dir":  paths.AITaskDir(taskID),
-	})
-}
-
-// ---- 远程 Agent 管理 API（主用户调用）----
-
-// handleAgentsList 返回 Agent 列表。可选 ?status=online|offline 过滤。
-func (s *APIServer) handleAgentsList(w http.ResponseWriter, r *http.Request) {
-	status := r.URL.Query().Get("status")
-	agents, err := s.agentDB.List(status)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// 附带每个 agent 当前手上的任务数（轻量统计，不查全量）
-	type agentWithStats struct {
-		*backend.Agent
-		CurrentTaskCount int `json:"current_task_count"`
-	}
-	out := make([]agentWithStats, 0, len(agents))
-	for _, a := range agents {
-		n, _ := s.db.CountInProgressByAgent(a.ID)
-		out = append(out, agentWithStats{Agent: a, CurrentTaskCount: n})
-	}
-	writeJSON(w, out)
-}
-
-// handleAgentReleaseTasks 强制释放某 agent 手上所有 in_progress 的 remote 任务回 pending 池。
-// 场景：agent 卡死但心跳还在；管理员想强制回收。
-func (s *APIServer) handleAgentReleaseTasks(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	a, err := s.agentDB.GetByID(agentID)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	released, err := s.db.ReleaseTasksFromAgent(agentID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// 审计
-	s.eventDB.Record(&backend.TaskEvent{
-		TaskID: "", EventType: "force_released",
-		Actor:     "user",
-		Payload:   fmt.Sprintf(`{"agent_id":"%s","released_tasks":%d}`, agentID, released),
-		CreatedAt: time.Now(),
-	})
-	// ws 广播
-	s.hub.Broadcast(wsmsg.ChannelAgent, map[string]any{
-		"event":          "tasks_released",
-		"agent_id":       agentID,
-		"released_tasks": released,
-	})
-	logger.Infow("agent tasks force released", "agent_id", agentID, "agent_name", a.Name, "count", released)
-	writeJSON(w, map[string]any{"ok": true, "released_tasks": released})
-}
-
-// handleAgentResetToken 重置 agent token，返回新明文 token（仅此次返回）。
-// 旧 token 立即失效。
-func (s *APIServer) handleAgentResetToken(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	a, err := s.agentDB.GetByID(agentID)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	newToken, err := s.agentDB.ResetToken(agentID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// 审计
-	s.eventDB.Record(&backend.TaskEvent{
-		TaskID: "", EventType: "token_reset",
-		Actor:     "user",
-		Payload:   fmt.Sprintf(`{"agent_id":"%s","agent_name":"%s"}`, agentID, a.Name),
-		CreatedAt: time.Now(),
-	})
-	logger.Warnw("agent token reset", "agent_id", agentID, "agent_name", a.Name)
-	writeJSON(w, map[string]any{
-		"ok":        true,
-		"agent_id":  agentID,
-		"new_token": newToken,
-		"warning":   "旧 token 已立即失效，请把新 token 同步到 agent 端",
-	})
-}
-
-// handleAgentSetAutoClaim 切换 agent 的 auto_claim_enabled 开关。Body: {"enabled": true|false}
-func (s *APIServer) handleAgentSetAutoClaim(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	var req struct {
-		Enabled bool `json:"enabled"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := s.agentDB.SetAutoClaimEnabled(agentID, req.Enabled); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, map[string]any{"ok": true, "agent_id": agentID, "auto_claim_enabled": req.Enabled})
-}
-
-// handleAgentSetBoundDirShortcut 绑定/解绑 agent 到一个 type=remote 的 dir_shortcut。
-// Body: {"dir_shortcut_id": "uuid..."}  空字符串 = 解绑（恢复本机/主动 claim 模式）。
-// 绑定后，任务页选这个 agent 走 SSH 远端执行。
-func (s *APIServer) handleAgentSetBoundDirShortcut(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	var req struct {
-		DirShortcutID string `json:"dir_shortcut_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if req.DirShortcutID != "" {
-		// 验证 id 对得上 + type=remote
-		ds, err := s.dirDB.GetByID(req.DirShortcutID)
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if ds == nil {
-			writeErr(w, http.StatusNotFound, "dir_shortcut not found")
-			return
-		}
-		if ds.Type != backend.DirShortcutTypeRemote {
-			writeErr(w, http.StatusBadRequest, "dir_shortcut is not type=remote (need remote ssh config)")
-			return
-		}
-	}
-	if err := s.agentDB.SetBoundDirShortcut(agentID, req.DirShortcutID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	logger.Infow("agent bound to dir_shortcut", "agent_id", agentID, "dir_shortcut_id", req.DirShortcutID)
-	writeJSON(w, map[string]any{"ok": true, "agent_id": agentID, "bound_dir_shortcut_id": req.DirShortcutID})
 }
 
 // handleSkillsList 返回所有已注册的 skill 技能列表（排除内部工具）。
@@ -4879,27 +4428,4 @@ URL: %s %s
 		logger.Warnw("skill reload after create failed", "err", err)
 	}
 	writeJSON(w, map[string]any{"ok": true, "name": req.Name, "dir": skillDir})
-}
-
-// handleAgentDelete 删除 agent（先释放任务再删，避免遗留 in_progress）。
-func (s *APIServer) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
-	agentID := r.PathValue("id")
-	a, err := s.agentDB.GetByID(agentID)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
-		return
-	}
-	released, _ := s.db.ReleaseTasksFromAgent(agentID)
-	if err := s.agentDB.Delete(agentID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.eventDB.Record(&backend.TaskEvent{
-		TaskID: "", EventType: "agent_deleted",
-		Actor:     "user",
-		Payload:   fmt.Sprintf(`{"agent_id":"%s","agent_name":"%s","released_tasks":%d}`, agentID, a.Name, released),
-		CreatedAt: time.Now(),
-	})
-	logger.Warnw("agent deleted", "agent_id", agentID, "agent_name", a.Name, "released_tasks", released)
-	writeJSON(w, map[string]any{"ok": true, "released_tasks": released})
 }

@@ -592,17 +592,6 @@ func GetTools() []Tool {
 			Description: "获取任务的所有评估历史记录，包括分数、反馈和建议。",
 			Parameters: json.RawMessage(`{"type":"object","properties":{"task_id":{"type":"string","description":"任务ID"}},"required":["task_id"]}`),
 		},
-		// ── Agents ────────────────────────────────────────
-		{
-			Name:        "list_agents",
-			Description: "列出所有远程 Agent（工作节点），包括名称、状态、地址信息。",
-			Parameters: json.RawMessage(`{"type":"object","properties":{}}`),
-		},
-		{
-			Name:        "delete_agent",
-			Description: "⚠️ 危险操作：永久删除一个远程 Agent 注册。使用前必须向用户确认，然后传入 confirmed: true 参数。",
-			Parameters: json.RawMessage(`{"type":"object","properties":{"agent_id":{"type":"string","description":"Agent ID"},"confirmed":{"type":"boolean","description":"用户已确认删除操作，必须为 true 才能执行"}},"required":["agent_id","confirmed"]}`),
-		},
 		// ── Execution (高优先级缺口) ─────────────────────────────
 		{
 			Name:        "get_execution",
@@ -782,7 +771,7 @@ type SchedulerOps interface {
 // ExecuteTool executes a tool by name with given JSON arguments.
 // Returns a human-readable result string.
 func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.ExperienceRepo,
-	execDB *backend.ExecutionRepo, agentDB *backend.AgentRepo,
+	execDB *backend.ExecutionRepo,
 	linkDB *backend.WebLinkRepo, dirDB *backend.DirShortcutRepo,
 	schedDB *backend.ScheduledTaskRepo, sch SchedulerOps,
 	memStore *memory.Store,
@@ -817,7 +806,7 @@ func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.Exper
 	case "update_task":
 		return execUpdateTask(ctx, db, argsJSON)
 	case "trigger_task":
-		return execRunTask(ctx, db, execDB, agentDB, argsJSON)
+		return execRunTask(ctx, db, execDB, argsJSON)
 	case "list_task_executions":
 		return execGetTaskExecutions(ctx, db, execDB, argsJSON)
 	// Dir Shortcuts
@@ -910,11 +899,6 @@ func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.Exper
 		return execReevaluateTask(ctx, argsJSON)
 	case "get_task_eval_history":
 		return execGetTaskEvalHistory(ctx, argsJSON)
-	// Agents
-	case "list_agents":
-		return execListAgents(ctx, argsJSON)
-	case "delete_agent":
-		return execDeleteAgent(ctx, argsJSON)
 	// Execution
 	case "get_execution":
 		return execGetExecution(ctx, argsJSON)
@@ -1091,7 +1075,7 @@ func execUpdateTask(ctx context.Context, db *backend.TaskRepo, argsJSON string) 
 	return fmt.Sprintf("✅ 已更新任务: %s", task.Title)
 }
 
-func execRunTask(ctx context.Context, db *backend.TaskRepo, execDB *backend.ExecutionRepo, agentDB *backend.AgentRepo, argsJSON string) string {
+func execRunTask(ctx context.Context, db *backend.TaskRepo, execDB *backend.ExecutionRepo, argsJSON string) string {
 	var args struct {
 		TaskID  string `json:"task_id"`
 		AgentID string `json:"agent_id"`
@@ -2717,72 +2701,6 @@ func execGetTaskEvalHistory(ctx context.Context, argsJSON string) string {
 		buf.WriteString(fmt.Sprintf("- [%s] 评分: %.0f%% | 反馈: %s\n", createdAt, score*100, feedback))
 	}
 	return fmt.Sprintf("📋 任务 %s 评估历史 (%d 条):\n%s", args.TaskID, len(history), buf.String())
-}
-
-// execListAgents handles list_agents: GET /api/agents
-func execListAgents(ctx context.Context, argsJSON string) string {
-	addr := getServerAddr()
-	u := fmt.Sprintf("http://127.0.0.1%s/api/agents", addr)
-	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
-	if err != nil {
-		return fmt.Sprintf("构建请求失败: %v", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Sprintf("查询 Agent 列表失败（网络错误）: %v", err)
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Sprintf("查询 Agent 列表失败 (HTTP %d): %s", resp.StatusCode, string(respBody))
-	}
-	var agents []map[string]any
-	json.Unmarshal(respBody, &agents)
-	if len(agents) == 0 {
-		return "🤖 无注册的远程 Agent"
-	}
-	var buf bytes.Buffer
-	for _, a := range agents {
-		name, _ := a["name"].(string)
-		status, _ := a["status"].(string)
-		addrStr, _ := a["address"].(string)
-		id, _ := a["id"].(string)
-		buf.WriteString(fmt.Sprintf("- [%s] %s | 状态: %s | 地址: %s\n", id, name, status, addrStr))
-	}
-	return fmt.Sprintf("🤖 Agent 列表 (%d):\n%s", len(agents), buf.String())
-}
-
-// execDeleteAgent handles delete_agent: DELETE /api/agents/{agent_id} with confirmed check
-func execDeleteAgent(ctx context.Context, argsJSON string) string {
-	var args struct {
-		AgentID   string `json:"agent_id"`
-		Confirmed bool   `json:"confirmed"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return fmt.Sprintf("参数解析失败: %v", err)
-	}
-	if args.AgentID == "" {
-		return "⚠️ agent_id 是必填字段"
-	}
-	if !args.Confirmed {
-		return "⚠️ 删除 Agent 不可撤销！确认删除请重新调用并传入 confirmed: true"
-	}
-	addr := getServerAddr()
-	u := fmt.Sprintf("http://127.0.0.1%s/api/agents/%s", addr, args.AgentID)
-	req, err := http.NewRequestWithContext(ctx, "DELETE", u, nil)
-	if err != nil {
-		return fmt.Sprintf("构建请求失败: %v", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Sprintf("删除 Agent 失败（网络错误）: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Sprintf("删除 Agent 失败 (HTTP %d): %s", resp.StatusCode, string(body))
-	}
-	return fmt.Sprintf("✅ Agent %s 已永久删除", args.AgentID)
 }
 
 // execStartScheduler handles start_scheduler: POST /api/scheduler/start

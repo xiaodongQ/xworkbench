@@ -1,15 +1,12 @@
 package backend
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/xiaodongQ/xworkbench/internal/logger"
 )
 
@@ -208,18 +205,6 @@ func InitSchema(db *sql.DB) error {
 		PRIMARY KEY (task_id, experience_id)
 	);
 	CREATE INDEX IF NOT EXISTS idx_task_exp_exp ON task_experiences(experience_id);
-	CREATE TABLE IF NOT EXISTS agents (
-		id TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		token_hash TEXT NOT NULL,
-		capabilities TEXT,
-		version TEXT,
-		last_heartbeat DATETIME,
-		status TEXT DEFAULT 'online',
-		auto_claim_enabled INTEGER DEFAULT 0,
-		created_at DATETIME
-	);
-	CREATE INDEX IF NOT EXISTS idx_agents_token ON agents(token_hash);
 	CREATE TABLE IF NOT EXISTS task_events (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		task_id TEXT NOT NULL,
@@ -277,9 +262,6 @@ func InitSchema(db *sql.DB) error {
 	if err := migrateTasksCategoryColumn(db); err != nil {
 		return err
 	}
-	if err := migrateTasksDispatchedAt(db); err != nil {
-		return err
-	}
 	if err := migrateScheduledTaskCategoriesTable(db); err != nil {
 		return err
 	}
@@ -290,9 +272,6 @@ func InitSchema(db *sql.DB) error {
 		return err
 	}
 	if err := migrateExperiencesColumns(db); err != nil {
-		return err
-	}
-	if err := migrateAgentsTable(db); err != nil {
 		return err
 	}
 	if err := migrateExecutionsColumns(db); err != nil {
@@ -443,8 +422,7 @@ func migrateTasksColumns(db *sql.DB) error {
 		{"last_heartbeat", "last_heartbeat DATETIME"},
 		{"last_error", "last_error TEXT"},
 		{"task_type", "task_type TEXT DEFAULT 'manual'"},
-		{"assigned_agent_id", "assigned_agent_id TEXT"},
-		{"claimer_agent_id", "claimer_agent_id TEXT"},
+		{"assigned_dir_shortcut_id", "assigned_dir_shortcut_id TEXT"},
 		{"result_output", "result_output TEXT"},
 		{"evaluation_score", "evaluation_score REAL DEFAULT 0"},
 		{"command_type", "command_type TEXT DEFAULT 'claude'"},
@@ -759,30 +737,6 @@ func migrateTasksCategoryColumn(db *sql.DB) error {
 	return nil
 }
 
-// migrateTasksDispatchedAt 为 tasks 表添加 dispatched_at 列（远程任务手动分派时间戳）
-func migrateTasksDispatchedAt(db *sql.DB) error {
-	rows, err := db.Query(`PRAGMA table_info(tasks)`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	cols := map[string]bool{}
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notnull int
-		var dflt sql.NullString
-		var pk int
-		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
-		cols[name] = true
-	}
-	if cols["dispatched_at"] {
-		return nil
-	}
-	_, err = db.Exec(`ALTER TABLE tasks ADD COLUMN dispatched_at DATETIME`)
-	return err
-}
-
 // migrateScheduledTaskCategoriesTable 确保 scheduled_task_categories 表的默认分类存在
 func migrateScheduledTaskCategoriesTable(db *sql.DB) error {
 	var count int
@@ -967,49 +921,6 @@ func migrateEvaluationsColumns(db *sql.DB) error {
 	return nil
 }
 
-// migrateAgentsTable 建 agents 表（如果是全新 schema，CREATE TABLE 会自动创建；如果是历史 db，尝试 ALTER）。
-// agents 表比较特殊：历史 db 没有这个表，需要用 ALTER TABLE ADD COLUMN 但 SQLite 对新表无效，
-// 所以这里用 CREATE TABLE IF NOT EXISTS 直接兼容（新旧 db 均安全）。
-func migrateAgentsTable(db *sql.DB) error {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS agents (
-		id TEXT PRIMARY KEY,
-		name TEXT NOT NULL,
-		token_hash TEXT NOT NULL,
-		capabilities TEXT,
-		version TEXT,
-		last_heartbeat DATETIME,
-		status TEXT DEFAULT 'online',
-		auto_claim_enabled INTEGER DEFAULT 0,
-		created_at DATETIME
-	)`)
-	if err != nil {
-		return fmt.Errorf("migrateAgentsTable: %w", err)
-	}
-	// 列级迁移：历史 db 可能没有 bound_dir_shortcut_id 字段
-	// 用 PRAGMA table_info 检查列存在性，缺则 ADD COLUMN（幂等）
-	rows, err := db.Query(`PRAGMA table_info(agents)`)
-	if err != nil {
-		return nil // PRAGMA 失败不阻塞（老 db 兼容兜底）
-	}
-	cols := map[string]bool{}
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notnull int
-		var dflt sql.NullString
-		var pk int
-		_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
-		cols[name] = true
-	}
-	rows.Close()
-	if !cols["bound_dir_shortcut_id"] {
-		if _, err := db.Exec(`ALTER TABLE agents ADD COLUMN bound_dir_shortcut_id TEXT`); err != nil {
-			return fmt.Errorf("migrateAgentsTable add bound_dir_shortcut_id: %w", err)
-		}
-	}
-	return nil
-}
-
 type TaskRepo struct{ db *sql.DB }
 
 func NewTaskRepo(db *sql.DB) *TaskRepo { return &TaskRepo{db: db} }
@@ -1023,10 +934,10 @@ func (r *TaskRepo) Create(t *Task) error {
 	if categoryID == "" {
 		categoryID = "default-task-cat"
 	}
-	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type,assigned_agent_id,priority,command_type,model,prompt,goal_mode,category_id)
+	q := `INSERT INTO tasks (id,title,description,status,experience_id,resources,acceptance,version,created_at,task_type,assigned_dir_shortcut_id,priority,command_type,model,prompt,goal_mode,category_id)
 	        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.Exec(q, t.ID, t.Title, t.Description, t.Status,
-		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt, t.TaskType, t.AssignedAgentID, t.Priority,
+		t.ExperienceID, t.Resources, t.Acceptance, t.Version, t.CreatedAt, t.TaskType, t.AssignedDirShortcutID, t.Priority,
 		t.CommandType, t.Model, t.Prompt, goalMode, categoryID)
 	if err != nil {
 		logger.Logger.Errorw("tasks create failed", "id", t.ID, "error", err.Error())
@@ -1040,17 +951,17 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
 		claimed_at,maintainer,repo_address,archived_at,completed_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
-		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
-		command_type,model,prompt,goal_mode,category_id,dispatched_at
+		task_type,assigned_dir_shortcut_id,result_output,evaluation_score,priority,
+		command_type,model,prompt,goal_mode,category_id
 		FROM tasks WHERE id=?`
 	var t Task
-	var claimedAt, archivedAt, completedAt, dispatchedAt sql.NullTime
+	var claimedAt, archivedAt, completedAt sql.NullTime
 	var acc, res, maintainer, repoAddr sql.NullString
 	var execModel, cbcMdl sql.NullString
 	var iterCount, maxIter int
 	var improvThresh, evalScore sql.NullFloat64
 	var lastHeartbeat sql.NullTime
-	var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
+	var lastErr, taskType, assignedDirShortcutID, resultOutput, cmdType, mdl, prompt sql.NullString
 	var priority int
 	var goalMode int
 	var categoryID sql.NullString
@@ -1058,8 +969,8 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 		&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 		&claimedAt, &maintainer, &repoAddr, &archivedAt, &completedAt, &res,
 		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
-		&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
-		&cmdType, &mdl, &prompt, &goalMode, &categoryID, &dispatchedAt)
+		&taskType, &assignedDirShortcutID, &resultOutput, &evalScore, &priority,
+		&cmdType, &mdl, &prompt, &goalMode, &categoryID)
 	t.Acceptance = acc.String
 	t.Result = res.String
 	t.Maintainer = maintainer.String
@@ -1070,17 +981,13 @@ func (r *TaskRepo) Get(id string) (*Task, error) {
 	t.MaxIterations = maxIter
 	t.LastError = lastErr.String
 	t.TaskType = taskType.String
-	t.AssignedAgentID = assignedAgentID.String
-	t.ClaimerAgentID = claimerAgentID.String
+	t.AssignedDirShortcutID = assignedDirShortcutID.String
 	t.ResultOutput = resultOutput.String
 	t.Priority = priority
 	t.GoalMode = goalMode != 0
 	t.CategoryID = categoryID.String
 	if claimedAt.Valid {
 		t.ClaimedAt = &claimedAt.Time
-	}
-	if dispatchedAt.Valid {
-		t.DispatchedAt = &dispatchedAt.Time
 	}
 	if archivedAt.Valid {
 		t.ArchivedAt = &archivedAt.Time
@@ -1115,10 +1022,10 @@ func (r *TaskRepo) Update(t *Task) error {
 		goalMode = 1
 	}
 	q := `UPDATE tasks SET title=?,description=?,experience_id=?,resources=?,acceptance=?,
-		task_type=?,assigned_agent_id=?,claimer_agent_id=?,result_output=?,evaluation_score=?,priority=?,
+		task_type=?,assigned_dir_shortcut_id=?,result_output=?,evaluation_score=?,priority=?,
 		command_type=?,model=?,prompt=?,goal_mode=?,category_id=? WHERE id=?`
 	_, err := r.db.Exec(q, t.Title, t.Description, t.ExperienceID, t.Resources, t.Acceptance,
-		t.TaskType, t.AssignedAgentID, t.ClaimerAgentID, t.ResultOutput, t.EvaluationScore, t.Priority,
+		t.TaskType, t.AssignedDirShortcutID, t.ResultOutput, t.EvaluationScore, t.Priority,
 		t.CommandType, t.Model, t.Prompt, goalMode, t.CategoryID, t.ID)
 	if err != nil {
 		logger.Logger.Errorw("tasks update failed", "id", t.ID, "error", err.Error())
@@ -1296,8 +1203,8 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
 		claimed_at,maintainer,repo_address,archived_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
-		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority,
-		command_type,model,prompt,goal_mode,category_id,dispatched_at
+		task_type,assigned_dir_shortcut_id,result_output,evaluation_score,priority,
+		command_type,model,prompt,goal_mode,category_id
 		FROM tasks`
 	var args []any
 	var where []string
@@ -1335,17 +1242,16 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		var iterCount, maxIter int
 		var improvThresh, evalScore sql.NullFloat64
 		var lastHeartbeat sql.NullTime
-		var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput, cmdType, mdl, prompt sql.NullString
+		var lastErr, taskType, assignedDirShortcutID, resultOutput, cmdType, mdl, prompt sql.NullString
 		var priority int
 		var goalMode int
 		var categoryID sql.NullString
-		var dispatchedAt sql.NullTime
 		err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 			&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 			&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 			&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
-			&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority,
-			&cmdType, &mdl, &prompt, &goalMode, &categoryID, &dispatchedAt)
+			&taskType, &assignedDirShortcutID, &resultOutput, &evalScore, &priority,
+			&cmdType, &mdl, &prompt, &goalMode, &categoryID)
 		t.Acceptance = acc.String
 		t.Result = res.String
 		t.Maintainer = maintainer.String
@@ -1356,8 +1262,7 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		t.MaxIterations = maxIter
 		t.LastError = lastErr.String
 		t.TaskType = taskType.String
-		t.AssignedAgentID = assignedAgentID.String
-		t.ClaimerAgentID = claimerAgentID.String
+		t.AssignedDirShortcutID = assignedDirShortcutID.String
 		t.ResultOutput = resultOutput.String
 		t.Priority = priority
 		t.GoalMode = goalMode != 0
@@ -1376,9 +1281,6 @@ func (r *TaskRepo) List(filter TaskFilter) ([]*Task, error) {
 		}
 		if evalScore.Valid {
 			t.EvaluationScore = &evalScore.Float64
-		}
-		if dispatchedAt.Valid {
-			t.DispatchedAt = &dispatchedAt.Time
 		}
 		t.CommandType = cmdType.String
 		t.Model = mdl.String
@@ -1408,7 +1310,7 @@ func (r *TaskRepo) FindByTitle(title string) (*Task, error) {
 	q := `SELECT id,title,description,status,experience_id,resources,acceptance,version,created_at,
 		claimed_at,maintainer,repo_address,archived_at,result,
 		executor_model,cbc_model,iteration_count,max_iterations,improvement_threshold,last_heartbeat,last_error,
-		task_type,assigned_agent_id,claimer_agent_id,result_output,evaluation_score,priority
+		task_type,assigned_dir_shortcut_id,result_output,evaluation_score,priority
 		FROM tasks WHERE title=? LIMIT 1`
 	var t Task
 	var claimedAt, archivedAt sql.NullTime
@@ -1417,13 +1319,13 @@ func (r *TaskRepo) FindByTitle(title string) (*Task, error) {
 	var iterCount, maxIter int
 	var improvThresh, evalScore sql.NullFloat64
 	var lastHeartbeat sql.NullTime
-	var lastErr, taskType, assignedAgentID, claimerAgentID, resultOutput sql.NullString
+	var lastErr, taskType, assignedDirShortcutID, resultOutput sql.NullString
 	var priority int
 	err := r.db.QueryRow(q, title).Scan(&t.ID, &t.Title, &t.Description, &t.Status,
 		&t.ExperienceID, &t.Resources, &acc, &t.Version, &t.CreatedAt,
 		&claimedAt, &maintainer, &repoAddr, &archivedAt, &res,
 		&execModel, &cbcMdl, &iterCount, &maxIter, &improvThresh, &lastHeartbeat, &lastErr,
-		&taskType, &assignedAgentID, &claimerAgentID, &resultOutput, &evalScore, &priority)
+		&taskType, &assignedDirShortcutID, &resultOutput, &evalScore, &priority)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1440,8 +1342,7 @@ func (r *TaskRepo) FindByTitle(title string) (*Task, error) {
 	t.MaxIterations = maxIter
 	t.LastError = lastErr.String
 	t.TaskType = taskType.String
-	t.AssignedAgentID = assignedAgentID.String
-	t.ClaimerAgentID = claimerAgentID.String
+	t.AssignedDirShortcutID = assignedDirShortcutID.String
 	t.ResultOutput = resultOutput.String
 	t.Priority = priority
 	if claimedAt.Valid {
@@ -3068,277 +2969,6 @@ func (r *EvaluationRepo) ListByExecution(execID string) ([]*Evaluation, error) {
 	return out, rows.Err()
 }
 
-// ---- Agent（远程 Agent 注册/心跳）----
-
-type Agent struct {
-	ID                 string     `json:"id"`
-	Name               string     `json:"name"`
-	TokenHash          string     `json:"-"` // 不暴露给前端
-	Capabilities       string     `json:"capabilities,omitempty"`
-	Version            string     `json:"version,omitempty"`
-	LastHeartbeat      *time.Time `json:"last_heartbeat,omitempty"`
-	Status             string     `json:"status"` // online | offline
-	AutoClaimEnabled   bool       `json:"auto_claim_enabled"`
-	BoundDirShortcutID string     `json:"bound_dir_shortcut_id,omitempty"` // 关联 dir_shortcuts.id；非空时为该机器启 SSH 执行
-	CreatedAt          time.Time  `json:"created_at"`
-}
-
-type AgentRepo struct{ db *sql.DB }
-
-func NewAgentRepo(db *sql.DB) *AgentRepo { return &AgentRepo{db: db} }
-
-// Register 新建 Agent（id/token 由调用方生成）。
-func (r *AgentRepo) Register(a *Agent) error {
-	q := `INSERT INTO agents (id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,bound_dir_shortcut_id,created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`
-	_, err := r.db.Exec(q, a.ID, a.Name, a.TokenHash, a.Capabilities, a.Version, a.LastHeartbeat, a.Status, a.AutoClaimEnabled, a.BoundDirShortcutID, a.CreatedAt)
-	if err != nil {
-		logger.Logger.Errorw("[agents] register failed", "id", a.ID, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[agents] created", "id", a.ID)
-	return nil
-}
-
-// GetByID 根据 ID 查 Agent。
-func (r *AgentRepo) GetByID(id string) (*Agent, error) {
-	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,bound_dir_shortcut_id,created_at FROM agents WHERE id=?`
-	var a Agent
-	var hb sql.NullTime
-	var boundID sql.NullString
-	err := r.db.QueryRow(q, id).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &boundID, &a.CreatedAt)
-	if hb.Valid {
-		a.LastHeartbeat = &hb.Time
-	}
-	if boundID.Valid {
-		a.BoundDirShortcutID = boundID.String
-	}
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("agent %s not found", id)
-	}
-	return &a, err
-}
-
-// GetByTokenHash 根据 token hash 查 Agent（用于登录验证）。
-func (r *AgentRepo) GetByTokenHash(hash string) (*Agent, error) {
-	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,bound_dir_shortcut_id,created_at FROM agents WHERE token_hash=?`
-	var a Agent
-	var hb sql.NullTime
-	var boundID sql.NullString
-	err := r.db.QueryRow(q, hash).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &boundID, &a.CreatedAt)
-	if hb.Valid {
-		a.LastHeartbeat = &hb.Time
-	}
-	if boundID.Valid {
-		a.BoundDirShortcutID = boundID.String
-	}
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("agent not found")
-	}
-	return &a, err
-}
-
-// GetByToken 是 handler 首选入口：传明文 token，内部 hash 后查 Agent。
-func (r *AgentRepo) GetByToken(token string) (*Agent, error) {
-	return r.GetByTokenHash(HashToken(token))
-}
-
-// List 返回所有 Agent，按最后心跳倒序（最近活跃在前）。status 过滤可选（""=全部，"online"=仅在线）。
-func (r *AgentRepo) List(status string) ([]*Agent, error) {
-	q := `SELECT id,name,token_hash,capabilities,version,last_heartbeat,status,auto_claim_enabled,bound_dir_shortcut_id,created_at
-		FROM agents`
-	args := []any{}
-	if status != "" {
-		q += ` WHERE status=?`
-		args = append(args, status)
-	}
-	q += ` ORDER BY (last_heartbeat IS NULL), last_heartbeat DESC, created_at DESC`
-	rows, err := r.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]*Agent, 0)
-	for rows.Next() {
-		var a Agent
-		var hb sql.NullTime
-		var boundID sql.NullString
-		if err := rows.Scan(&a.ID, &a.Name, &a.TokenHash, &a.Capabilities, &a.Version, &hb, &a.Status, &a.AutoClaimEnabled, &boundID, &a.CreatedAt); err != nil {
-			return nil, err
-		}
-		if hb.Valid {
-			a.LastHeartbeat = &hb.Time
-		}
-		if boundID.Valid {
-			a.BoundDirShortcutID = boundID.String
-		}
-		out = append(out, &a)
-	}
-	return out, rows.Err()
-}
-
-// HashToken 对明文 token 做 SHA-256，返回 hex 字符串作为 token_hash。
-// 使用 SHA-256 而不是明文或 bcrypt：stateless token 不需要 bcrypt 的慢哈希，
-// 但为了避免明文泄露，查表时统一用 hash 匹配。
-func HashToken(token string) string {
-	h := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(h[:])
-}
-
-// UpdateHeartbeat 更新心跳时间并返回更新后的 Agent。
-func (r *AgentRepo) UpdateHeartbeat(id string) (*Agent, error) {
-	now := time.Now()
-	_, err := r.db.Exec(`UPDATE agents SET last_heartbeat=?, status='online' WHERE id=?`, now, id)
-	if err != nil {
-		logger.Logger.Errorw("[agents] heartbeat update failed", "id", id, "error", err.Error())
-		return nil, err
-	}
-	logger.Logger.Infow("[agents] heartbeat updated", "id", id)
-	return r.GetByID(id)
-}
-
-// ListStaleAgents 返回超过 maxAge 秒未心跳的 Agent ID 列表（供后台回收任务用）。
-func (r *AgentRepo) ListStaleAgents(maxAgeSec int) ([]string, error) {
-	q := `SELECT id FROM agents WHERE status='online' AND last_heartbeat < datetime('now', '-' || ? || ' seconds')`
-	rows, err := r.db.Query(q, maxAgeSec)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
-// SetStatusOffline 将 Agent 标记为离线（心跳超时后调用）。
-func (r *AgentRepo) SetStatusOffline(id string) error {
-	_, err := r.db.Exec(`UPDATE agents SET status='offline' WHERE id=?`, id)
-	if err != nil {
-		logger.Logger.Errorw("[agents] set offline failed", "id", id, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[agents] set offline", "id", id)
-	return nil
-}
-
-// ResetToken 生成新 token 并写回 hash。返回新明文 token（仅此刻可获取）。
-func (r *AgentRepo) ResetToken(id string) (string, error) {
-	token := uuid.New().String()
-	hash := HashToken(token)
-	_, err := r.db.Exec(`UPDATE agents SET token_hash=? WHERE id=?`, hash, id)
-	if err != nil {
-		logger.Logger.Errorw("[agents] reset token failed", "id", id, "error", err.Error())
-		return "", err
-	}
-	logger.Logger.Infow("[agents] token reset", "id", id)
-	return token, nil
-}
-
-// Delete 删除 Agent（慎用，谨慎级联任务）。
-func (r *AgentRepo) Delete(id string) error {
-	_, err := r.db.Exec(`DELETE FROM agents WHERE id=?`, id)
-	if err != nil {
-		logger.Logger.Errorw("[agents] delete failed", "id", id, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[agents] deleted", "id", id)
-	return nil
-}
-
-// SetAutoClaimEnabled 开启/关闭自动领任务开关。
-func (r *AgentRepo) SetAutoClaimEnabled(id string, enabled bool) error {
-	_, err := r.db.Exec(`UPDATE agents SET auto_claim_enabled=? WHERE id=?`, enabled, id)
-	if err != nil {
-		logger.Logger.Errorw("[agents] set auto_claim failed", "id", id, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[agents] set auto_claim", "id", id, "enabled", enabled)
-	return nil
-}
-
-// SetBoundDirShortcut 设置 Agent 绑定的 dir_shortcut id。
-// dirShortcutID 为空字符串 = 解绑（恢复本机 / 主动 claim 模式）。
-// 绑定后，主用户在任务页选"指定 agent 远程执行"时，server 会用该 dir_shortcut 的 SSH 配置连远端机器。
-func (r *AgentRepo) SetBoundDirShortcut(id, dirShortcutID string) error {
-	var v interface{}
-	if dirShortcutID == "" {
-		v = nil
-	} else {
-		v = dirShortcutID
-	}
-	_, err := r.db.Exec(`UPDATE agents SET bound_dir_shortcut_id=? WHERE id=?`, v, id)
-	if err != nil {
-		logger.Logger.Errorw("[agents] set bound_dir_shortcut failed", "id", id, "dir_shortcut_id", dirShortcutID, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("[agents] set bound_dir_shortcut", "id", id, "dir_shortcut_id", dirShortcutID)
-	return nil
-}
-
-// DispatchTask 将远程任务显式分派给指定 agent，设置 dispatched_at 时间戳。
-// agent 在下次 claim-next 轮询时才能认领到此任务。
-func (r *TaskRepo) DispatchTask(taskID, agentID string, dispatchedAt time.Time) error {
-	result, err := r.db.Exec(`UPDATE tasks SET assigned_agent_id=?, dispatched_at=?
-		WHERE id=? AND status='pending' AND task_type='remote'`,
-		agentID, dispatchedAt, taskID)
-	if err != nil {
-		logger.Logger.Errorw("tasks dispatch failed", "task_id", taskID, "agent_id", agentID, "error", err.Error())
-		return err
-	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("task %s cannot be dispatched (not pending/remote)", taskID)
-	}
-	logger.Logger.Infow("tasks dispatched", "task_id", taskID, "agent_id", agentID)
-	return nil
-}
-
-// ClaimTask 原子 claim：只有在 task 状态为 pending 且类型为 remote 且无人认领时才能 claim。
-// 成功返回 nil，失败返回 error（并发抢或状态不对）。
-func (r *TaskRepo) ClaimTask(taskID, agentID string) error {
-	result, err := r.db.Exec(`UPDATE tasks SET status=?, claimer_agent_id=?, claimed_at=COALESCE(claimed_at, ?)
-		WHERE id=? AND status='pending' AND task_type='remote' AND (claimer_agent_id='' OR claimer_agent_id IS NULL)`,
-		TaskStatusInProgress, agentID, time.Now(), taskID)
-	if err != nil {
-		logger.Logger.Errorw("tasks claim failed", "task_id", taskID, "agent_id", agentID, "error", err.Error())
-		return err
-	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("task %s cannot be claimed (not pending/remote or already claimed)", taskID)
-	}
-	logger.Logger.Infow("tasks claimed", "task_id", taskID, "agent_id", agentID)
-	return nil
-}
-
-// ReportTask 远程 Agent 上报执行结果。验证 claimer 匹配后更新。
-func (r *TaskRepo) ReportTask(taskID, agentID, status, resultOutput string, evalScore *float64, lastErr string) error {
-	t, err := r.Get(taskID)
-	if err != nil {
-		return err
-	}
-	if t.ClaimerAgentID != agentID {
-		return fmt.Errorf("task %s is not claimed by agent %s", taskID, agentID)
-	}
-	q := `UPDATE tasks SET status=?, result_output=?, evaluation_score=?, last_error=?,
-		completed_at=CASE WHEN ? IN ('archived','exception') THEN COALESCE(completed_at, ?) END
-		WHERE id=?`
-	now := time.Now()
-	_, err = r.db.Exec(q, status, resultOutput, evalScore, lastErr, status, now, taskID)
-	if err != nil {
-		logger.Logger.Errorw("tasks report failed", "task_id", taskID, "status", status, "error", err.Error())
-		return err
-	}
-	logger.Logger.Infow("tasks reported", "task_id", taskID, "status", status)
-	return nil
-}
-
 // UpdateEvalScore 更新任务的评估分数（用于自动评估）。
 func (r *TaskRepo) UpdateEvalScore(taskID string, score float64) error {
 	_, err := r.db.Exec(`UPDATE tasks SET evaluation_score=? WHERE id=?`, score, taskID)
@@ -3350,43 +2980,7 @@ func (r *TaskRepo) UpdateEvalScore(taskID string, score float64) error {
 	return nil
 }
 
-// CountInProgressByAgent 统计某 agent 名下处于 in_progress 的 remote 任务数。
-func (r *TaskRepo) CountInProgressByAgent(agentID string) (int, error) {
-	var n int
-	err := r.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE claimer_agent_id=? AND status='in_progress' AND task_type='remote'`, agentID).Scan(&n)
-	return n, err
-}
 
-// ReleaseTasksFromAgent 释放某个 agent 手上所有 in_progress 的 remote 任务回 pending 池。
-// 用于心跳超时后回收任务。返回释放的任务数。
-func (r *TaskRepo) ReleaseTasksFromAgent(agentID string) (int, error) {
-	q := `UPDATE tasks SET status='pending', claimer_agent_id='', last_error=?
-		WHERE claimer_agent_id=? AND status='in_progress' AND task_type='remote'`
-	result, err := r.db.Exec(q, "agent heartbeat timeout", agentID)
-	if err != nil {
-		logger.Logger.Errorw("tasks release from agent failed", "agent_id", agentID, "error", err.Error())
-		return 0, err
-	}
-	n, _ := result.RowsAffected()
-	logger.Logger.Infow("tasks released from agent", "agent_id", agentID, "count", int(n))
-	return int(n), nil
-}
-
-// ReleaseStaleTasks 释放超时任务：claimed_at 距今超过 maxAgeSec 秒、且 status 仍为 in_progress。
-// 用于任务超时检测（防止 agent claim 后失联但心跳还活着）。
-func (r *TaskRepo) ReleaseStaleTasks(maxAgeSec int) (int, error) {
-	result, err := r.db.Exec(`UPDATE tasks SET status='pending', claimer_agent_id='', last_error='task claim timeout'
-		WHERE status='in_progress' AND task_type='remote' AND claimed_at < datetime('now', '-' || ? || ' seconds')`, maxAgeSec)
-	if err != nil {
-		logger.Logger.Errorw("tasks release stale tasks failed", "max_age_sec", maxAgeSec, "error", err.Error())
-		return 0, err
-	}
-	n, _ := result.RowsAffected()
-	if n > 0 {
-		logger.Logger.Infow("tasks released stale tasks", "max_age_sec", maxAgeSec, "count", int(n))
-	}
-	return int(n), nil
-}
 
 // ---- TaskEvent 审计事件 ----
 
@@ -3609,20 +3203,3 @@ func (r *ExecutionCommentRepo) Delete(id string) error {
 	return nil
 }
 
-// NextClaimable 返回下一个可 claim 的 remote 任务（已手动分派的）。
-// 只有 dispatched_at 非空（用户已显式分派）的任务才会被 agent 认领。
-func (r *TaskRepo) NextClaimable(agentID string) (string, error) {
-	q := `SELECT id FROM tasks
-		WHERE status='pending' AND task_type='remote'
-		  AND (claimer_agent_id='' OR claimer_agent_id IS NULL)
-		  AND (assigned_agent_id='' OR assigned_agent_id IS NULL OR assigned_agent_id=?1)
-		  AND dispatched_at IS NOT NULL
-		ORDER BY dispatched_at ASC
-		LIMIT 1`
-	var id string
-	err := r.db.QueryRow(q, agentID).Scan(&id)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return id, err
-}

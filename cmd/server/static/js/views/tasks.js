@@ -367,10 +367,7 @@ function renderTaskTable(list) {
 // 按状态返回操作按钮 HTML（返回按钮列表，td 本身已是 flex 容器）
 function taskOpsByStatus(t) {
   const id = t.id;
-  const isRemote = t.task_type === 'remote';
-  const runBtn = isRemote
-    ? `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="dispatchTask('${id}')" title="分派到远程 Agent 执行">▶ 分派</button>`
-    : `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI 执行此任务">▶ 运行</button>`;
+  const runBtn = `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI 执行此任务">▶ 运行</button>`;
   switch (t.status) {
     case 'pending':
       return runBtn +
@@ -402,41 +399,6 @@ async function claimTask(id) {
     body: JSON.stringify({status: 'in_progress', maintainer: 'factory-agent'})
   });
   reloadCurrentTab();
-}
-
-// dispatchTask 手动将远程任务分派给指定 agent。
-async function dispatchTask(taskID) {
-  try {
-    const agents = await fetchJSON(API + '/api/agents');
-    const online = (agents || []).filter(a => a.status === 'online');
-    if (online.length === 0) {
-      alert('无可用 agent，请先在目标机器上运行 xwcli register 并启动 agent');
-      return;
-    }
-    const names = online.map((a, i) => `${i + 1}. ${a.name}${(a.bound_dir_shortcut || {}).remote_host ? ' (' + a.bound_dir_shortcut.remote_host + ')' : ''}`);
-    const choice = prompt('选择目标 Agent:\n' + names.join('\n') + '\n\n输入序号：');
-    if (!choice) return;
-    const idx = parseInt(choice) - 1;
-    if (idx < 0 || idx >= online.length) {
-      alert('无效选择');
-      return;
-    }
-    const agent = online[idx];
-    const r = await fetch(API + '/api/tasks/' + taskID + '/dispatch', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({agent_id: agent.id})
-    });
-    if (!r.ok) {
-      const b = await r.json().catch(() => ({}));
-      alert('分派失败：' + (b.error || r.statusText));
-      return;
-    }
-    alert('已分派到 ' + agent.name);
-    reloadCurrentTab();
-  } catch (e) {
-    alert('分派失败：' + e.message);
-  }
 }
 
 async function unclaimTask(id) {
@@ -473,6 +435,7 @@ async function runTask(id) {
 function showRunTaskModal(task) {
   window._currentRunTask = task; // 供 runTaskLoop 使用
   document.getElementById('run-task-title').textContent = task.title;
+  document.getElementById('run-task-desc').textContent = task.description || '(未提供)';
   document.getElementById('run-task-acceptance').textContent = task.acceptance || '(未提供)';
   // command_type/model：优先用 task 创建时确定的默认值，可临时调整
   const typeSel = document.getElementById('run-task-type');
@@ -498,8 +461,27 @@ function showRunTaskModal(task) {
       }
     }).catch(() => { resumeInput.placeholder = '留空则开新会话'; });
   }
-  // 填充 agent 列表（异步：拉 + 绑定了远程 dir_shortcut 的 agent）
-  loadRunTaskAgentOptions();
+  // 填充执行位置列表（异步：拉 type=remote 的 dir_shortcuts）
+  const isRemoteTask = task.task_type === 'remote' && task.assigned_dir_shortcut_id;
+  loadRunTaskAgentOptions(task);
+  if (isRemoteTask) {
+    // 远程任务：锁定执行位置，不允许在这里修改。要改请编辑任务。
+    const sel = document.getElementById('run-task-agent');
+    if (sel) {
+      sel.disabled = true;
+      sel.style.opacity = '0.6';
+    }
+    const hint = document.getElementById('run-task-agent-hint');
+    if (hint) hint.style.display = '';
+  } else {
+    const sel = document.getElementById('run-task-agent');
+    if (sel) {
+      sel.disabled = false;
+      sel.style.opacity = '1';
+    }
+    const hint = document.getElementById('run-task-agent-hint');
+    if (hint) hint.style.display = 'none';
+  }
   // 存当前 taskId 供 submit 用
   document.getElementById('run-task-modal').dataset.taskId = task.id;
   // type 切换时联动 model 是否可选
@@ -521,28 +503,25 @@ function showRunTaskModal(task) {
   document.getElementById('run-task-modal').classList.remove('hidden');
 }
 
-// 填充“运行位置”下拉：列出所有绑定了 dir_shortcut 的 agent。
-async function loadRunTaskAgentOptions() {
+// 填充"运行位置"下拉：列出所有 remote 类型的 dir_shortcut。
+async function loadRunTaskAgentOptions(task) {
   const sel = document.getElementById('run-task-agent');
   if (!sel) return;
   sel.innerHTML = '<option value="">本机执行（默认）</option>';
   try {
-    const agents = await fetchJSON(API + '/api/agents');
-    // 顺带查 dir_shortcuts 以获取 host name
     const dirs = await fetchJSON(API + '/api/dir-shortcuts');
-    const dirMap = {};
-    (dirs || []).forEach(d => { dirMap[d.id] = d; });
-    (agents || []).forEach(a => {
-      if (!a.bound_dir_shortcut_id) return; // 跳过未绑定的
-      const ds = dirMap[a.bound_dir_shortcut_id];
-      const label = a.name + (ds ? ' → ' + ds.remote_user + '@' + ds.remote_host : ' → [绑定的远端]');
+    (dirs || []).filter(d => d.type === 'remote').forEach(d => {
       const opt = document.createElement('option');
-      opt.value = a.id;
-      opt.textContent = label;
+      opt.value = d.id;
+      opt.textContent = d.name + ' (' + d.remote_user + '@' + d.remote_host + ')';
       sel.appendChild(opt);
     });
   } catch (e) {
     console.warn('loadRunTaskAgentOptions failed', e);
+  }
+  // 远程任务：预选创建时指定的 dir_shortcut
+  if (task && task.assigned_dir_shortcut_id) {
+    sel.value = task.assigned_dir_shortcut_id;
   }
 }
 
@@ -574,7 +553,9 @@ async function submitRunTask() {
   const taskId = document.getElementById('run-task-modal').dataset.taskId;
   const type = document.getElementById('run-task-type').value;
   const model = document.getElementById('run-task-model').value;
-  const agentId = document.getElementById('run-task-agent') ? document.getElementById('run-task-agent').value : '';
+  const agentId = (window._currentRunTask && window._currentRunTask.assigned_dir_shortcut_id)
+    ? window._currentRunTask.assigned_dir_shortcut_id
+    : (document.getElementById('run-task-agent') ? document.getElementById('run-task-agent').value : '');
   const resumeSessionId = document.getElementById('run-task-resume') ? document.getElementById('run-task-resume').value.trim() : '';
   const goalMode = document.getElementById('run-task-goal-mode') ? document.getElementById('run-task-goal-mode').checked : false;
   closeRunTaskModal();
@@ -699,27 +680,20 @@ function onTaskTypeChange() {
   agentGroup.classList.toggle('hidden', taskType !== 'remote');
 }
 
-// loadAgentListForTask 加载已注册 online 的 agent 列表到 task-agent-id 下拉。
+// loadAgentListForTask 加载 DirShortcuts (type=remote) 到 task-agent-id 下拉。
 async function loadAgentListForTask() {
   const sel = document.getElementById('task-agent-id');
   if (!sel) return;
+  sel.innerHTML = '<option value="">选择执行机器...</option>';
   try {
-    const agents = await fetchJSON(API + '/api/agents');
-    const online = (agents || []).filter(a => a.status === 'online');
-    if (online.length === 0) {
-      sel.innerHTML = '<option value="">无可用 agent，请先分发 xwcli</option>';
-      return;
-    }
-    sel.innerHTML = '<option value="">— 选择目标机器 —</option>' +
-      online.map(a => {
-        const ip = (a.bound_dir_shortcut || {}).remote_host || '';
-        const label = ip ? `${esc(a.name)} (${ip})` : esc(a.name);
-        return `<option value="${esc(a.id)}">${label}</option>`;
-      }).join('');
-  } catch (e) {
-    console.error('[loadAgentListForTask]', e);
-    if (sel) sel.innerHTML = '<option value="">加载失败</option>';
-  }
+    const dirs = await fetchJSON(API + '/api/dir-shortcuts');
+    (dirs || []).filter(d => d.type === 'remote').forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = d.name + ' (' + d.remote_user + '@' + d.remote_host + ')';
+      sel.appendChild(opt);
+    });
+  } catch (e) { console.warn('loadAgentListForTask failed', e); }
 }
 
 async function showTaskModal(task) {
@@ -743,9 +717,9 @@ async function showTaskModal(task) {
   // 目标机器选择（remote 类型）
   await loadAgentListForTask();
   onTaskTypeChange();
-  if (task && task.assigned_agent_id) {
+  if (task && task.assigned_dir_shortcut_id) {
     const sel = document.getElementById('task-agent-id');
-    if (sel) sel.value = task.assigned_agent_id;
+    if (sel) sel.value = task.assigned_dir_shortcut_id;
   }
 
   // command_type / model：新建默认 claude+haiku；编辑时回填已有值
@@ -814,7 +788,7 @@ async function submitTask() {
   };
   const agentSel = document.getElementById('task-agent-id');
   if (agentSel && agentSel.value) {
-    body.assigned_agent_id = agentSel.value;
+    body.assigned_dir_shortcut_id = agentSel.value;
   }
   if (id) {
     await fetch(API + '/api/tasks/' + id, {

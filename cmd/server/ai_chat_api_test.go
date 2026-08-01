@@ -165,7 +165,6 @@ func newAPIServerForTest(t *testing.T) *APIServer {
 		expDB:   backend.NewExperienceRepo(db),
 		execDB:  backend.NewExecutionRepo(db),
 		evalDB:  backend.NewEvaluationRepo(db),
-		agentDB: backend.NewAgentRepo(db),
 		eventDB: backend.NewTaskEventRepo(db),
 		hub:     hub.New(),
 	}

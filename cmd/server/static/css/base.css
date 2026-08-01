@@ -1845,7 +1845,16 @@ tr:last-child td { border-bottom: none; }
   color: var(--primary, #2563eb);
 }
 
-/* 2) CLI 执行信息 - 信息卡片,monospace key=value */
+/* 2) 执行结果 - 最终汇总/表格,绿色左边线 */
+.exec-md-section-result {
+  border-left: 3px solid #16a34a;
+}
+.exec-md-section-result > .exec-md-section-header {
+  background: rgba(22, 163, 74, 0.06);
+  color: #16a34a;
+}
+
+/* 3) CLI 执行信息 - 信息卡片,monospace key=value */
 .exec-md-section-meta > .exec-md-section-body {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;

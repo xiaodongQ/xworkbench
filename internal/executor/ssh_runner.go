@@ -73,7 +73,14 @@ func dialSSH(cfg SSHConfig) (*ssh.Client, error) {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // 演示用，生产建议用 known_hosts
 	}
 	logger.Logger.Infow("ssh: dialing", "addr", addr, "user", cfg.User, "auth", cfg.AuthMethod)
-	return ssh.Dial("tcp", addr, sshCfg)
+	client, err := ssh.Dial("tcp", addr, sshCfg)
+	if err != nil {
+		if cfg.AuthMethod == "key" {
+			return nil, fmt.Errorf("ssh: handshake failed (key auth): %w — check KeyPath=%s is valid and public key is in remote authorized_keys", err, cfg.KeyPath)
+		}
+		return nil, fmt.Errorf("ssh: handshake failed (password auth): %w — check RemotePassword is set, or try setting auth_method=\"key\" if the server only accepts key auth", err)
+	}
+	return client, nil
 }
 
 // runOnClient 在已建好的 SSH client 上执行命令并流式回调 onChunk。
