@@ -302,8 +302,6 @@ func (s *APIServer) routes() {
 	// xworkbench-cli 下载和安装（公开，无需认证）
 	mux.HandleFunc("GET /api/xworkbench-cli/download", s.handleXworkbenchCliDownload)
 	mux.HandleFunc("GET /api/xworkbench-cli/install", s.handleXworkbenchCliInstall)
-	mux.HandleFunc("GET /api/xworkbench-cli/skill.md", s.handleXworkbenchCliSkillMD)
-	mux.HandleFunc("GET /api/xworkbench-cli/readme.md", s.handleXworkbenchCliReadmeMD)
 
 >>>>>>> 95cfbe2 (feat: add xworkbench-cli download API endpoint)
 	// 评论
