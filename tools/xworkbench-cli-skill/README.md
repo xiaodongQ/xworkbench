@@ -5,8 +5,19 @@ xworkbench 工作台 Agent CLI 工具，供 Claude Code 等 Agent 操作工作�
 ## 安装
 
 1. 从 xworkbench-cli 仓库获取 `xworkbench-cli-skill` 目录
-2. 确保 `xworkbench-cli` 二进制有执行权限：`chmod +x xworkbench-cli`
-3. 拷贝到 Claude Code 的 skills 目录：`cp -r xworkbench-cli-skill ~/.claude/skills/`
+2. 根据你的平台选择合适的二进制：
+   - **macOS Intel**: `xworkbench-cli-darwin-amd64`
+   - **Linux x86**: `xworkbench-cli-linux-amd64`
+   - **Windows x86**: `xworkbench-cli-windows-amd64.exe`
+3. 将选中的二进制重命名为 `xworkbench-cli` 并添加执行权限：
+   ```bash
+   mv xworkbench-cli-darwin-amd64 xworkbench-cli
+   chmod +x xworkbench-cli
+   ```
+4. 拷贝到 Claude Code 的 skills 目录：
+   ```bash
+   cp -r xworkbench-cli-skill ~/.claude/skills/
+   ```
 
 ## 使用方法
 
@@ -120,9 +131,11 @@ xworkbench-cli web-link open <id>
 {"ok": false, "error": "error message"}
 ```
 
-## 构建
+## 跨平台构建
 
 ```bash
 cd cmd/xworkbench-cli
-go build -o xworkbench-cli .
+GOOS=darwin GOARCH=amd64 go build -o ../tools/xworkbench-cli-skill/xworkbench-cli-darwin-amd64 .
+GOOS=linux GOARCH=amd64 go build -o ../tools/xworkbench-cli-skill/xworkbench-cli-linux-amd64 .
+GOOS=windows GOARCH=amd64 go build -o ../tools/xworkbench-cli-skill/xworkbench-cli-windows-amd64.exe .
 ```
