@@ -47,9 +47,9 @@ func main() {
 	}
 
 	switch cmd {
-	case "manual-task", "task":
+	case "manual-task":
 		handleTask(cmdArgs)
-	case "sched-task", "scheduled":
+	case "sched-task":
 		handleScheduled(cmdArgs)
 	case "exec":
 		handleExec(cmdArgs)
@@ -222,9 +222,9 @@ xworkbench-cli 提供对 xworkbench 工作台的完整操作能力，包括任�
 
 func printCommandHelp(cmd string) {
 	switch cmd {
-	case "manual-task", "task":
+	case "manual-task":
 		printTaskHelp()
-	case "sched-task", "scheduled":
+	case "sched-task":
 		printScheduledHelp()
 	case "exec":
 	case "todo":
@@ -246,7 +246,7 @@ func printCommandHelp(cmd string) {
 }
 
 func printTaskHelp() {
-	fmt.Print(`manual-task (task) - 手动任务
+	fmt.Print(`manual-task - 手动任务
 
 用法: xworkbench-cli manual-task <subcommand> [options]
 
@@ -327,7 +327,7 @@ func printExperienceHelp() {
 }
 
 func printScheduledHelp() {
-	fmt.Print(`sched-task (scheduled) - 定时任务
+	fmt.Print(`sched-task - 定时任务
 
 用法: xworkbench-cli scheduled <subcommand> [options]
 
