@@ -197,8 +197,8 @@ xworkbench-cli 提供对 xworkbench 工作台的完整操作能力，包括任�
         可通过环境变量 XWORKBENCH_SERVER 覆盖
 
 命令:
-  manual-task   手动任务 (list/create/get/update/run/cancel/delete)
-  sched-task    定时任务 (list/get/create/update/delete/run/toggle)
+  manual-task   手动任务 (一次执行，支持远程 --target-dir-id)
+  sched-task    定时任务 (cron 调度，支持远程，需先启调度器)
   exec          执行记录 (list/get/evaluate/cancel/continue)
   experience    经验库 (list/get/create/update/delete)
   todo          Todo 管理 (list/add/toggle/edit)
@@ -208,11 +208,20 @@ xworkbench-cli 提供对 xworkbench 工作台的完整操作能力，包括任�
   dir-shortcut  目录快捷方式 (list/create/update/delete/open)
   web-link      链接快捷方式 (list/create/update/delete/open)
 
+调度器说明:
+  定时任务的 cron 调度需要服务端调度器运行才能自动触发。
+  - 调度器状态：xworkbench-cli stats (查看 running 字段)
+  - 调度器启停需在 Web 工作台操作，CLI 不支持远程启停
+
 使用 "xworkbench-cli help <command>" 查看特定命令的详细帮助。
 
 示例:
-  xworkbench-cli task list --status pending
-  xworkbench-cli task create --title "优化性能" --description "分析并优化慢查询"
+  xworkbench-cli manual-task list --status pending
+  xworkbench-cli manual-task list --task-type remote
+  xworkbench-cli sched-task list --task-type remote
+  xworkbench-cli sched-task run <id>
+  xworkbench-cli exec list --limit 10
+  xworkbench-cli stats
   xworkbench-cli task run 123
   xworkbench-cli exec list --task-id 123
   xworkbench-cli stats
@@ -329,17 +338,24 @@ func printExperienceHelp() {
 func printScheduledHelp() {
 	fmt.Print(`sched-task - 定时任务
 
-用法: xworkbench-cli scheduled <subcommand> [options]
+用法: xworkbench-cli sched-task <subcommand> [options]
 
-定时任务基于 cron 表达式调度执行，支持 shell/claude/cbc 等命令类型。
+定时任务基于 cron 表达式由服务端调度器自动触发，支持本地/远程执行。
+
+调度器:
+  需在 Web 工作台手动启动调度器，启动后 cron 才会按周期自动执行。
+  立即运行 (run) 无需调度器启动。
+
+远程任务:
+  创建时加 --target-dir-id <id> 指定远程 DirShortcut，调度器自动通过 SSH 执行。
 
 子命令:
-  list          列出所有定时任务
+  list          列出所有定时任务 (--task-type local|remote)
   get           获取定时任务详情
-  create        创建定时任务
-  update        更新定时任务
+  create        创建定时任务 (--name --cron --prompt --command-type [--target-dir-id])
+  update        更新定时任务 (id --name --cron ... [--target-dir-id])
   delete        删除定时任务
-  run           立即运行定时任务
+  run           立即运行（不依赖调度器）
   toggle        启用/禁用切换
 
 cron 表达式格式:
