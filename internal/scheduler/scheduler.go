@@ -4,6 +4,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -309,6 +310,13 @@ func (s *Scheduler) doExecute(t *backend.ScheduledTask) {
 	var res *executor.Result
 	if t.AssignedDirShortcutID != "" {
 		if ds, err := s.dirDB.GetByID(t.AssignedDirShortcutID); err == nil && ds.Type == backend.DirShortcutTypeRemote {
+			// shell 类型：temp 脚本仅本地有效，远程改为 sh -c
+			if len(cmd) >= 2 && (cmd[0] == "sh" || cmd[0] == "bash") && strings.HasPrefix(cmd[1], os.TempDir()) {
+				script, _ := os.ReadFile(cmd[1])
+				if len(script) > 0 {
+					cmd = []string{"sh", "-c", string(script)}
+				}
+			}
 			res, _ = executor.RunViaXwSshpass(ctx, ds, cmd, stdin, func(chunk string) {
 				s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
 					"scheduled_task_id": t.ID,
