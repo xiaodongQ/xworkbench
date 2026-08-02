@@ -104,7 +104,7 @@ func runTask(args []string) error {
 func taskList(args []string) error {
 	fs := flag.NewFlagSet("task list", flag.ExitOnError)
 	status := fs.String("status", "", "filter by status")
-	taskType := fs.String("task-type", "", "filter by type (manual/remote)")
+	taskType := fs.String("task-type", "", "filter by type (local/remote)")
 	limit := fs.Int("limit", 50, "max results")
 	fs.Parse(args)
 
@@ -515,7 +515,7 @@ func runScheduled(args []string) error {
 
 func scheduledList(args []string) error {
 	fs := flag.NewFlagSet("scheduled list", flag.ExitOnError)
-	taskType := fs.String("task-type", "", "filter by manual|remote (client-side)")
+	taskType := fs.String("task-type", "", "filter by local|remote (client-side)")
 	fs.Parse(args)
 
 	resp, err := apiRequest("GET", baseURL()+"/api/scheduled", nil)
@@ -543,7 +543,7 @@ func scheduledList(args []string) error {
 		if v, ok := m["assigned_dir_shortcut_id"].(string); ok && v != "" {
 			hasTarget = true
 		}
-		if (*taskType == "remote" && hasTarget) || (*taskType == "manual" && !hasTarget) {
+		if (*taskType == "remote" && hasTarget) || (*taskType == "local" && !hasTarget) {
 			filtered = append(filtered, t)
 		}
 	}

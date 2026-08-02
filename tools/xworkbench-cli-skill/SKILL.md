@@ -4,7 +4,7 @@ description: 操作 xworkbench 工作台（任务/执行/经验库/调度/todo/�
 version: 1.0.0
 xw_command: xworkbench-cli
 xw_params:
-  task_list: "列出任务 (--status 状态 --task-type manual|remote --limit 数量)"
+  task_list: "列出任务 (--status 状态 --task-type local|remote --limit 数量)"
   task_create: "创建任务 (--title 标题 --description 描述 [--target-dir-id 远程目标DirShortcutID])"
   task_get: "获取任务详情 (task_id)"
   task_update: "更新任务 (task_id --title --description --status --priority [--target-dir-id])"
@@ -21,7 +21,7 @@ xw_params:
   experience_create: "创建经验 (--module --scene --keywords [--tool-usage] [--log-samples] [--code-snippets])"
   experience_update: "更新经验 (experience_id --module --scene --keywords ...)"
   experience_delete: "删除经验 (experience_id)"
-  scheduled_list: "列出定时任务 (--task-type manual|remote)"
+  scheduled_list: "列出定时任务 (--task-type local|remote)"
   scheduled_get: "获取定时任务详情 (scheduled_id)"
   scheduled_create: "创建定时任务 (--name --cron [--command-type] [--model] [--prompt] [--target-dir-id])"
   scheduled_update: "更新定时任务 (scheduled_id --name --cron [...] [--target-dir-id])"
