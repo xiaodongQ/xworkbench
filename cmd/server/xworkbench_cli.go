@@ -144,15 +144,20 @@ for TARGET in "${TARGETS[@]}"; do
     DIR="${AVAILABLE[$TARGET]}"
     mkdir -p "$DIR"
 
+    local action="安装"
+    if [ -f "$DIR/SKILL.md" ]; then
+        action="更新"
+    fi
+
     echo ""
-    echo "==> 下载 xworkbench-cli ($OS/$ARCH) → $DIR"
+    echo "==> ${action} xworkbench-cli ($OS/$ARCH) → $DIR"
     curl -fsSL "$SERVER/api/xworkbench-cli/download?os=$OS&arch=$ARCH" -o "$DIR/xworkbench-cli" || {
         echo "ERROR: 下载失败，请确认服务器已构建二进制"
         exit 1
     }
     chmod +x "$DIR/xworkbench-cli"
 
-    echo "==> 下载 SKILL.md → $DIR"
+    echo "==> ${action} SKILL.md → $DIR"
     curl -fsSL "$SERVER/api/xworkbench-cli/skill.md" -o "$DIR/SKILL.md" || {
         echo "ERROR: 下载 SKILL.md 失败"
         exit 1
@@ -160,7 +165,7 @@ for TARGET in "${TARGETS[@]}"; do
 done
 
 echo ""
-echo "==> 安装完成!"
+echo "==> ${action}完成!"
 for TARGET in "${TARGETS[@]}"; do
     echo "    ${TARGET}: ${AVAILABLE[$TARGET]}"
 done
