@@ -50,13 +50,26 @@ func ExecuteSkill(skill *Skill, input map[string]any) (*ExecuteSkillResult, erro
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	start := time.Now()
 	err = cmd.Run()
+	elapsed := time.Since(start).Milliseconds()
 	rawOut := strings.TrimSpace(stdout.String())
 	rawErr := strings.TrimSpace(stderr.String())
 
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+
 	result := &ExecuteSkillResult{
-		RawOut: rawOut,
-		RawErr: rawErr,
+		RawOut:     rawOut,
+		RawErr:     rawErr,
+		ExitCode:   exitCode,
+		DurationMs: elapsed,
 	}
 
 	if err != nil {

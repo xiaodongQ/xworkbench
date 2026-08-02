@@ -700,18 +700,34 @@ async function executeSkillTestFromForm(name, btn) {
     const output = data.output || {};
     const status = data.status;
     const rawErr = data.raw_err || '';
+    const rawOut = data.raw_out || '';
+    const exitCode = data.exit_code ?? -1;
+    const durationMs = data.duration_ms || 0;
     const isSuccess = status === 'ok';
 
+    // 优先用 output 里的业务字段描述结果
     const resultText = isSuccess
-      ? (output.status === 'sent' ? '通知已发送' : output.status === 'reachable' ? '服务可达' : output.status === 'running' ? '进程已启动' : '执行成功')
+      ? (output.summary || output.message || output.result || rawOut.slice(0, 100) || '执行成功')
       : (output.error || rawErr || '执行失败');
+
+    // 构建详情：exit code + duration + raw output
+    let detail = '';
+    if (!isSuccess || exitCode !== 0) {
+      detail += 'exit_code=' + exitCode;
+    }
+    if (durationMs) {
+      detail += (detail ? ' | ' : '') + '耗时 ' + (durationMs >= 1000 ? (durationMs / 1000).toFixed(1) + 's' : durationMs + 'ms');
+    }
+    if (rawErr) {
+      detail += (detail ? '\n' : '') + rawErr;
+    }
 
     // 关闭测试表单
     const formOverlay = document.getElementById('skill-test-overlay');
     if (formOverlay) formOverlay.remove();
 
-    // 弹出精美通知弹窗
-    showNotifyPopup(name, isSuccess, resultText, rawErr, params);
+    // 弹出结果弹窗，传入完整 data 用于复制
+    showNotifyPopup(name, isSuccess, resultText, detail, params, data);
 
     // 更新原始卡片的 resultSpan
     const allCards = document.querySelectorAll('.skill-card');
@@ -733,7 +749,7 @@ async function executeSkillTestFromForm(name, btn) {
 }
 
 // 精美的通知弹窗
-function showNotifyPopup(name, isSuccess, message, detail, params) {
+function showNotifyPopup(name, isSuccess, message, detail, params, respData) {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const overlay = document.createElement('div');
   overlay.id = 'notify-popup-overlay';
@@ -745,11 +761,13 @@ function showNotifyPopup(name, isSuccess, message, detail, params) {
     : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
 
   const paramsText = Object.entries(params).map(function(e) { return e[0] + ': ' + e[1]; }).join('\n');
+  const rawOut = (respData && respData.raw_out) || '';
+  const outputJSON = (respData && respData.output) ? JSON.stringify(respData.output, null, 2) : '';
 
-  overlay.innerHTML = '<div style="background:' + (isDark ? '#1e1e1e' : '#fff') + ';border-radius:16px;padding:0;width:380px;max-width:90vw;box-shadow:0 25px 80px ' + (isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.25)') + ';overflow:hidden">' +
+  overlay.innerHTML = '<div style="background:' + (isDark ? '#1e1e1e' : '#fff') + ';border-radius:16px;padding:0;width:440px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 25px 80px ' + (isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.25)') + ';overflow:hidden">' +
     '<div style="height:4px;background:' + iconBg + '"></div>' +
     '<div style="padding:24px">' +
-      '<div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px">' +
+      '<div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:16px">' +
         '<div style="width:48px;height:48px;border-radius:12px;background:' + iconBg + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 12px ' + (isSuccess ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)') + '">' + iconContent + '</div>' +
         '<div style="flex:1">' +
           '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">' + (isSuccess ? '执行成功' : '执行失败') + '</div>' +
@@ -757,13 +775,15 @@ function showNotifyPopup(name, isSuccess, message, detail, params) {
         '</div>' +
         '<button onclick="document.getElementById(\'notify-popup-overlay\').remove()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;padding:4px;line-height:1">&times;</button>' +
       '</div>' +
-      '<div style="background:' + (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)') + ';border-radius:10px;padding:14px;margin-bottom:20px">' +
+      '<div style="background:' + (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)') + ';border-radius:10px;padding:14px;margin-bottom:12px">' +
         '<div style="font-size:14px;font-weight:500;color:' + (isSuccess ? 'var(--success)' : 'var(--exception)') + ';margin-bottom:6px">' + esc(message) + '</div>' +
         (detail ? '<div style="font-size:12px;color:var(--text-secondary)">' + esc(detail) + '</div>' : '') +
       '</div>' +
+      (outputJSON ? '<div style="margin-bottom:12px"><div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;font-weight:500">输出 (JSON)</div><pre style="background:' + (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)') + ';border-radius:8px;padding:10px;font-size:11px;max-height:160px;overflow-y:auto;white-space:pre-wrap;word-break:break-all">' + esc(outputJSON) + '</pre></div>' : '') +
+      (rawOut && !outputJSON ? '<div style="margin-bottom:12px"><div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;font-weight:500">原始输出</div><pre style="background:' + (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)') + ';border-radius:8px;padding:10px;font-size:11px;max-height:160px;overflow-y:auto;white-space:pre-wrap;word-break:break-all">' + esc(rawOut) + '</pre></div>' : '') +
       (paramsText ? '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px"><span style="font-weight:500">参数:</span> ' + esc(paramsText.replace(/\n/g, ' | ')) + '</div>' : '') +
       '<div style="display:flex;gap:10px">' +
-        '<button onclick="copyNotifyResult(\'' + esc(name) + '\', \'' + esc(paramsText) + '\')" style="flex:1;padding:12px 16px;border:1px solid var(--border);border-radius:10px;background:' + (isDark ? 'rgba(255,255,255,0.05)' : '#f5f5f5') + ';color:var(--text);cursor:pointer;font-size:14px;font-weight:500;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:8px">' +
+        '<button onclick="copyNotifyResult(\'' + esc(name) + '\', \'' + esc(message + (detail ? '\\n' + detail : '') + (outputJSON ? '\\n' + outputJSON : '') + (rawOut && !outputJSON ? '\\n' + rawOut : '')) + '\')" style="flex:1;padding:12px 16px;border:1px solid var(--border);border-radius:10px;background:' + (isDark ? 'rgba(255,255,255,0.05)' : '#f5f5f5') + ';color:var(--text);cursor:pointer;font-size:14px;font-weight:500;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:8px">' +
           '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>' +
           '复制结果' +
         '</button>' +

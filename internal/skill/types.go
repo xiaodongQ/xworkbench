@@ -163,10 +163,12 @@ type Tool struct {
 
 // ExecuteSkillResult 是 ExecuteSkill 的返回结果。
 type ExecuteSkillResult struct {
-	Status  string         `json:"status"`  // ok | error
-	Output  map[string]any `json:"output"`  // 解析后的 JSON 输出
-	RawOut  string         `json:"raw_out"` // 原始 stdout
-	RawErr  string         `json:"raw_err"` // 原始 stderr
+	Status      string         `json:"status"`       // ok | error
+	Output      map[string]any `json:"output"`       // 解析后的 JSON 输出
+	RawOut      string         `json:"raw_out"`      // 原始 stdout
+	RawErr      string         `json:"raw_err"`      // 原始 stderr
+	ExitCode    int            `json:"exit_code"`     // 退出码
+	DurationMs  int64          `json:"duration_ms"`   // 执行耗时（毫秒）
 }
 
 // WrapDescription 将超长 description 截断到指定宽度。
