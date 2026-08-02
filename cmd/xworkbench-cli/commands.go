@@ -521,6 +521,8 @@ func runScheduled(args []string) error {
 func scheduledList(args []string) error {
 	fs := flag.NewFlagSet("scheduled list", flag.ExitOnError)
 	taskType := fs.String("task-type", "", "filter by local|remote (client-side)")
+	_ = fs.Int("limit", 50, "ignored (unified flag)") // 兼容 tasks 命令统一传参
+	_ = fs.String("status", "", "ignored (unified flag)")
 	fs.Parse(args)
 
 	resp, err := apiRequest("GET", baseURL()+"/api/scheduled", nil)
