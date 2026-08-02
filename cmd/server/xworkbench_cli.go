@@ -79,27 +79,51 @@ func (s *APIServer) handleXworkbenchCliSkillMD(w http.ResponseWriter, r *http.Re
 // xworkbenchCliInstallScriptTemplate is the install script for xworkbench-cli skill.
 const xworkbenchCliInstallScriptTemplate = `#!/bin/bash
 # xworkbench-cli 安装脚本
-# 自动检测 Claude Code / CodeBuddy 并安装到对应 skills 目录
+# 自动检测 Claude Code / CodeBuddy 并交互式选择安装到对应 skills 目录
 set -e
 
 SERVER="${SERVER_URL}"
 SKILL_NAME="xworkbench-cli"
-SKILL_DIR=""
 
-# 1. 检测运行环境
-if [ -n "$CLAUDE_CODE" ] || [ -d "$HOME/.claude" ]; then
-    SKILL_DIR="$HOME/.claude/skills/$SKILL_NAME"
-    echo "==> 检测到 Claude Code，安装到 ~/.claude/skills/"
-elif [ -d "$HOME/.codebuddy" ]; then
-    SKILL_DIR="$HOME/.codebuddy/skills/$SKILL_NAME"
-    echo "==> 检测到 CodeBuddy，安装到 ~/.codebuddy/skills/"
-else
-    echo "ERROR: 未检测到 Claude Code 或 CodeBuddy 环境"
+# 检查 stdin 是否来自终端（管道安装时跳过交互）
+INTERACTIVE=0
+[ -t 0 ] && INTERACTIVE=1
+
+# 1. 检测可用的运行环境
+declare -A AVAILABLE
+if [ -d "$HOME/.claude" ]; then
+    AVAILABLE["claude"]="$HOME/.claude/skills/$SKILL_NAME"
+fi
+if [ -d "$HOME/.codebuddy" ]; then
+    AVAILABLE["codebuddy"]="$HOME/.codebuddy/skills/$SKILL_NAME"
+fi
+
+if [ ${#AVAILABLE[@]} -eq 0 ]; then
+    echo "ERROR: 未检测到 Claude Code (~/.claude) 或 CodeBuddy (~/.codebuddy) 环境"
     exit 1
 fi
 
-# 2. 创建目录
-mkdir -p "$SKILL_DIR"
+# 2. 选择安装目标
+TARGETS=()
+if [ $INTERACTIVE -eq 1 ] && [ ${#AVAILABLE[@]} -gt 1 ]; then
+    echo ""
+    echo "检测到以下环境，请选择安装目标："
+    echo "  1) Claude Code  ($HOME/.claude)"
+    echo "  2) CodeBuddy    ($HOME/.codebuddy)"
+    echo "  3) 全部安装"
+    while true; do
+        read -r -p "请选择 (1/2/3): " choice </dev/tty
+        case "$choice" in
+            1) TARGETS=("claude"); break ;;
+            2) TARGETS=("codebuddy"); break ;;
+            3) TARGETS=("${!AVAILABLE[@]}"); break ;;
+            *) echo "  无效选择，请输入 1、2 或 3" ;;
+        esac
+    done
+else
+    # 只有一个环境或管道执行：安装所有检测到的
+    TARGETS=("${!AVAILABLE[@]}")
+fi
 
 # 3. 检测架构
 ARCH=$(uname -m)
@@ -115,22 +139,29 @@ if [ "$OS" = "windows" ]; then
     BIN_NAME="$BIN_NAME.exe"
 fi
 
-# 4. 下载二进制
-echo "==> 下载 xworkbench-cli ($OS/$ARCH)..."
-curl -fsSL "$SERVER/api/xworkbench-cli/download?os=$OS&arch=$ARCH" -o "$SKILL_DIR/xworkbench-cli" || {
-    echo "ERROR: 下载失败，请确认服务器已构建二进制"
-    exit 1
-}
-chmod +x "$SKILL_DIR/xworkbench-cli"
+# 4. 逐个安装到目标目录
+for TARGET in "${TARGETS[@]}"; do
+    DIR="${AVAILABLE[$TARGET]}"
+    mkdir -p "$DIR"
 
-# 5. 下载 SKILL.md
-echo "==> 下载 SKILL.md..."
-curl -fsSL "$SERVER/api/xworkbench-cli/skill.md" -o "$SKILL_DIR/SKILL.md" || {
-    echo "ERROR: 下载 SKILL.md 失败"
-    exit 1
-}
+    echo ""
+    echo "==> 下载 xworkbench-cli ($OS/$ARCH) → $DIR"
+    curl -fsSL "$SERVER/api/xworkbench-cli/download?os=$OS&arch=$ARCH" -o "$DIR/xworkbench-cli" || {
+        echo "ERROR: 下载失败，请确认服务器已构建二进制"
+        exit 1
+    }
+    chmod +x "$DIR/xworkbench-cli"
+
+    echo "==> 下载 SKILL.md → $DIR"
+    curl -fsSL "$SERVER/api/xworkbench-cli/skill.md" -o "$DIR/SKILL.md" || {
+        echo "ERROR: 下载 SKILL.md 失败"
+        exit 1
+    }
+done
 
 echo ""
-echo "==> 安装完成! Skill 目录: $SKILL_DIR"
-echo "    可以使用 xworkbench-cli 命令了"
+echo "==> 安装完成!"
+for TARGET in "${TARGETS[@]}"; do
+    echo "    ${TARGET}: ${AVAILABLE[$TARGET]}"
+done
 `
