@@ -769,8 +769,15 @@ function submitScheduled() {
 }
 function runScheduled(id) {
   fetch('/api/scheduled/' + id + '/run-now', {method:'POST'})
-    .then(r => { if (!r.ok) throw new Error('立即执行失败'); setTimeout(() => { loadScheduled(); loadRecentExecutions(); }, 500); })
+    .then(r => { if (!r.ok) throw new Error('立即执行失败'); loadScheduled(); loadRecentExecutions(); })
     .catch(e => { alert('执行失败：' + e.message); console.error(e); });
+  // 按钮改短暂反馈
+  const btn = event?.target;
+  if (btn && btn.tagName === 'BUTTON') {
+    const orig = btn.textContent;
+    btn.textContent = '▶ 已触发'; btn.style.opacity = '0.5';
+    setTimeout(() => { btn.textContent = orig; btn.style.opacity = '1'; }, 2000);
+  }
 }
 function deleteScheduled(id) {
   if (!confirm('删除该定时任务？')) return;
