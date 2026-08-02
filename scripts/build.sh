@@ -85,9 +85,8 @@ build_current() {
   fi
 
   # 编译 xworkbench-cli 所有平台 → tools/ 和 tools/xworkbench-cli-skill/
-  local cli_dir="tools"
   local skill_dir="tools/xworkbench-cli-skill"
-  mkdir -p "$cli_dir" "$skill_dir"
+  mkdir -p "$skill_dir"
   echo
   hr
   printf '%b\n' "${CYAN}==> 编译 xworkbench-cli 所有平台${NC}"
@@ -99,11 +98,9 @@ build_current() {
     [ "$cli_os" = "windows" ] && cli_ext=".exe"
     local cli_name="xworkbench-cli-${cli_os}-${cli_arch}${cli_ext}"
     printf "  %-12s %-8s ... " "$cli_os" "$cli_arch"
-    if GOOS=$cli_os GOARCH=$cli_arch go build -ldflags="-s -w" -trimpath -o "${cli_dir}/${cli_name}" ./cmd/xworkbench-cli 2>/dev/null; then
-      local cli_size=$(ls -lh "${cli_dir}/${cli_name}" | awk '{print $5}')
+    if GOOS=$cli_os GOARCH=$cli_arch go build -ldflags="-s -w" -trimpath -o "${skill_dir}/${cli_name}" ./cmd/xworkbench-cli 2>/dev/null; then
+      local cli_size=$(ls -lh "${skill_dir}/${cli_name}" | awk '{print $5}')
       printf '%b\n' "${GREEN}[OK]${NC}  ${cli_size}"
-      # 同步到 xworkbench-cli-skill/ 供下载接口使用
-      cp "${cli_dir}/${cli_name}" "${skill_dir}/${cli_name}"
     else
       printf '%b\n' "${RED}[FAIL]${NC}"
     fi

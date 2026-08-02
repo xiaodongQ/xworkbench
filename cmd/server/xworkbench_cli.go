@@ -35,8 +35,10 @@ func (s *APIServer) handleXworkbenchCliDownload(w http.ResponseWriter, r *http.R
 	}
 
 	filename := fmt.Sprintf("xworkbench-cli-%s-%s", queryOS, queryArch)
+	downloadName := "xworkbench-cli"
 	if queryOS == "windows" {
 		filename += ".exe"
+		downloadName += ".exe"
 	}
 
 	data, err := os.ReadFile(filepath.Join("tools", "xworkbench-cli-skill", filename))
@@ -45,7 +47,7 @@ func (s *APIServer) handleXworkbenchCliDownload(w http.ResponseWriter, r *http.R
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, downloadName))
 	w.Write(data)
 }
 
