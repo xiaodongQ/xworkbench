@@ -82,3 +82,9 @@ export PATH="$HOME/.claude/skills/xworkbench-cli:$HOME/.codebuddy/skills/xworkbe
 若仍报 command not found，用绝对路径 `~/.claude/skills/xworkbench-cli/xworkbench-cli`。
 
 **远程连接：** 若 CLI 部署在其他机器，提醒用户设置环境变量 `export XWORKBENCH_SERVER=http://<ip>:8902`，后续所有命令无需再带 `--server`。设置后提醒用户验证：`xworkbench-cli stats`。
+
+**远程任务查询：**
+- 手动任务：`manual-task list --task-type remote` — 后端 `task_type=remote` 字段过滤
+- 定时任务：`sched-task list --task-type remote` — 客户端按 `assigned_dir_shortcut_id` 非空过滤
+- 查看详情时，响应中 `assigned_dir_shortcut_id` 非空即为远程任务
+- 用户说"有哪些远程任务"时，两类都要查并分别展示
