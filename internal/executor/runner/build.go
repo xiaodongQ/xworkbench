@@ -121,31 +121,28 @@ func BuildCommand(typ, model, sessionID, prompt string, opts ...func(*buildOpts)
 	}
 }
 
-// shellRunCommand 把 prompt 写到临时文件并返回 sh/powershell 直接执行该文件的命令。
-// 返回的 cleanup 删除该临时文件，调用方应 defer cleanup()。
-// 返回的 stdin 为空字符串（shell 类型不走 stdin）。
+// shellRunCommand 构造 shell 命令。Unix 用 sh -c 直传，Windows 用临时 .ps1 文件。
 func shellRunCommand(prompt string) ([]string, string, func(), error) {
-	var name, interp string
 	if runtime.GOOS == "windows" {
-		// .ps1 后缀让 PowerShell 走文件解析而不是 -Command 字符串解析。
-		name = "sf-shell-*.ps1"
-		interp = "powershell.exe"
-	} else {
-		name = "sf-shell-*.sh"
-		interp = "sh"
+		return windowsShellRunCommand(prompt)
 	}
-	f, err := os.CreateTemp("", name)
+	// Unix: 直接用 sh -c，避免临时文件。
+	// 远程执行时 xw-sshpass 会直接把命令文本传到远端，无需 temp 文件转换。
+	return []string{"sh", "-c", prompt}, "", func() {}, nil
+}
+
+// windowsShellRunCommand PowerShell 必须 .ps1 文件，无法用 -c 字符串。
+func windowsShellRunCommand(prompt string) ([]string, string, func(), error) {
+	f, err := os.CreateTemp("", "sf-shell-*.ps1")
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("create temp script: %w", err)
 	}
 	path := f.Name()
-	if runtime.GOOS == "windows" {
-		// 写入 UTF-8 BOM，防止 PowerShell 默认 ANSI(GBK) 导致中文乱码
-		if _, err := f.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
-			f.Close()
-			_ = os.Remove(path)
-			return nil, "", nil, fmt.Errorf("write UTF-8 BOM: %w", err)
-		}
+	// UTF-8 BOM 防止 PowerShell 默认 ANSI(GBK) 中文乱码
+	if _, err := f.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
+		f.Close()
+		_ = os.Remove(path)
+		return nil, "", nil, fmt.Errorf("write UTF-8 BOM: %w", err)
 	}
 	if _, err := f.WriteString(prompt); err != nil {
 		f.Close()
@@ -156,17 +153,9 @@ func shellRunCommand(prompt string) ([]string, string, func(), error) {
 		_ = os.Remove(path)
 		return nil, "", nil, fmt.Errorf("close temp script: %w", err)
 	}
-	var cmd []string
-	if runtime.GOOS == "windows" {
-		// -File 走文件路径，不会对 prompt 文本做命令行再解析。
-		cmd = []string{interp, "-NoProfile", "-NonInteractive", "-File", path}
-	} else {
-		cmd = []string{interp, path}
-	}
+	cmd := []string{"powershell.exe", "-NoProfile", "-NonInteractive", "-File", path}
 	cleanup := func() {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			logger.Logger.Warnw("runner: remove temp script", "path", path, "err", err.Error())
-		}
+		_ = os.Remove(path)
 	}
 	return cmd, "", cleanup, nil
 }
