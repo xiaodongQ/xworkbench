@@ -57,6 +57,9 @@ func (s *APIServer) handleXworkbenchCliDownload(w http.ResponseWriter, r *http.R
 func (s *APIServer) handleXworkbenchCliInstall(w http.ResponseWriter, r *http.Request) {
 	serverURL := r.URL.Query().Get("server")
 	if serverURL == "" {
+		serverURL = "http://" + r.Host
+	}
+	if serverURL == "" || serverURL == "http://" {
 		serverURL = "http://localhost:8902"
 	}
 	script := strings.Replace(xworkbenchCliInstallScriptTemplate, "${SERVER_URL}", serverURL, 1)
