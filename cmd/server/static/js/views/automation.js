@@ -230,7 +230,15 @@ async function copyInstallCmd() {
     const btn = document.getElementById('cli-copy-btn');
     if (btn) { btn.textContent = '✅ 已复制'; setTimeout(() => btn.textContent = '📋 复制', 1500); }
   } catch (_) {
-    prompt('复制以下命令:', el.textContent);
+    // 非安全上下文（HTTP/非localhost）fallback：textarea + execCommand
+    const ta = document.createElement('textarea');
+    ta.value = el.textContent;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (__) {}
+    document.body.removeChild(ta);
   }
 }
 
