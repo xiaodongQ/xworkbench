@@ -90,22 +90,27 @@ INTERACTIVE=0
 [ -t 0 ] && INTERACTIVE=1
 
 # 1. 检测可用的运行环境
-declare -A AVAILABLE
+HAS_CLAUDE=0
+HAS_CODEBUDDY=0
+TOTAL=0
 if [ -d "$HOME/.claude" ]; then
-    AVAILABLE["claude"]="$HOME/.claude/skills/$SKILL_NAME"
+    HAS_CLAUDE=1
+    TOTAL=$((TOTAL + 1))
 fi
 if [ -d "$HOME/.codebuddy" ]; then
-    AVAILABLE["codebuddy"]="$HOME/.codebuddy/skills/$SKILL_NAME"
+    HAS_CODEBUDDY=1
+    TOTAL=$((TOTAL + 1))
 fi
 
-if [ ${#AVAILABLE[@]} -eq 0 ]; then
+if [ $TOTAL -eq 0 ]; then
     echo "ERROR: 未检测到 Claude Code (~/.claude) 或 CodeBuddy (~/.codebuddy) 环境"
     exit 1
 fi
 
 # 2. 选择安装目标
-TARGETS=()
-if [ $INTERACTIVE -eq 1 ] && [ ${#AVAILABLE[@]} -gt 1 ]; then
+DO_CLAUDE=0
+DO_CODEBUDDY=0
+if [ $INTERACTIVE -eq 1 ] && [ $TOTAL -gt 1 ]; then
     echo ""
     echo "检测到以下环境，请选择安装目标："
     echo "  1) Claude Code  ($HOME/.claude)"
@@ -114,15 +119,15 @@ if [ $INTERACTIVE -eq 1 ] && [ ${#AVAILABLE[@]} -gt 1 ]; then
     while true; do
         read -r -p "请选择 (1/2/3): " choice </dev/tty
         case "$choice" in
-            1) TARGETS=("claude"); break ;;
-            2) TARGETS=("codebuddy"); break ;;
-            3) TARGETS=("${!AVAILABLE[@]}"); break ;;
+            1) DO_CLAUDE=1; break ;;
+            2) DO_CODEBUDDY=1; break ;;
+            3) DO_CLAUDE=$HAS_CLAUDE; DO_CODEBUDDY=$HAS_CODEBUDDY; break ;;
             *) echo "  无效选择，请输入 1、2 或 3" ;;
         esac
     done
 else
-    # 只有一个环境或管道执行：安装所有检测到的
-    TARGETS=("${!AVAILABLE[@]}")
+    DO_CLAUDE=$HAS_CLAUDE
+    DO_CODEBUDDY=$HAS_CODEBUDDY
 fi
 
 # 3. 检测架构
@@ -140,33 +145,44 @@ if [ "$OS" = "windows" ]; then
 fi
 
 # 4. 逐个安装到目标目录
-for TARGET in "${TARGETS[@]}"; do
-    DIR="${AVAILABLE[$TARGET]}"
-    mkdir -p "$DIR"
+install_to() {
+    local dir="$1"
+    local name="$2"
+    mkdir -p "$dir"
 
     local action="安装"
-    if [ -f "$DIR/SKILL.md" ]; then
+    if [ -f "$dir/SKILL.md" ]; then
         action="更新"
     fi
 
     echo ""
-    echo "==> ${action} xworkbench-cli ($OS/$ARCH) → $DIR"
-    curl -fsSL "$SERVER/api/xworkbench-cli/download?os=$OS&arch=$ARCH" -o "$DIR/xworkbench-cli" || {
+    echo "==> ${action} xworkbench-cli ($OS/$ARCH) → $dir"
+    curl -fsSL "$SERVER/api/xworkbench-cli/download?os=$OS&arch=$ARCH" -o "$dir/xworkbench-cli" || {
         echo "ERROR: 下载失败，请确认服务器已构建二进制"
         exit 1
     }
-    chmod +x "$DIR/xworkbench-cli"
+    chmod +x "$dir/xworkbench-cli"
 
-    echo "==> ${action} SKILL.md → $DIR"
-    curl -fsSL "$SERVER/api/xworkbench-cli/skill.md" -o "$DIR/SKILL.md" || {
+    echo "==> ${action} SKILL.md → $dir"
+    curl -fsSL "$SERVER/api/xworkbench-cli/skill.md" -o "$dir/SKILL.md" || {
         echo "ERROR: 下载 SKILL.md 失败"
         exit 1
     }
-done
+}
+
+if [ $DO_CLAUDE -eq 1 ]; then
+    install_to "$HOME/.claude/skills/$SKILL_NAME" "Claude Code"
+fi
+if [ $DO_CODEBUDDY -eq 1 ]; then
+    install_to "$HOME/.codebuddy/skills/$SKILL_NAME" "CodeBuddy"
+fi
 
 echo ""
-echo "==> ${action}完成!"
-for TARGET in "${TARGETS[@]}"; do
-    echo "    ${TARGET}: ${AVAILABLE[$TARGET]}"
-done
+echo "==> 完成!"
+if [ $DO_CLAUDE -eq 1 ]; then
+    echo "    Claude Code: $HOME/.claude/skills/$SKILL_NAME"
+fi
+if [ $DO_CODEBUDDY -eq 1 ]; then
+    echo "    CodeBuddy:   $HOME/.codebuddy/skills/$SKILL_NAME"
+fi
 `
