@@ -929,6 +929,13 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		var res *executor.Result
 		var runErr error
 		if remoteDS != nil {
+			// shell 类型：temp 脚本文件仅本地有效，远程需替换为 sh -c
+			if len(cmd) >= 2 && (cmd[0] == "sh" || cmd[0] == "bash") && strings.HasPrefix(cmd[1], os.TempDir()) {
+				script, _ := os.ReadFile(cmd[1])
+				if len(script) > 0 {
+					cmd = []string{"sh", "-c", string(script)}
+				}
+			}
 			res, runErr = executor.RunViaXwSshpass(ctx, remoteDS, cmd, stdin, chunkCB)
 		} else {
 			// AI 任务 CWD 走沙盒（data/ai-sandbox/），避免 AI 写文件污染源码树
@@ -1274,6 +1281,12 @@ func (s *APIServer) handleExecutionContinue(w http.ResponseWriter, r *http.Reque
 		}
 		var res *executor.Result
 		if remoteDS != nil {
+			if len(cmd) >= 2 && (cmd[0] == "sh" || cmd[0] == "bash") && strings.HasPrefix(cmd[1], os.TempDir()) {
+				script, _ := os.ReadFile(cmd[1])
+				if len(script) > 0 {
+					cmd = []string{"sh", "-c", string(script)}
+				}
+			}
 			res, _ = executor.RunViaXwSshpass(ctx, remoteDS, cmd, stdin, chunkCB)
 		} else {
 			res, _ = executor.Run(ctx, cmd, "", stdin, chunkCB)
