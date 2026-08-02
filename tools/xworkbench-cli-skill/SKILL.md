@@ -48,7 +48,6 @@ test -x "$CLI" || CLI="$HOME/.codebuddy/skills/xworkbench-cli/xworkbench-cli"
 
 **核心规则：**
 - 用户说"查任务"→ `$CLI tasks`
-- CLI 已做了过滤（远程/本地/状态），直接呈现结果即可，不需要再逐条人工判断
 - 远端部署时提醒设 `export XWORKBENCH_SERVER=http://<ip>:8902`
 
 **常用命令速查：**
