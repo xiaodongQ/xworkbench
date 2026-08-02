@@ -58,12 +58,17 @@ func GetTools() []Tool {
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"title":       {"type": "string", "description": "任务标题"},
-					"description": {"type": "string", "description": "任务描述"},
-					"task_type":   {"type": "string", "enum": ["manual", "remote"], "description": "任务类型，manual 或 remote"},
-					"priority":    {"type": "integer", "description": "优先级 1-5，1最高"},
-					"acceptance":  {"type": "string", "description": "验收标准（可选）"},
-					"goal_mode":   {"type": "boolean", "description": "是否启用 Goal 目标模式（可选）"}
+					"title":                     {"type": "string", "description": "任务标题"},
+					"description":               {"type": "string", "description": "任务描述"},
+					"task_type":                 {"type": "string", "enum": ["manual", "remote"], "description": "任务类型，manual 或 remote"},
+					"priority":                  {"type": "integer", "description": "优先级 1-5，1最高"},
+					"acceptance":                {"type": "string", "description": "验收标准（可选）"},
+					"goal_mode":                 {"type": "boolean", "description": "是否启用 Goal 目标模式（可选）"},
+					"assigned_dir_shortcut_id":  {"type": "string", "description": "远程执行目标的 DirShortcut ID（可选）"},
+					"command_type":              {"type": "string", "enum": ["claude", "cbc", "shell"], "description": "命令类型（可选）"},
+					"model":                     {"type": "string", "description": "使用的模型（可选）"},
+					"prompt":                    {"type": "string", "description": "执行用 prompt（可选）"},
+					"experience_ids":            {"type": "array", "items": {"type": "string"}, "description": "关联的经验ID数组（可选）"}
 				},
 				"required": ["title"]
 			}`),
@@ -99,11 +104,17 @@ func GetTools() []Tool {
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"task_id":     {"type": "string", "description": "任务ID"},
-					"status":      {"type": "string", "description": "新状态（pending/in_progress/archived）"},
-					"title":       {"type": "string", "description": "新标题"},
-					"description": {"type": "string", "description": "新描述"},
-					"acceptance":  {"type": "string", "description": "新验收标准"}
+					"task_id":                   {"type": "string", "description": "任务ID"},
+					"status":                    {"type": "string", "description": "新状态（pending/in_progress/archived）"},
+					"title":                     {"type": "string", "description": "新标题"},
+					"description":               {"type": "string", "description": "新描述"},
+					"acceptance":                {"type": "string", "description": "新验收标准"},
+					"assigned_dir_shortcut_id":  {"type": "string", "description": "远程执行目标的 DirShortcut ID"},
+					"command_type":              {"type": "string", "enum": ["claude", "cbc", "shell"], "description": "命令类型"},
+					"model":                     {"type": "string", "description": "使用的模型"},
+					"prompt":                    {"type": "string", "description": "执行用 prompt"},
+					"priority":                  {"type": "integer", "description": "优先级 1-5"},
+					"experience_ids":            {"type": "array", "items": {"type": "string"}, "description": "关联的经验ID数组"}
 				},
 				"required": ["task_id"]
 			}`),
@@ -114,8 +125,11 @@ func GetTools() []Tool {
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"task_id":   {"type": "string", "description": "任务ID"},
-					"agent_id":  {"type": "string", "description": "目标 agent ID（remote 类型任务可选）"}
+					"task_id":      {"type": "string", "description": "任务ID"},
+					"agent_id":     {"type": "string", "description": "远程执行目标的 DirShortcut ID（可选，留空使用任务配置的 assigned_dir_shortcut_id）"},
+					"command_type": {"type": "string", "enum": ["claude", "cbc", "shell"], "description": "命令类型（可选，覆盖任务配置）"},
+					"model":        {"type": "string", "description": "使用的模型（可选，覆盖任务配置）"},
+					"prompt":       {"type": "string", "description": "执行用 prompt（可选，覆盖任务配置）"}
 				},
 				"required": ["task_id"]
 			}`),
@@ -403,13 +417,16 @@ func GetTools() []Tool {
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"name":         {"type": "string", "description": "任务名称必填"},
-					"cron_expr":    {"type": "string", "description": "Cron 表达式必填，如 0 9 * * *"},
-					"command_type": {"type": "string", "enum": ["claude", "cbc", "shell"], "description": "命令类型必填"},
-					"model":        {"type": "string", "description": "使用的模型（可选，如 claude-3-5-sonnet 等）"},
-					"prompt":       {"type": "string", "description": "Prompt / 命令内容必填"},
-					"working_dir":  {"type": "string", "description": "工作目录（可选）"},
-					"enabled":      {"type": "boolean", "description": "是否启用（默认 true）"}
+					"name":                     {"type": "string", "description": "任务名称必填"},
+					"cron_expr":                {"type": "string", "description": "Cron 表达式必填，如 0 9 * * *"},
+					"command_type":             {"type": "string", "enum": ["claude", "cbc", "shell"], "description": "命令类型必填"},
+					"model":                    {"type": "string", "description": "使用的模型（可选，如 claude-3-5-sonnet 等）"},
+					"prompt":                   {"type": "string", "description": "Prompt / 命令内容必填"},
+					"working_dir":              {"type": "string", "description": "工作目录（可选）"},
+					"enabled":                  {"type": "boolean", "description": "是否启用（默认 true）"},
+					"assigned_dir_shortcut_id": {"type": "string", "description": "远程执行目标的 DirShortcut ID（可选）"},
+					"category_id":              {"type": "string", "description": "分类 ID（可选）"},
+					"timeout_sec":              {"type": "integer", "description": "超时秒数，0=默认（可选）"}
 				},
 				"required": ["name", "cron_expr", "command_type", "prompt"]
 			}`),
@@ -431,14 +448,17 @@ func GetTools() []Tool {
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"id":           {"type": "string", "description": "任务ID必填"},
-					"name":         {"type": "string", "description": "新名称"},
-					"cron_expr":    {"type": "string", "description": "新 Cron 表达式"},
-					"command_type": {"type": "string", "enum": ["claude", "cbc", "shell"]},
-					"model":        {"type": "string", "description": "新模型"},
-					"prompt":       {"type": "string", "description": "新 Prompt"},
-					"working_dir":  {"type": "string", "description": "新工作目录"},
-					"enabled":      {"type": "boolean", "description": "是否启用"}
+					"id":                       {"type": "string", "description": "任务ID必填"},
+					"name":                     {"type": "string", "description": "新名称"},
+					"cron_expr":                {"type": "string", "description": "新 Cron 表达式"},
+					"command_type":             {"type": "string", "enum": ["claude", "cbc", "shell"]},
+					"model":                    {"type": "string", "description": "新模型"},
+					"prompt":                   {"type": "string", "description": "新 Prompt"},
+					"working_dir":              {"type": "string", "description": "新工作目录"},
+					"enabled":                  {"type": "boolean", "description": "是否启用"},
+					"assigned_dir_shortcut_id": {"type": "string", "description": "远程执行目标的 DirShortcut ID"},
+					"category_id":              {"type": "string", "description": "分类 ID"},
+					"timeout_sec":              {"type": "integer", "description": "超时秒数"}
 				},
 				"required": ["id"]
 			}`),
@@ -943,12 +963,17 @@ func ExecuteTool(ctx context.Context, db *backend.TaskRepo, expDB *backend.Exper
 
 func execCreateTask(ctx context.Context, db *backend.TaskRepo, argsJSON string) string {
 	var args struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		TaskType    string `json:"task_type"`
-		Priority    int    `json:"priority"`
-		Acceptance  string `json:"acceptance"`
-		GoalMode    bool   `json:"goal_mode"`
+		Title                  string   `json:"title"`
+		Description            string   `json:"description"`
+		TaskType               string   `json:"task_type"`
+		Priority               int      `json:"priority"`
+		Acceptance             string   `json:"acceptance"`
+		GoalMode               bool     `json:"goal_mode"`
+		AssignedDirShortcutID  string   `json:"assigned_dir_shortcut_id"`
+		CommandType            string   `json:"command_type"`
+		Model                  string   `json:"model"`
+		Prompt                 string   `json:"prompt"`
+		ExperienceIDs          []string `json:"experience_ids"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return fmt.Sprintf("参数解析失败: %v", err)
@@ -962,16 +987,21 @@ func execCreateTask(ctx context.Context, db *backend.TaskRepo, argsJSON string) 
 		taskType = "manual"
 	}
 	task := &backend.Task{
-		ID:          "task-" + time.Now().Format("20060102150405") + "-" + randomID(6),
-		Title:       args.Title,
-		Description: args.Description,
-		Acceptance:  args.Acceptance,
-		Status:      backend.TaskStatusPending,
-		TaskType:    taskType,
-		Priority:    prio,
-		GoalMode:    args.GoalMode,
-		Version:     "v1",
-		CreatedAt:   time.Now(),
+		ID:                     "task-" + time.Now().Format("20060102150405") + "-" + randomID(6),
+		Title:                  args.Title,
+		Description:            args.Description,
+		Acceptance:             args.Acceptance,
+		Status:                 backend.TaskStatusPending,
+		TaskType:               taskType,
+		Priority:               prio,
+		GoalMode:               args.GoalMode,
+		Version:                "v1",
+		CreatedAt:              time.Now(),
+		AssignedDirShortcutID:  args.AssignedDirShortcutID,
+		CommandType:            args.CommandType,
+		Model:                  args.Model,
+		Prompt:                 args.Prompt,
+		ExperienceIDs:          args.ExperienceIDs,
 	}
 	if err := db.Create(task); err != nil {
 		return fmt.Sprintf("创建任务失败: %v", err)
@@ -1039,12 +1069,17 @@ func execGetTask(ctx context.Context, db *backend.TaskRepo, execDB *backend.Exec
 
 func execUpdateTask(ctx context.Context, db *backend.TaskRepo, argsJSON string) string {
 	var args struct {
-		TaskID      string `json:"task_id"`
-		Status      string `json:"status"`
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Acceptance  string `json:"acceptance"`
-		Priority    int    `json:"priority"`
+		TaskID                 string   `json:"task_id"`
+		Status                 string   `json:"status"`
+		Title                  string   `json:"title"`
+		Description            string   `json:"description"`
+		Acceptance             string   `json:"acceptance"`
+		Priority               int      `json:"priority"`
+		AssignedDirShortcutID  string   `json:"assigned_dir_shortcut_id"`
+		CommandType            string   `json:"command_type"`
+		Model                  string   `json:"model"`
+		Prompt                 string   `json:"prompt"`
+		ExperienceIDs          []string `json:"experience_ids"`
 	}
 	json.Unmarshal([]byte(argsJSON), &args)
 	task, err := db.Get(args.TaskID)
@@ -1069,6 +1104,21 @@ func execUpdateTask(ctx context.Context, db *backend.TaskRepo, argsJSON string) 
 	if args.Priority > 0 {
 		task.Priority = args.Priority
 	}
+	if args.AssignedDirShortcutID != "" {
+		task.AssignedDirShortcutID = args.AssignedDirShortcutID
+	}
+	if args.CommandType != "" {
+		task.CommandType = args.CommandType
+	}
+	if args.Model != "" {
+		task.Model = args.Model
+	}
+	if args.Prompt != "" {
+		task.Prompt = args.Prompt
+	}
+	if len(args.ExperienceIDs) > 0 {
+		task.ExperienceIDs = args.ExperienceIDs
+	}
 	if err := db.Update(task); err != nil {
 		return fmt.Sprintf("更新失败: %v", err)
 	}
@@ -1077,8 +1127,12 @@ func execUpdateTask(ctx context.Context, db *backend.TaskRepo, argsJSON string) 
 
 func execRunTask(ctx context.Context, db *backend.TaskRepo, execDB *backend.ExecutionRepo, argsJSON string) string {
 	var args struct {
-		TaskID  string `json:"task_id"`
-		AgentID string `json:"agent_id"`
+		TaskID                 string `json:"task_id"`
+		AgentID                string `json:"agent_id"`
+		AssignedDirShortcutID  string `json:"assigned_dir_shortcut_id"`
+		CommandType            string `json:"command_type"`
+		Model                  string `json:"model"`
+		Prompt                 string `json:"prompt"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return fmt.Sprintf("参数解析失败: %v", err)
@@ -1093,7 +1147,13 @@ func execRunTask(ctx context.Context, db *backend.TaskRepo, execDB *backend.Exec
 		return fmt.Sprintf("⚠️ 任务 %s 正在执行中（execution_id=%s），请等待完成或取消后再触发", task.Title, execs[0].ID)
 	}
 	// Call local server API to trigger execution
-	body, _ := json.Marshal(map[string]any{"agent_id": args.AgentID})
+	body, _ := json.Marshal(map[string]any{
+		"agent_id":                args.AgentID,
+		"assigned_dir_shortcut_id": args.AssignedDirShortcutID,
+		"command_type":            args.CommandType,
+		"model":                   args.Model,
+		"prompt":                  args.Prompt,
+	})
 	addr := getServerAddr()
 	u := fmt.Sprintf("http://127.0.0.1%s/api/tasks/%s/run", addr, args.TaskID)
 	req, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(body))
@@ -1715,13 +1775,16 @@ func execListScheduledTasks(ctx context.Context, db *backend.ScheduledTaskRepo, 
 
 func execCreateScheduledTask(ctx context.Context, db *backend.ScheduledTaskRepo, sch SchedulerOps, argsJSON string) string {
 	var args struct {
-		Name        string `json:"name"`
-		CronExpr    string `json:"cron_expr"`
-		CommandType string `json:"command_type"`
-		Model       string `json:"model"`
-		Prompt      string `json:"prompt"`
-		WorkingDir  string `json:"working_dir"`
-		Enabled     bool   `json:"enabled"`
+		Name                   string `json:"name"`
+		CronExpr               string `json:"cron_expr"`
+		CommandType            string `json:"command_type"`
+		Model                  string `json:"model"`
+		Prompt                 string `json:"prompt"`
+		WorkingDir             string `json:"working_dir"`
+		Enabled                bool   `json:"enabled"`
+		AssignedDirShortcutID  string `json:"assigned_dir_shortcut_id"`
+		CategoryID             string `json:"category_id"`
+		TimeoutSec             int    `json:"timeout_sec"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return fmt.Sprintf("参数解析失败: %v", err)
@@ -1730,15 +1793,18 @@ func execCreateScheduledTask(ctx context.Context, db *backend.ScheduledTaskRepo,
 		return "name、cron_expr、command_type、prompt 均为必填项"
 	}
 	t := &backend.ScheduledTask{
-		ID:          "sched-" + time.Now().Format("20060102150405") + "-" + randomID(6),
-		Name:        args.Name,
-		CronExpr:    args.CronExpr,
-		CommandType: args.CommandType,
-		Model:       args.Model,
-		Prompt:      args.Prompt,
-		WorkingDir:  args.WorkingDir,
-		Enabled:     args.Enabled,
-		CreatedAt:   time.Now(),
+		ID:                     "sched-" + time.Now().Format("20060102150405") + "-" + randomID(6),
+		Name:                   args.Name,
+		CronExpr:               args.CronExpr,
+		CommandType:            args.CommandType,
+		Model:                  args.Model,
+		Prompt:                 args.Prompt,
+		WorkingDir:             args.WorkingDir,
+		Enabled:                args.Enabled,
+		CreatedAt:              time.Now(),
+		AssignedDirShortcutID:  args.AssignedDirShortcutID,
+		CategoryID:             args.CategoryID,
+		TimeoutSec:             args.TimeoutSec,
 	}
 	if err := db.Create(t); err != nil {
 		return fmt.Sprintf("创建失败: %v", err)
@@ -1777,14 +1843,17 @@ func execGetScheduledTask(ctx context.Context, db *backend.ScheduledTaskRepo, sc
 
 func execUpdateScheduledTask(ctx context.Context, db *backend.ScheduledTaskRepo, sch SchedulerOps, argsJSON string) string {
 	var args struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		CronExpr    string `json:"cron_expr"`
-		CommandType string `json:"command_type"`
-		Model       string `json:"model"`
-		Prompt      string `json:"prompt"`
-		WorkingDir  string `json:"working_dir"`
-		Enabled     *bool  `json:"enabled"`
+		ID                     string `json:"id"`
+		Name                   string `json:"name"`
+		CronExpr               string `json:"cron_expr"`
+		CommandType            string `json:"command_type"`
+		Model                  string `json:"model"`
+		Prompt                 string `json:"prompt"`
+		WorkingDir             string `json:"working_dir"`
+		Enabled                *bool  `json:"enabled"`
+		AssignedDirShortcutID  string `json:"assigned_dir_shortcut_id"`
+		CategoryID             string `json:"category_id"`
+		TimeoutSec             *int   `json:"timeout_sec"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return fmt.Sprintf("参数解析失败: %v", err)
@@ -1816,6 +1885,15 @@ func execUpdateScheduledTask(ctx context.Context, db *backend.ScheduledTaskRepo,
 	}
 	if args.Enabled != nil {
 		t.Enabled = *args.Enabled
+	}
+	if args.AssignedDirShortcutID != "" {
+		t.AssignedDirShortcutID = args.AssignedDirShortcutID
+	}
+	if args.CategoryID != "" {
+		t.CategoryID = args.CategoryID
+	}
+	if args.TimeoutSec != nil {
+		t.TimeoutSec = *args.TimeoutSec
 	}
 	if err := db.Update(t); err != nil {
 		return fmt.Sprintf("更新失败: %v", err)
