@@ -669,7 +669,7 @@ function onSchedLocationChange() {
 async function loadSchedAgentOptions() {
   const sel = document.getElementById('sched-agent-id');
   if (!sel) return;
-  sel.innerHTML = '<option value="">本机执行（默认）</option>';
+  sel.innerHTML = '<option value="">选择执行机器...</option>';
   try {
     const dirs = await fetchJSON(API + '/api/dir-shortcuts');
     (dirs || []).filter(d => d.type === 'remote').forEach(d => {
