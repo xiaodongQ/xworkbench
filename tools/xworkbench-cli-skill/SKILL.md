@@ -71,10 +71,35 @@ xw_examples:
 
 # xworkbench-cli Skill
 
-xworkbench 工作台 Agent CLI 工具，操作手册/定时任务/执行记录/经验库等。
+xworkbench 工作台 Agent CLI 工具，管理手动任务、定时任务、执行记录、经验库等。流程与交互
 
 **核心规则：**
-- 用户说"查任务"时，用 `tasks <options>` 命令，它会自动同时查手动和定时
-- CLI 部署在远端时，提醒设 `export XWORKBENCH_SERVER=http://<ip>:8902`，之后无需 `--server`
+- 用户说"查任务"/"有哪些任务"→ 用 `tasks <options>` 命令，自动合并手动+定时
+- CLI 部署在远端时，提醒 `export XWORKBENCH_SERVER=http://<ip>:8902`，之后无需 `--server`
 
-CLI 内置完整帮助（`xworkbench-cli --help`），参数细节无需赘述。
+**常用场景与命令：**
+- 查所有任务（≤20条） → `tasks --limit 20`
+- 只看远程任务 → `tasks --task-type remote`
+- 创建手动任务 → `manual-task create --title "标题" --description "描述"`
+- 创建远程手动任务 → 加 `--target-dir-id <dir_shortcut_id>`
+- 创建定时任务 → `sched-task create --name "名" --cron "@every 30s" --command-type shell --prompt "echo hi"`
+- 立即执行定时任务 → `sched-task run <id>`
+- 查看执行记录 → `exec list --limit 10`
+- 查看执行详情/输出 → `exec get <execution_id>`
+- 继续对话 → `exec continue <execution_id>` (只支持 claude/cbc)
+- 查统计 → `stats`
+
+**远程任务定义：**
+- 手动任务 `task_type=remote` + `assigned_dir_shortcut_id` 指向 DirShortcut
+- 定时任务 `assigned_dir_shortcut_id` 非空为远程
+- 创建远程任务需指定 `--target-dir-id <id>`，id 可查界面「系统配置→目录快捷」
+
+**执行记录：**
+- `exec list` 默认列出所有（手动+定时），用 `--task-id` 或 `--scheduled-task-id` 过滤
+- `exec get <id>` 查看完整输出，`exec evaluate <id>` AI 评估执行质量
+
+**定时任务调度器：**
+- 需在 Web 工作台启动调度器后 cron 才自动触发
+- `sched-task run` 手动触发，不依赖调度器
+- `sched-task toggle` 切换启用/禁用
+- `stats` 查看调度器状态
