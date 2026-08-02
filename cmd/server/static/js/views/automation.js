@@ -225,10 +225,10 @@ function populateInstallCmd() {
 async function copyInstallCmd() {
   const el = document.getElementById('cli-install-cmd');
   if (!el) return;
+  let copied = false;
   try {
     await navigator.clipboard.writeText(el.textContent);
-    const btn = document.getElementById('cli-copy-btn');
-    if (btn) { btn.textContent = '✅ 已复制'; setTimeout(() => btn.textContent = '📋 复制', 1500); }
+    copied = true;
   } catch (_) {
     // 非安全上下文（HTTP/非localhost）fallback：textarea + execCommand
     const ta = document.createElement('textarea');
@@ -237,8 +237,15 @@ async function copyInstallCmd() {
     ta.style.left = '-9999px';
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand('copy'); } catch (__) {}
+    try { copied = document.execCommand('copy'); } catch (__) {}
     document.body.removeChild(ta);
+  }
+  if (copied) {
+    const btn = document.getElementById('cli-copy-btn');
+    if (btn) { btn.textContent = '✅ 已复制'; setTimeout(() => btn.textContent = '📋 复制', 1500); }
+    // 代码块也短暂高亮
+    el.style.background = '#dbeafe';
+    setTimeout(() => el.style.background = '', 800);
   }
 }
 
