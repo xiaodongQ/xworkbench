@@ -72,3 +72,5 @@ xw_examples:
 # xworkbench-cli Skill
 
 xworkbench 工作台 Agent CLI 工具，支持完整的任务/执行/经验库/调度/todo/配置管理操作。
+
+**重要：** 当用户模糊说"查询任务"/"列出任务"时，手动任务 (`task list`) 和定时任务 (`scheduled list`) **都要查询**，分别展示结果。用户可能关心任一类型，不应遗漏。
