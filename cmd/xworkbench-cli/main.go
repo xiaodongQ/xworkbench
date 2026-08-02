@@ -182,10 +182,10 @@ xworkbench-cli 提供对 xworkbench 工作台的完整操作能力，包括任�
         可通过环境变量 XWORKBENCH_SERVER 覆盖
 
 命令:
-  task          任务管理 (list/create/get/update/run/cancel/delete)
+  task          手动任务 (list/create/get/update/run/cancel/delete)
+  scheduled     定时任务 (list/get/create/update/delete/run/toggle)
   exec          执行记录 (list/get/evaluate/cancel/continue)
   experience    经验库 (list/get/create/update/delete)
-  scheduled     定时任务 (list/get/create/update/delete/run/toggle)
   todo          Todo 管理 (list/add/toggle/edit)
   config        配置管理 (get/set)
   models        可用模型列表
@@ -234,13 +234,13 @@ func printCommandHelp(cmd string) {
 }
 
 func printTaskHelp() {
-	fmt.Print(`task - 任务管理
+	fmt.Print(`task - 手动任务
 
 用法: xworkbench-cli task <subcommand> [options]
 
 子命令:
-  list          列出任务，支持按状态过滤
-  create        创建新任务
+  list          列出手动任务，支持按状态/类型过滤
+  create        创建手动任务
   get           获取任务详情
   update        更新任务信息
   run           运行任务
