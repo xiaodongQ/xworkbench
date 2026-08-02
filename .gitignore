@@ -42,3 +42,4 @@ tools/xworkbench-cli-skill/xworkbench-cli
 tools/xworkbench-cli-skill/xworkbench-cli-*
 tools/xworkbench-cli-skill/*.zip
 xwcli
+xworkbench-cli
