@@ -2,7 +2,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 )
@@ -10,48 +9,64 @@ import (
 var flagServer string
 
 func main() {
-	if len(os.Args) < 2 {
-		printUsage(nil)
-		os.Exit(1)
+	// 环境变量
+	if env := os.Getenv("XWORKBENCH_SERVER"); env != "" && flagServer == "" {
+		flagServer = env
 	}
 
-	// 全局 --server 参数
-	flag.StringVar(&flagServer, "server", "http://localhost:8902", "xworkbench server URL")
-
-	cmd := os.Args[1]
-	args := os.Args[2:]
-
-	// 处理 help
-	if cmd == "help" || cmd == "-h" || cmd == "--help" {
-		if len(args) > 0 {
-			printCommandHelp(args[0])
+	// 解析 --server flag 后提取子命令
+	cmd := ""
+	var cmdArgs []string
+	for i := 1; i < len(os.Args); i++ {
+		a := os.Args[i]
+		if a == "--server" || a == "-server" {
+			if i+1 < len(os.Args) {
+				flagServer = os.Args[i+1]
+				i++
+			}
+			continue
+		}
+		if cmd == "" {
+			cmd = a
 		} else {
-			printUsage(nil)
+			cmdArgs = append(cmdArgs, a)
+		}
+	}
+
+	if flagServer == "" {
+		flagServer = "http://localhost:8902"
+	}
+
+	if cmd == "" || cmd == "help" || cmd == "-h" || cmd == "--help" {
+		if len(cmdArgs) > 0 {
+			printCommandHelp(cmdArgs[0])
+		} else {
+			printUsage()
 		}
 		os.Exit(0)
 	}
 
 	switch cmd {
 	case "task":
-		handleTask(args)
+		handleTask(cmdArgs)
 	case "exec":
-		handleExec(args)
+		handleExec(cmdArgs)
 	case "experience":
-		handleExperience(args)
+		handleExperience(cmdArgs)
 	case "scheduled":
-		handleScheduled(args)
+		handleScheduled(cmdArgs)
 	case "todo":
-		handleTodo(args)
+		handleTodo(cmdArgs)
 	case "config":
-		handleConfig(args)
+		handleConfig(cmdArgs)
 	case "models":
-		handleModels(args)
+		handleModels(cmdArgs)
 	case "stats":
-		handleStats(args)
+		handleStats(cmdArgs)
 	case "dir-shortcut":
-		handleDirShortcut(args)
+		handleDirShortcut(cmdArgs)
 	case "web-link":
-		handleWebLink(args)
+		handleWebLink(cmdArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "{\"ok\": false, \"error\": \"unknown command: %q\"}\n", cmd)
 		os.Exit(1)
@@ -168,7 +183,7 @@ func handleWebLink(args []string) {
 	}
 }
 
-func printUsage(_ *flag.FlagSet) {
+func printUsage() {
 	fmt.Print(`xworkbench-cli - xworkbench 工作台 Agent CLI 工具
 
 用法: xworkbench-cli [OPTIONS] <command> [subcommand] [args...]
