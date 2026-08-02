@@ -84,15 +84,22 @@ build_current() {
     exit 1
   fi
 
-  # 编译 xworkbench-cli 当前平台
+  # 编译 xworkbench-cli 当前平台 → tools/ 目录
   local cli_name="xworkbench-cli-${os}-${arch}${ext}"
+  local cli_dir="tools"
+  mkdir -p "$cli_dir"
   echo
   hr
   printf '%b\n' "${CYAN}==> 编译 xworkbench-cli${NC}  ${os}/${arch}"
   hr
-  if GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -trimpath -o "${BIN_DIR}/${cli_name}" ./cmd/xworkbench-cli; then
-    local cli_size=$(ls -lh "${BIN_DIR}/${cli_name}" | awk '{print $5}')
-    printf '%b\n' "${GREEN}✓ xworkbench-cli 编译成功${NC}  ${cli_size}  ${cli_name}"
+  if GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -trimpath -o "${cli_dir}/${cli_name}" ./cmd/xworkbench-cli; then
+    local cli_size=$(ls -lh "${cli_dir}/${cli_name}" | awk '{print $5}')
+    printf '%b\n' "${GREEN}✓ xworkbench-cli 编译成功${NC}  ${cli_size}  ${cli_dir}/${cli_name}"
+    # 同步到 xworkbench-cli-skill/ 供服务端下载
+    local skill_dir="tools/xworkbench-cli-skill"
+    mkdir -p "$skill_dir"
+    cp "${cli_dir}/${cli_name}" "${skill_dir}/xworkbench-cli"
+    printf '%b\n' "${GREEN}  → 同步到${NC} ${skill_dir}/xworkbench-cli"
   else
     printf '%b\n' "${RED}✗ xworkbench-cli 编译失败${NC}"
   fi
