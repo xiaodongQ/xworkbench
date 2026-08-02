@@ -91,7 +91,12 @@ func RunViaXwSshpass(ctx context.Context, ds *backend.DirShortcut, cmd []string,
 	}
 	args = append(args, "ssh", userHost)
 	// Shell wrapper: mkdir xworkbench-task, cd, source rc files, zsh priority bash fallback
+	// sh -c 需要用单引号包裹命令字符串
 	cmdStr := strings.Join(cmd, " ")
+	if len(cmd) >= 3 && (cmd[0] == "sh" || cmd[0] == "bash") && cmd[1] == "-c" {
+		// sh -c <script> → sh -c '<script>' 避免参数拆分
+		cmdStr = cmd[0] + " -c '" + strings.ReplaceAll(cmd[2], "'", "'\\''") + "'"
+	}
 	escaped := strings.ReplaceAll(cmdStr, "'", "'\\''")
 	shellCmd := fmt.Sprintf(
 		`mkdir -p ~/xworkbench-task && cd ~/xworkbench-task && command -v zsh >/dev/null 2>&1 && zsh -c 'source ~/.zshrc 2>/dev/null; %s' || bash -c 'source ~/.bashrc 2>/dev/null; %s'`,
