@@ -38,7 +38,7 @@ data/ai-sandbox/
 .playwright-cli
 tasks/two-sum/
 __pycache__/
-tools/xworkbench-cli/
+tools/xworkbench-cli-skill/xworkbench-cli
 tools/xworkbench-cli-skill/xworkbench-cli-*
 tools/xworkbench-cli-skill/*.zip
 xwcli
