@@ -104,12 +104,16 @@ func runTask(args []string) error {
 func taskList(args []string) error {
 	fs := flag.NewFlagSet("task list", flag.ExitOnError)
 	status := fs.String("status", "", "filter by status")
+	taskType := fs.String("task-type", "", "filter by type (manual/remote)")
 	limit := fs.Int("limit", 50, "max results")
 	fs.Parse(args)
 
 	url := fmt.Sprintf("%s/api/tasks?limit=%d", baseURL(), *limit)
 	if *status != "" {
 		url += "&status=" + *status
+	}
+	if *taskType != "" {
+		url += "&task_type=" + *taskType
 	}
 	resp, err := apiRequest("GET", url, nil)
 	if err != nil {

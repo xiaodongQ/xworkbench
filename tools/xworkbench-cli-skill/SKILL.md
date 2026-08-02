@@ -4,7 +4,7 @@ description: 操作 xworkbench 工作台（任务/执行/经验库/调度/todo/�
 version: 1.0.0
 xw_command: xworkbench-cli
 xw_params:
-  task_list: "列出任务 (--status 状态 --limit 数量)"
+  task_list: "列出任务 (--status 状态 --task-type manual|remote --limit 数量)"
   task_create: "创建任务 (--title 标题 --description 描述 [--target-dir-id 远程目标DirShortcutID])"
   task_get: "获取任务详情 (task_id)"
   task_update: "更新任务 (task_id --title --description --status --priority [--target-dir-id])"
