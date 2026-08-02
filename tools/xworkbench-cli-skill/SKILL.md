@@ -2,37 +2,32 @@
 name: xworkbench-cli
 description: 操作 xworkbench 工作台（任务/执行/经验库/调度/todo/配置管理）
 version: 1.0.0
-xw_command: xworkbench-cli
 xw_params:
   tasks: "查询所有任务（合并手动+定时）"
-  manual_task: "手动任务 CRUD (list/create/get/update/run/delete)"
-  sched_task: "定时任务 CRUD (list/create/get/update/delete/run/toggle)"
+  manual-task: "手动任务 CRUD (list/create/get/update/run/delete)"
+  sched-task: "定时任务 CRUD (list/create/get/update/delete/run/toggle)"
   exec: "执行记录 (list/get/evaluate/cancel/continue)"
   experience: "经验库 (list/get/create/update/delete)"
   todo: "Todo 管理 (list/add/toggle/edit)"
   config: "配置管理 (get/set)"
   models: "列出可用模型"
   stats: "仪表盘统计"
-  dir_shortcut: "目录快捷 (list/create/update/delete/open)"
-  web_link: "链接快捷 (list/create/update/delete/open)"
-xw_output:
-  ok: "成功标志 (true/false)"
-  data: "API 返回的数据"
-  error: "错误信息"
+  dir-shortcut: "目录快捷 (list/create/update/delete/open)"
+  web-link: "链接快捷 (list/create/update/delete/open)"
 xw_examples:
-  - description: "列出所有 pending 任务"
+  - description: "列出所有任务（手动+定时）"
     params:
-      subcommand: list
+      subcommand: tasks
+      limit: 20
+  - description: "列出手动任务"
+    params:
+      subcommand: manual-task
+      limit: 0
       status: pending
-  - description: "创建新任务"
+  - description: "列出远程定时任务"
     params:
-      subcommand: create
-      title: "优化性能"
-      description: "分析并优化慢查询"
-  - description: "运行指定任务"
-    params:
-      subcommand: run
-      task_id: "123"
+      subcommand: sched-task
+      task_type: remote
   - description: "获取统计信息"
     params:
       subcommand: stats
