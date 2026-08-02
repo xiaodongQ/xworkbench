@@ -47,14 +47,14 @@ func main() {
 	}
 
 	switch cmd {
-	case "task":
+	case "manual-task", "task":
 		handleTask(cmdArgs)
+	case "sched-task", "scheduled":
+		handleScheduled(cmdArgs)
 	case "exec":
 		handleExec(cmdArgs)
 	case "experience":
 		handleExperience(cmdArgs)
-	case "scheduled":
-		handleScheduled(cmdArgs)
 	case "todo":
 		handleTodo(cmdArgs)
 	case "config":
@@ -197,8 +197,8 @@ xworkbench-cli 提供对 xworkbench 工作台的完整操作能力，包括任�
         可通过环境变量 XWORKBENCH_SERVER 覆盖
 
 命令:
-  task          手动任务 (list/create/get/update/run/cancel/delete)
-  scheduled     定时任务 (list/get/create/update/delete/run/toggle)
+  manual-task   手动任务 (list/create/get/update/run/cancel/delete)
+  sched-task    定时任务 (list/get/create/update/delete/run/toggle)
   exec          执行记录 (list/get/evaluate/cancel/continue)
   experience    经验库 (list/get/create/update/delete)
   todo          Todo 管理 (list/add/toggle/edit)
@@ -222,14 +222,11 @@ xworkbench-cli 提供对 xworkbench 工作台的完整操作能力，包括任�
 
 func printCommandHelp(cmd string) {
 	switch cmd {
-	case "task":
+	case "manual-task", "task":
 		printTaskHelp()
-	case "exec":
-		printExecHelp()
-	case "experience":
-		printExperienceHelp()
-	case "scheduled":
+	case "sched-task", "scheduled":
 		printScheduledHelp()
+	case "exec":
 	case "todo":
 		printTodoHelp()
 	case "config":
@@ -249,9 +246,9 @@ func printCommandHelp(cmd string) {
 }
 
 func printTaskHelp() {
-	fmt.Print(`task - 手动任务
+	fmt.Print(`manual-task (task) - 手动任务
 
-用法: xworkbench-cli task <subcommand> [options]
+用法: xworkbench-cli manual-task <subcommand> [options]
 
 子命令:
   list          列出手动任务，支持按状态/类型过滤
@@ -330,7 +327,7 @@ func printExperienceHelp() {
 }
 
 func printScheduledHelp() {
-	fmt.Print(`scheduled - 定时任务
+	fmt.Print(`sched-task (scheduled) - 定时任务
 
 用法: xworkbench-cli scheduled <subcommand> [options]
 
