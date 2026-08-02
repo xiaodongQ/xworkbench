@@ -73,6 +73,12 @@ xw_examples:
 
 xworkbench 工作台 Agent CLI 工具，支持完整的任务/执行/经验库/调度/todo/配置管理操作。
 
-**重要：** 当用户模糊说"查询任务"/"列出任务"时，手动任务 (`task list`) 和定时任务 (`scheduled list`) **都要查询**，分别展示结果。用户可能关心任一类型，不应遗漏。
+**重要：** 当用户模糊说"查询任务"/"列出任务"时，手动任务 (`manual-task list`) 和定时任务 (`sched-task list`) **都要查询**，分别展示结果。
+
+**CLI 路径：** **每次执行前先确保 PATH 含 CLI 目录：**
+```bash
+export PATH="$HOME/.claude/skills/xworkbench-cli:$HOME/.codebuddy/skills/xworkbench-cli:$PATH"
+```
+若仍报 command not found，用绝对路径 `~/.claude/skills/xworkbench-cli/xworkbench-cli`。
 
 **远程连接：** 若 CLI 部署在其他机器，提醒用户设置环境变量 `export XWORKBENCH_SERVER=http://<ip>:8902`，后续所有命令无需再带 `--server`。设置后提醒用户验证：`xworkbench-cli stats`。
