@@ -213,7 +213,7 @@
       </select>
       <select id="filter-task-type">
         <option value="">全部类型</option>
-        <option value="manual">本地手动</option>
+        <option value="manual">本地</option>
         <option value="remote">远程</option>
       </select>
       <select id="filter-task-category">
@@ -803,12 +803,12 @@
 	        </select>
 	      </div>      <div class="form-group"><label>描述 <span class="field-hint">详细描述问题和背景</span></label><textarea id="task-desc" placeholder="详细描述..."></textarea></div>
 
-      <!-- 任务类型 + CLI + 模型一行 -->
+      <!-- 执行位置 + CLI 类型 + 模型 一行 -->
       <div class="form-row" style="display:grid;grid-template-columns:1fr 2fr 2fr;gap:8px">
-        <div class="form-group"><label>任务类型</label>
+        <div class="form-group"><label>执行位置</label>
           <select id="task-type" onchange="onTaskTypeChange()" style="width:100%">
-            <option value="manual">manual</option>
-            <option value="remote">remote</option>
+            <option value="manual">本地</option>
+            <option value="remote">远程</option>
           </select>
         </div>
         <div class="form-group"><label>CLI 类型</label>
