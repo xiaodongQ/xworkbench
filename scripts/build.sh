@@ -84,6 +84,19 @@ build_current() {
     exit 1
   fi
 
+  # 编译 xworkbench-cli 当前平台
+  local cli_name="xworkbench-cli-${os}-${arch}${ext}"
+  echo
+  hr
+  printf '%b\n' "${CYAN}==> 编译 xworkbench-cli${NC}  ${os}/${arch}"
+  hr
+  if GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -trimpath -o "${BIN_DIR}/${cli_name}" ./cmd/xworkbench-cli; then
+    local cli_size=$(ls -lh "${BIN_DIR}/${cli_name}" | awk '{print $5}')
+    printf '%b\n' "${GREEN}✓ xworkbench-cli 编译成功${NC}  ${cli_size}  ${cli_name}"
+  else
+    printf '%b\n' "${RED}✗ xworkbench-cli 编译失败${NC}"
+  fi
+
   # 检查 xw-sshpass 本平台产物，没有则自动构建
   local xw_bin="xw-sshpass-${os}-${arch}${ext}"
   local xw_dir="tools/xw-sshpass"
