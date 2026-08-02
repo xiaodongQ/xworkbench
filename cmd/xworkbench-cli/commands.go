@@ -268,13 +268,18 @@ func runExec(args []string) error {
 
 func execList(args []string) error {
 	fs := flag.NewFlagSet("exec list", flag.ExitOnError)
-	taskID := fs.String("task-id", "", "filter by task ID")
+	taskID := fs.String("task-id", "", "filter by manual task ID")
+	schedTaskID := fs.String("scheduled-task-id", "", "filter by scheduled task ID")
 	limit := fs.Int("limit", 50, "max results")
 	fs.Parse(args)
 
-	url := fmt.Sprintf("%s/api/executions?limit=%d", baseURL(), *limit)
-	if *taskID != "" {
-		url += "&task_id=" + *taskID
+	var url string
+	if *schedTaskID != "" {
+		url = fmt.Sprintf("%s/api/executions?limit=%d", baseURL(), *limit)
+	} else if *taskID != "" {
+		url = fmt.Sprintf("%s/api/tasks/%s/executions?limit=%d", baseURL(), *taskID, *limit)
+	} else {
+		url = fmt.Sprintf("%s/api/executions?limit=%d", baseURL(), *limit)
 	}
 	resp, err := apiRequest("GET", url, nil)
 	if err != nil {

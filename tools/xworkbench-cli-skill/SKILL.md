@@ -18,7 +18,7 @@ xw_params:
   scheduled_delete: "删除定时任务 (scheduled_id)"
   scheduled_run: "立即运行定时任务 (scheduled_id)"
   scheduled_toggle: "切换定时任务启用/禁用 (scheduled_id)"
-  exec_list: "列出执行记录 (--task-id --limit)"
+  exec_list: "列出执行记录 (--task-id --scheduled-task-id --limit)"
   exec_get: "获取执行详情 (execution_id)"
   exec_evaluate: "AI 评估执行 (execution_id)"
   exec_cancel: "取消执行 (execution_id)"
