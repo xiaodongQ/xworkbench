@@ -61,6 +61,7 @@ function switchCfgTab(tab) {
     loadSkipPerm();
   } else if (tab === 'skills') {
     loadSkills();
+    if (typeof populateInstallCmd === 'function') populateInstallCmd();
   } else {
     refreshExportSummary();
   }
