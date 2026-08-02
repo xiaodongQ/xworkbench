@@ -75,4 +75,4 @@ xworkbench 工作台 Agent CLI 工具，支持完整的任务/执行/经验库/�
 
 **重要：** 当用户模糊说"查询任务"/"列出任务"时，手动任务 (`task list`) 和定时任务 (`scheduled list`) **都要查询**，分别展示结果。用户可能关心任一类型，不应遗漏。
 
-**远程连接：** 若用户已指定过 `--server` 地址或在当前对话中提到过服务器 IP/端口（如 `192.168.1.2:8902`），后续所有 xworkbench-cli 命令**自动带上该地址**，无需用户重复提醒。可通过环境变量 `XWORKBENCH_SERVER` 预先配置。
+**远程连接：** 若 CLI 部署在其他机器，提醒用户设置环境变量 `export XWORKBENCH_SERVER=http://<ip>:8902`，后续所有命令无需再带 `--server`。设置后提醒用户验证：`xworkbench-cli stats`。
