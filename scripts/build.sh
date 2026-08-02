@@ -84,25 +84,30 @@ build_current() {
     exit 1
   fi
 
-  # 编译 xworkbench-cli 当前平台 → tools/ 目录
-  local cli_name="xworkbench-cli-${os}-${arch}${ext}"
+  # 编译 xworkbench-cli 所有平台 → tools/ 和 tools/xworkbench-cli-skill/
   local cli_dir="tools"
-  mkdir -p "$cli_dir"
+  local skill_dir="tools/xworkbench-cli-skill"
+  mkdir -p "$cli_dir" "$skill_dir"
   echo
   hr
-  printf '%b\n' "${CYAN}==> 编译 xworkbench-cli${NC}  ${os}/${arch}"
+  printf '%b\n' "${CYAN}==> 编译 xworkbench-cli 所有平台${NC}"
   hr
-  if GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -trimpath -o "${cli_dir}/${cli_name}" ./cmd/xworkbench-cli; then
-    local cli_size=$(ls -lh "${cli_dir}/${cli_name}" | awk '{print $5}')
-    printf '%b\n' "${GREEN}✓ xworkbench-cli 编译成功${NC}  ${cli_size}  ${cli_dir}/${cli_name}"
-    # 同步到 xworkbench-cli-skill/ 供服务端下载
-    local skill_dir="tools/xworkbench-cli-skill"
-    mkdir -p "$skill_dir"
-    cp "${cli_dir}/${cli_name}" "${skill_dir}/xworkbench-cli"
-    printf '%b\n' "${GREEN}  → 同步到${NC} ${skill_dir}/xworkbench-cli"
-  else
-    printf '%b\n' "${RED}✗ xworkbench-cli 编译失败${NC}"
-  fi
+  for osarch in linux-amd64 darwin-amd64 windows-amd64; do
+    local cli_os=${osarch%-*}
+    local cli_arch=${osarch#*-}
+    local cli_ext=""
+    [ "$cli_os" = "windows" ] && cli_ext=".exe"
+    local cli_name="xworkbench-cli-${cli_os}-${cli_arch}${cli_ext}"
+    printf "  %-12s %-8s ... " "$cli_os" "$cli_arch"
+    if GOOS=$cli_os GOARCH=$cli_arch go build -ldflags="-s -w" -trimpath -o "${cli_dir}/${cli_name}" ./cmd/xworkbench-cli 2>/dev/null; then
+      local cli_size=$(ls -lh "${cli_dir}/${cli_name}" | awk '{print $5}')
+      printf '%b\n' "${GREEN}[OK]${NC}  ${cli_size}"
+      # 同步到 xworkbench-cli-skill/ 供下载接口使用
+      cp "${cli_dir}/${cli_name}" "${skill_dir}/${cli_name}"
+    else
+      printf '%b\n' "${RED}[FAIL]${NC}"
+    fi
+  done
 
   # 检查 xw-sshpass 本平台产物，没有则自动构建
   local xw_bin="xw-sshpass-${os}-${arch}${ext}"
