@@ -5,9 +5,9 @@ version: 1.0.0
 xw_command: xworkbench-cli
 xw_params:
   task_list: "列出任务 (--status 状态 --limit 数量)"
-  task_create: "创建任务 (--title 标题 --description 描述)"
+  task_create: "创建任务 (--title 标题 --description 描述 [--target-dir-id 远程目标DirShortcutID])"
   task_get: "获取任务详情 (task_id)"
-  task_update: "更新任务 (task_id --title --description --status --priority)"
+  task_update: "更新任务 (task_id --title --description --status --priority [--target-dir-id])"
   task_run: "运行任务 (task_id)"
   task_cancel: "取消任务 (task_id)"
   task_delete: "删除任务 (task_id)"
@@ -23,8 +23,8 @@ xw_params:
   experience_delete: "删除经验 (experience_id)"
   scheduled_list: "列出定时任务"
   scheduled_get: "获取定时任务详情 (scheduled_id)"
-  scheduled_create: "创建定时任务 (--name --cron [--command-type] [--model] [--prompt])"
-  scheduled_update: "更新定时任务 (scheduled_id --name --cron ...)"
+  scheduled_create: "创建定时任务 (--name --cron [--command-type] [--model] [--prompt] [--target-dir-id])"
+  scheduled_update: "更新定时任务 (scheduled_id --name --cron [...] [--target-dir-id])"
   scheduled_delete: "删除定时任务 (scheduled_id)"
   scheduled_run: "立即运行定时任务 (scheduled_id)"
   scheduled_toggle: "切换启用/禁用 (scheduled_id)"

@@ -123,6 +123,7 @@ func taskCreate(args []string) error {
 	fs := flag.NewFlagSet("task create", flag.ExitOnError)
 	title := fs.String("title", "", "task title (required)")
 	description := fs.String("description", "", "task description")
+	targetDirID := fs.String("target-dir-id", "", "remote target dir shortcut ID")
 	fs.Parse(args)
 
 	if *title == "" {
@@ -131,6 +132,9 @@ func taskCreate(args []string) error {
 	payload := map[string]any{"title": *title}
 	if *description != "" {
 		payload["description"] = *description
+	}
+	if *targetDirID != "" {
+		payload["assigned_dir_shortcut_id"] = *targetDirID
 	}
 
 	resp, err := apiRequest("POST", baseURL()+"/api/tasks", payload)
@@ -166,6 +170,7 @@ func taskUpdate(args []string) error {
 	description := fs.String("description", "", "task description")
 	taskStatus := fs.String("status", "", "task status")
 	priority := fs.Int("priority", 0, "task priority")
+	targetDirID := fs.String("target-dir-id", "", "remote target dir shortcut ID")
 	fs.Parse(rest)
 
 	payload := map[string]any{}
@@ -180,6 +185,9 @@ func taskUpdate(args []string) error {
 	}
 	if *priority > 0 {
 		payload["priority"] = *priority
+	}
+	if *targetDirID != "" {
+		payload["assigned_dir_shortcut_id"] = *targetDirID
 	}
 
 	resp, err := apiRequest("PUT", fmt.Sprintf("%s/api/tasks/%s", baseURL(), id), payload)
@@ -530,6 +538,7 @@ func scheduledCreate(args []string) error {
 	commandType := fs.String("command-type", "shell", "command type (shell/claude/cbc)")
 	model := fs.String("model", "", "model name")
 	prompt := fs.String("prompt", "", "prompt/script")
+	targetDirID := fs.String("target-dir-id", "", "remote target dir shortcut ID")
 	fs.Parse(args)
 
 	if *name == "" || *cron == "" {
@@ -545,6 +554,9 @@ func scheduledCreate(args []string) error {
 	}
 	if *prompt != "" {
 		payload["prompt"] = *prompt
+	}
+	if *targetDirID != "" {
+		payload["assigned_dir_shortcut_id"] = *targetDirID
 	}
 
 	resp, err := apiRequest("POST", baseURL()+"/api/scheduled", payload)
@@ -569,6 +581,7 @@ func scheduledUpdate(args []string) error {
 	model := fs.String("model", "", "model name")
 	prompt := fs.String("prompt", "", "prompt/script")
 	enabled := fs.Bool("enabled", false, "enabled")
+	targetDirID := fs.String("target-dir-id", "", "remote target dir shortcut ID")
 	fs.Parse(rest)
 
 	payload := map[string]any{}
@@ -589,6 +602,9 @@ func scheduledUpdate(args []string) error {
 	}
 	if *enabled {
 		payload["enabled"] = true
+	}
+	if *targetDirID != "" {
+		payload["assigned_dir_shortcut_id"] = *targetDirID
 	}
 
 	resp, err := apiRequest("PUT", fmt.Sprintf("%s/api/scheduled/%s", baseURL(), id), payload)
