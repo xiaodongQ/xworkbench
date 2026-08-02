@@ -259,6 +259,12 @@
       </div>
       <button class="btn btn-primary" onclick="showScheduledModal()">+ 新建定时任务</button>
     </div>
+    <div id="cli-install-bar" style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text-secondary);white-space:nowrap">🔧 远端安装 CLI</span>
+      <code id="cli-install-cmd" class="cmd-terminal" style="flex:1;min-width:200px;font-size:11px;padding:4px 8px;cursor:pointer" onclick="copyInstallCmd()" title="点击复制"></code>
+      <button class="btn btn-small" id="cli-copy-btn" onclick="copyInstallCmd()" style="font-size:11px;white-space:nowrap">📋 复制</button>
+      <button class="btn btn-small" onclick="document.getElementById('cli-install-bar').remove()" style="font-size:11px;opacity:0.5">✕</button>
+    </div>
     <div id="scheduled-list"></div>
 
     <div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 12px">

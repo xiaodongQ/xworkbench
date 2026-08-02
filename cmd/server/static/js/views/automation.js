@@ -213,6 +213,25 @@ function updateRefreshIndicator() {
 async function loadAutomation(opts) {
   await Promise.all([loadScheduler(), loadScheduled(), loadRecentExecutions()]);
   if (!opts || !opts.silent) updateRefreshIndicator();
+  populateInstallCmd();
+}
+
+// CLI 安装命令
+function populateInstallCmd() {
+  const el = document.getElementById('cli-install-cmd');
+  if (!el) return;
+  el.textContent = `curl -fsSL ${window.location.origin}/api/xworkbench-cli/install | bash`;
+}
+async function copyInstallCmd() {
+  const el = document.getElementById('cli-install-cmd');
+  if (!el) return;
+  try {
+    await navigator.clipboard.writeText(el.textContent);
+    const btn = document.getElementById('cli-copy-btn');
+    if (btn) { btn.textContent = '✅ 已复制'; setTimeout(() => btn.textContent = '📋 复制', 1500); }
+  } catch (_) {
+    prompt('复制以下命令:', el.textContent);
+  }
 }
 
 // 暴露给 HTML 控件
