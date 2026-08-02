@@ -37,21 +37,25 @@ xw_examples:
 
 xworkbench 工作台 Agent CLI 工具，管理手动任务、定时任务、执行记录、经验库等。流程与交互
 
-**核心规则：**
-- 用户说"查任务"/"有哪些任务"→ 用 `tasks <options>` 命令，自动合并手动+定时
-- CLI 部署在远端时，提醒 `export XWORKBENCH_SERVER=http://<ip>:8902`，之后无需 `--server`
+**执行方式：** 所有命令前加 `xworkbench-cli`，如 `xworkbench-cli tasks`。找不到时用绝对路径：
 
-**常用场景与命令：**
-- 查所有任务（≤20条） → `tasks --limit 20`
-- 只看远程任务 → `tasks --task-type remote`
-- 创建手动任务 → `manual-task create --title "标题" --description "描述"`
-- 创建远程手动任务 → 加 `--target-dir-id <dir_shortcut_id>`
-- 创建定时任务 → `sched-task create --name "名" --cron "@every 30s" --command-type shell --prompt "echo hi"`
-- 立即执行定时任务 → `sched-task run <id>`
-- 查看执行记录 → `exec list --limit 10`
-- 查看执行详情/输出 → `exec get <execution_id>`
-- 继续对话 → `exec continue <execution_id>` (只支持 claude/cbc)
-- 查统计 → `stats`
+```bash
+# 优先用绝对路径（避免 PATH 问题）
+CLI="$HOME/.claude/skills/xworkbench-cli/xworkbench-cli"
+test -x "$CLI" || CLI="$HOME/.codebuddy/skills/xworkbench-cli/xworkbench-cli"
+# 后续命令用 $CLI 代替 xworkbench-cli
+```
+
+**核心规则：**
+- 用户说"查任务"→ `$CLI tasks`
+- 远端部署时提醒设 `export XWORKBENCH_SERVER=http://<ip>:8902`
+
+**常用命令速查：**
+- 所有远程任务 → `$CLI tasks --task-type remote --limit 20`
+- 创建手动任务 → `$CLI manual-task create --title "标题" --description "描述"`
+- 创建远程任务 → 加 `--target-dir-id <id>`
+- 创建定时任务 → `$CLI sched-task create --name "名" --cron "@every 30s" --command-type shell --prompt "echo hi"`
+- 查看执行记录 → `$CLI exec list --limit 10`
 
 **远程任务定义：**
 - 手动任务 `task_type=remote` + `assigned_dir_shortcut_id` 指向 DirShortcut
