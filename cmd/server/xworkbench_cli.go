@@ -188,4 +188,7 @@ fi
 if [ $DO_CODEBUDDY -eq 1 ]; then
     echo "    CodeBuddy:   $HOME/.codebuddy/skills/$SKILL_NAME"
 fi
+echo ""
+echo "💡 如需在终端直接使用 xworkbench-cli，请将以下路径加入 PATH："
+echo "   export PATH=\"\$HOME/.claude/skills/xworkbench-cli:\$HOME/.codebuddy/skills/xworkbench-cli:\$PATH\""
 `

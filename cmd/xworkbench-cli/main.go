@@ -51,6 +51,8 @@ func main() {
 		handleTask(cmdArgs)
 	case "sched-task":
 		handleScheduled(cmdArgs)
+	case "tasks":
+		handleTasksAll(cmdArgs)
 	case "exec":
 		handleExec(cmdArgs)
 	case "experience":
@@ -115,6 +117,22 @@ func handleScheduled(args []string) {
 		fmt.Fprintf(os.Stderr, "{\"ok\": false, \"error\": %q}\n", err.Error())
 		os.Exit(1)
 	}
+}
+
+func handleTasksAll(args []string) {
+	if len(args) > 0 && (args[0] == "help" || args[0] == "--help") {
+		fmt.Print("tasks - 查询所有任务（手动+定时）\n\n")
+		fmt.Print("用法: xworkbench-cli tasks [options]\n\n")
+		fmt.Print("同时查询手动任务和定时任务，合并返回。\n")
+		fmt.Print("常用选项: --task-type local|remote  --status pending\n")
+		return
+	}
+	// 并发调用两个 list
+	fmt.Println(`{"manual_tasks":`)
+	taskList(args)
+	fmt.Println(`, "sched_tasks":`)
+	scheduledList(args)
+	fmt.Println(`}`)
 }
 
 func handleTodo(args []string) {
@@ -197,6 +215,7 @@ xworkbench-cli 提供对 xworkbench 工作台的完整操作能力，包括任�
         可通过环境变量 XWORKBENCH_SERVER 覆盖
 
 命令:
+  tasks         查询所有任务（手动+定时，自动合并）
   manual-task   手动任务 (一次执行，支持远程 --target-dir-id)
   sched-task    定时任务 (cron 调度，支持远程，需先启调度器)
   exec          执行记录 (list/get/evaluate/cancel/continue)

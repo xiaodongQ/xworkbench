@@ -71,20 +71,10 @@ xw_examples:
 
 # xworkbench-cli Skill
 
-xworkbench 工作台 Agent CLI 工具，支持完整的任务/执行/经验库/调度/todo/配置管理操作。
+xworkbench 工作台 Agent CLI 工具，操作手册/定时任务/执行记录/经验库等。
 
-**重要：** 当用户模糊说"查询任务"/"列出任务"时，手动任务 (`manual-task list`) 和定时任务 (`sched-task list`) **都要查询**，分别展示结果。
+**核心规则：**
+- 用户说"查任务"时，用 `tasks <options>` 命令，它会自动同时查手动和定时
+- CLI 部署在远端时，提醒设 `export XWORKBENCH_SERVER=http://<ip>:8902`，之后无需 `--server`
 
-**CLI 路径：** **每次执行前先确保 PATH 含 CLI 目录：**
-```bash
-export PATH="$HOME/.claude/skills/xworkbench-cli:$HOME/.codebuddy/skills/xworkbench-cli:$PATH"
-```
-若仍报 command not found，用绝对路径 `~/.claude/skills/xworkbench-cli/xworkbench-cli`。
-
-**远程连接：** 若 CLI 部署在其他机器，提醒用户设置环境变量 `export XWORKBENCH_SERVER=http://<ip>:8902`，后续所有命令无需再带 `--server`。设置后提醒用户验证：`xworkbench-cli stats`。
-
-**远程任务查询：**
-- 手动任务：`manual-task list --task-type remote` — 后端 `task_type=remote` 字段过滤
-- 定时任务：`sched-task list --task-type remote` — 客户端按 `assigned_dir_shortcut_id` 非空过滤
-- 查看详情时，响应中 `assigned_dir_shortcut_id` 非空即为远程任务
-- 用户说"有哪些远程任务"时，两类都要查并分别展示
+CLI 内置完整帮助（`xworkbench-cli --help`），参数细节无需赘述。
