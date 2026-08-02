@@ -347,7 +347,7 @@ function renderTaskTable(list) {
                 <div style="display:flex;align-items:center;gap:6px">
                   <span class="title" onclick="editTask('${t.id}')" title="编辑：${esc(t.title)}" style="cursor:pointer;color:var(--text-secondary);font-size:13px;white-space:nowrap">✏️</span>
                   <div class="task-title-cell">
-                    <div class="title">${esc(t.title)}</div>
+                    <div class="title" style="color:${t.assigned_dir_shortcut_id ? '#8b5cf6' : ''}">${esc(t.title)}</div>
                     ${t.description ? `<div class="desc" title="${esc(t.description)}">${esc(t.description)}</div>` : ''}
                   </div>
                 </div>
@@ -602,6 +602,7 @@ function viewTask(id) {
   document.getElementById('task-id').value = t.id;
   document.getElementById('task-title').value = t.title;
   document.getElementById('task-title').readOnly = true;
+  document.getElementById('task-title').style.color = t.assigned_dir_shortcut_id ? '#8b5cf6' : '';
   document.getElementById('task-desc').value = t.description || '';
   document.getElementById('task-desc').readOnly = true;
   document.getElementById('task-acceptance').value = t.acceptance || '';
@@ -702,6 +703,7 @@ async function showTaskModal(task) {
   document.getElementById('task-modal-title').textContent = task ? '编辑任务' : '新建任务';
   document.getElementById('task-id').value = task ? task.id : '';
   document.getElementById('task-title').value = task ? task.title : '';
+  document.getElementById('task-title').style.color = (task && task.assigned_dir_shortcut_id) ? '#8b5cf6' : '';
   document.getElementById('task-title').readOnly = false;
   document.getElementById('task-desc').value = task ? (task.description || '') : '';
   document.getElementById('task-desc').readOnly = false;
