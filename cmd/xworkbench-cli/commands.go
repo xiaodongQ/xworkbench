@@ -514,10 +514,40 @@ func runScheduled(args []string) error {
 }
 
 func scheduledList(args []string) error {
+	fs := flag.NewFlagSet("scheduled list", flag.ExitOnError)
+	taskType := fs.String("task-type", "", "filter by manual|remote (client-side)")
+	fs.Parse(args)
+
 	resp, err := apiRequest("GET", baseURL()+"/api/scheduled", nil)
 	if err != nil {
 		return err
 	}
+	if *taskType == "" || resp.Body == nil {
+		printOK(resp.Body)
+		return nil
+	}
+	// 客户端过滤：手动(assigned_dir_shortcut_id 为空) vs 远程(非空)
+	tasks, ok := resp.Body["data"].([]any)
+	if !ok {
+		// 直接打印原始响应
+		printOK(resp.Body)
+		return nil
+	}
+	var filtered []any
+	for _, t := range tasks {
+		m, ok := t.(map[string]any)
+		if !ok {
+			continue
+		}
+		hasTarget := false
+		if v, ok := m["assigned_dir_shortcut_id"].(string); ok && v != "" {
+			hasTarget = true
+		}
+		if (*taskType == "remote" && hasTarget) || (*taskType == "manual" && !hasTarget) {
+			filtered = append(filtered, t)
+		}
+	}
+	resp.Body["data"] = filtered
 	printOK(resp.Body)
 	return nil
 }

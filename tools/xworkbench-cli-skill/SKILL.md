@@ -21,7 +21,7 @@ xw_params:
   experience_create: "创建经验 (--module --scene --keywords [--tool-usage] [--log-samples] [--code-snippets])"
   experience_update: "更新经验 (experience_id --module --scene --keywords ...)"
   experience_delete: "删除经验 (experience_id)"
-  scheduled_list: "列出定时任务"
+  scheduled_list: "列出定时任务 (--task-type manual|remote)"
   scheduled_get: "获取定时任务详情 (scheduled_id)"
   scheduled_create: "创建定时任务 (--name --cron [--command-type] [--model] [--prompt] [--target-dir-id])"
   scheduled_update: "更新定时任务 (scheduled_id --name --cron [...] [--target-dir-id])"
