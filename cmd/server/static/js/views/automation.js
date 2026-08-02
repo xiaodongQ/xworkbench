@@ -637,6 +637,7 @@ async function showScheduledModal() {
   document.getElementById('sched-name').value = '';
   document.getElementById('sched-cron').value = '@every 30s';
   document.getElementById('sched-type').value = 'shell';
+  document.getElementById('sched-model').innerHTML = buildModelOptions('shell');
   document.getElementById('sched-model').value = '';
   document.getElementById('sched-prompt').value = '';
   document.getElementById('sched-timeout').value = '';
@@ -651,6 +652,8 @@ async function showScheduledModal() {
       schedCategories.map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
   }
   document.getElementById('sched-category').value = '';  document.getElementById('sched-submit-btn').textContent = '创建';
+  document.getElementById('sched-location').value = 'local';
+  onSchedLocationChange();
   // 加载远程目标机器列表
   loadSchedAgentOptions();
   document.getElementById('scheduled-modal').classList.remove('hidden');
@@ -658,6 +661,11 @@ async function showScheduledModal() {
   setTimeout(() => document.getElementById('sched-name').focus(), 50);
 }
 function closeScheduledModal() { document.getElementById('scheduled-modal').classList.add('hidden'); }
+function onSchedLocationChange() {
+  const loc = document.getElementById('sched-location').value;
+  const agentGroup = document.getElementById('sched-agent-group');
+  if (agentGroup) agentGroup.classList.toggle('hidden', loc !== 'remote');
+}
 async function loadSchedAgentOptions() {
   const sel = document.getElementById('sched-agent-id');
   if (!sel) return;
@@ -712,6 +720,9 @@ async function editScheduled(id) {
       schedCategories.map(c => `<option value="${c.id}">${esc((c.icon || '') + ' ' + c.name)}</option>`).join('');
   }
   document.getElementById('sched-category').value = s.category_id || '';  document.getElementById('sched-submit-btn').textContent = '保存';
+  // 回显执行位置
+  document.getElementById('sched-location').value = s.assigned_dir_shortcut_id ? 'remote' : 'local';
+  onSchedLocationChange();
   // 加载远程目标机器列表，回显已有值
   await loadSchedAgentOptions();
   if (s.assigned_dir_shortcut_id) {
@@ -734,7 +745,7 @@ function submitScheduled() {
   const timeoutSec = parseInt(document.getElementById('sched-timeout').value) || 0;
   const enabled = document.getElementById('sched-enabled').checked;
   if (!name || !cron || !promptText) { alert('名称、Cron、Prompt 必填'); return; }
-  const body = {name, cron_expr:cron, command_type:type, prompt:promptText, model, timeout_sec:timeoutSec, enabled, category_id:document.getElementById('sched-category').value, assigned_dir_shortcut_id: document.getElementById('sched-agent-id')?.value || ''};
+  const body = {name, cron_expr:cron, command_type:type, prompt:promptText, model, timeout_sec:timeoutSec, enabled, category_id:document.getElementById('sched-category').value, assigned_dir_shortcut_id: document.getElementById('sched-location')?.value === 'remote' ? (document.getElementById('sched-agent-id')?.value || '') : ''};
   const method = id ? 'PUT' : 'POST';
   const url = id ? '/api/scheduled/' + id : '/api/scheduled';
   fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
