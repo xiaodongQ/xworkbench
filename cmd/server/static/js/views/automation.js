@@ -587,7 +587,7 @@ async function loadScheduled() {
             return `<tr>
               <td class="col-title" style="padding:4px 6px">
                 <span class="edit-icon" onclick="editScheduled('${s.id}')" title="编辑" style="cursor:pointer;margin-right:6px;color:var(--text-secondary);font-size:14px">✏️</span>
-                <strong>${esc(s.name)}</strong>${enabledBadge}
+                <strong style="color:${s.assigned_dir_shortcut_id ? '#8b5cf6' : 'inherit'}">${esc(s.name)}</strong>${enabledBadge}
               </td>
               <td class="col-cron" style="padding:4px 6px"><code style="font-size:10.5px">${esc(s.cron_expr)}</code></td>
               <td class="col-type" title="${esc(s.command_type)}" style="padding:4px 6px"><span style="font-size:10.5px">${esc(s.command_type)}</span><br><span style="font-size:10.5px;color:var(--text-secondary)">${s.model ? esc(s.model) : ''}</span></td>
@@ -736,7 +736,7 @@ function deleteScheduled(id) {
 
 let recentExecLimit = 10;
 async function loadRecentExecutions() {
-  const render = (target, list, errMsg) => {
+  const render = (target, list, errMsg, remoteTaskMap) => {
     if (errMsg) {
       target.innerHTML = `<div style="padding:8px;color:var(--exception);font-size:12px">⚠ ${errMsg} <button class="btn btn-small" style="margin-left:8px" onclick="loadRecentExecutions()">重试</button></div>`;
       return;
@@ -822,6 +822,7 @@ async function loadRecentExecutions() {
         ? 'display:flex;gap:8px;padding:5px 6px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;flex-wrap:nowrap;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6;' + indent
         : 'display:flex;gap:8px;padding:5px 6px;border-bottom:1px solid var(--border);font-size:11px;align-items:center;flex-wrap:nowrap;' + indent;
       const title = esc(e.task_title || e.scheduled_task_title || e.command || "(无标题)");
+      const titleColor = (e.scheduled_task_id && remoteTaskMap?.[e.scheduled_task_id]) ? '#8b5cf6' : 'inherit';
       const cmdTip = e.command ? esc(e.command.slice(0, 200)) : '';
       const hasKids = groupMap[e.id] && groupMap[e.id].children.length > 0;
       const toggle = hasKids
@@ -840,7 +841,7 @@ async function loadRecentExecutions() {
         <span style="flex-shrink:0;width:20px;text-align:center" title="${srcText}">${groupIcon}</span>
         <span style="flex-shrink:0;width:54px;font-size:10px;font-weight:600;color:${cliColor};text-align:left">${cliLabel}</span>
         <span style="color:var(--text-secondary);font-family:monospace;flex-shrink:0;width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dt}</span>
-        <span style="flex:1;min-width:0;font-size:11px;padding-left:72px;margin-left:-72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="viewExecutionDetail('${e.id}')">${groupTitle}${title}</span>${cmdTip ? `<span title="命令: ${cmdTip}" style="margin-left:4px;font-size:11px;color:#60a5fa;flex-shrink:0">ⓘ</span>` : ''}
+        <span style="flex:1;min-width:0;font-size:11px;padding-left:72px;margin-left:-72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:${titleColor}" onclick="viewExecutionDetail('${e.id}')">${groupTitle}${title}</span>${cmdTip ? `<span title="命令: ${cmdTip}" style="margin-left:4px;font-size:11px;color:#60a5fa;flex-shrink:0">ⓘ</span>` : ''}
         <span style="font-size:11px;color:${statusColor};flex-shrink:0" title="${statusTitle}">${statusIcon}</span>
         ${evalBadge}
         <button class="btn btn-small" onclick="viewExecutionDetail('${e.id}')" title="查看详情">📋</button>
@@ -874,8 +875,16 @@ async function loadRecentExecutions() {
     console.error('[loadRecentExecutions]', e);
     errMsg = '加载失败：' + (e.message || e);
   }
-  if (el) render(el, list, errMsg);
-  if (el2) render(el2, list, errMsg);
+  // 构建 remote task map：scheduled_task_id → true，用于区分远程任务
+  let remoteTaskMap = {};
+  try {
+    const scheduledTasks = await fetchJSON('/api/scheduled').catch(() => []);
+    for (const s of (scheduledTasks || [])) {
+      if (s.assigned_dir_shortcut_id) remoteTaskMap[s.id] = true;
+    }
+  } catch (_) { /* 忽略 */ }
+  if (el) render(el, list, errMsg, remoteTaskMap);
+  if (el2) render(el2, list, errMsg, remoteTaskMap);
 }
 
 // loadMoreExecutions: 增加 recentExecLimit + 重渲染最近执行列表。
@@ -940,6 +949,15 @@ async function viewExecutionDetail(id) {
       ? '<b style="color:var(--info,#3b82f6)">运行中</b>'
       : `<b style="color:${ok?'var(--archived)':'var(--exception)'}">${exec.exit_code}</b>`;
     const execTitle = exec.task_title || exec.scheduled_task_title || '(无标题)';
+    // 判断是否远程任务：查 scheduled_task_id 对应的 assigned_dir_shortcut_id
+    let isRemoteExec = false;
+    if (exec.scheduled_task_id) {
+      try {
+        const schedTask = await fetchJSON('/api/scheduled/' + exec.scheduled_task_id);
+        isRemoteExec = !!schedTask.assigned_dir_shortcut_id;
+      } catch (_) { /* 忽略 */ }
+    }
+    const titleColor = isRemoteExec ? '#8b5cf6' : 'inherit';
     const isScheduled = exec.source === 'scheduled';
     const srcColor = isScheduled ? 'color:#3b82f6' : 'color:#16a34a';
     const srcText = isScheduled ? '计划任务' : '手动任务';
@@ -966,7 +984,7 @@ async function viewExecutionDetail(id) {
     document.getElementById('exec-detail-meta').innerHTML =
       '<span style="font-size:11px;font-weight:600;' + srcColor + '">' + srcText + '</span>' +
       ' <span style="margin-left:8px;color:var(--text-secondary)">|</span>' +
-      ' <span style="cursor:help" data-tooltip="' + detailTip.replace(/\n/g, '\\n') + '"><b>' + esc(nameDisplay) + '</b> ⓘ</span>' +
+      ' <span style="cursor:help" data-tooltip="' + detailTip.replace(/\n/g, '\\n') + '"><b style="color:' + titleColor + '">' + esc(nameDisplay) + '</b> ⓘ</span>' +
       ' <span style="margin-left:8px;color:var(--text-secondary)">|</span>' +
       ' exit_code=' + exitDisplay + ' · ' + new Date(exec.started_at).toLocaleString() + ' · 耗时 ' + dur +
       crumb;
