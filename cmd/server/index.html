@@ -1227,7 +1227,24 @@
     </div>
     <div class="form-group">
       <label>图标（可选）</label>
-      <input id="rename-category-icon" type="text" placeholder="如 📁，留空则不显示图标" maxlength="4">
+      <select id="rename-category-icon" style="width:100%">
+        <option value="">无图标</option>
+        <option value="📋">📋 列表</option>
+        <option value="📝">📝 文档</option>
+        <option value="🔧">🔧 工具</option>
+        <option value="🚀">🚀 部署</option>
+        <option value="🐛">🐛 修复</option>
+        <option value="✅">✅ 完成</option>
+        <option value="🧪">🧪 测试</option>
+        <option value="📊">📊 数据</option>
+        <option value="🔒">🔒 安全</option>
+        <option value="🌐">🌐 网络</option>
+        <option value="🖥">🖥 服务器</option>
+        <option value="📡">📡 远程</option>
+        <option value="💡">💡 想法</option>
+        <option value="📦">📦 打包</option>
+        <option value="🔄">🔄 重复</option>
+      </select>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeRenameCategoryModal()">取消</button>

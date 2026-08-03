@@ -388,6 +388,8 @@ tr:last-child td { border-bottom: none; }
 }
 /* 执行详情弹窗:通常在 run-task-modal 之上打开,需更高 z-index 才能盖住 */
 #exec-detail-modal { z-index: 1100; }
+/* 编辑分类弹窗:可能从其它分类管理弹窗之上打开,需更高层级确保显示在最上层 */
+#rename-category-modal { z-index: 1200; }
 
 /* tooltip 系统：_tooltipEl (data-tooltip 属性，精美多行) 和 _fastTipEl (title 属性，简单单行) */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

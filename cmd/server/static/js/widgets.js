@@ -2344,7 +2344,16 @@ let _renameCatCtx = null;
 function renameCategory(type, cat) {
   _renameCatCtx = { type, cat };
   document.getElementById('rename-category-input').value = cat.name || '';
-  document.getElementById('rename-category-icon').value = cat.icon || '';
+  const iconSel = document.getElementById('rename-category-icon');
+  // 若当前图标不在下拉列表中，动态插入一个选项，避免丢失已设置的图标
+  const cur = cat.icon || '';
+  if (cur && !Array.from(iconSel.options).some(o => o.value === cur)) {
+    const opt = document.createElement('option');
+    opt.value = cur;
+    opt.textContent = cur + ' (当前)';
+    iconSel.insertBefore(opt, iconSel.firstChild);
+  }
+  iconSel.value = cur;
   document.getElementById('rename-category-modal').classList.remove('hidden');
   setTimeout(() => { const i = document.getElementById('rename-category-input'); i.focus(); i.select(); }, 30);
 }
