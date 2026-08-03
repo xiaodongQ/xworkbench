@@ -1217,6 +1217,25 @@
   </div>
 </div>
 
+<!-- 编辑分类 Modal -->
+<div id="rename-category-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeRenameCategoryModal()">
+  <div class="modal" style="max-width:360px">
+    <h2 style="margin:0 0 16px 0;font-size:16px">编辑分类</h2>
+    <div class="form-group">
+      <label>分类名称</label>
+      <input id="rename-category-input" type="text" placeholder="输入分类名称" onkeydown="if(event.key==='Enter')submitRenameCategory()">
+    </div>
+    <div class="form-group">
+      <label>图标（可选）</label>
+      <input id="rename-category-icon" type="text" placeholder="如 📁，留空则不显示图标" maxlength="4">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeRenameCategoryModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitRenameCategory()">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- Todo Path Modal -->
 <div id="todo-path-modal" class="modal-overlay hidden">
   <div class="modal">

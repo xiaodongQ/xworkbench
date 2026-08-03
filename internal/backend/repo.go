@@ -2492,9 +2492,9 @@ func (r *DirShortcutRepo) Create(d *DirShortcut) error {
 	if d.CategoryID == "" {
 		d.CategoryID = "default-dir"
 	}
-	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,type,remote_host,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,use_legacy_algorithms,category_id,created_at)
-		    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-	_, err := r.db.Exec(q, d.ID, d.Name, d.Path, d.SortOrder, d.Type, d.RemoteHost, d.RemoteUser, d.RemotePath,
+	q := `INSERT INTO dir_shortcuts (id,name,path,sort_order,type,remote_host,remote_port,remote_user,remote_path,remote_password,auth_method,key_path,local_key_path,key_password,use_legacy_algorithms,category_id,created_at)
+		    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.Exec(q, d.ID, d.Name, d.Path, d.SortOrder, d.Type, d.RemoteHost, d.RemotePort, d.RemoteUser, d.RemotePath,
 		d.RemotePassword, d.AuthMethod, d.KeyPath, d.LocalKeyPath, d.KeyPassword, d.UseLegacyAlgorithms, d.CategoryID, d.CreatedAt)
 	if err != nil {
 		logger.Logger.Errorw("dir_shortcuts create failed", "id", d.ID, "name", d.Name, "path", d.Path, "error", err.Error())
@@ -2526,6 +2526,8 @@ func (r *DirShortcutRepo) Update(d *DirShortcut) error {
 	args = append(args, d.CategoryID)
 	set = append(set, "remote_host=?")
 	args = append(args, d.RemoteHost)
+	set = append(set, "remote_port=?")
+	args = append(args, d.RemotePort)
 	set = append(set, "remote_user=?")
 	args = append(args, d.RemoteUser)
 	set = append(set, "remote_path=?")

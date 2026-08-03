@@ -127,6 +127,9 @@ func openRemoteDirShortcutImpl(ctx context.Context, dir *backend.DirShortcut, te
 	if dir.RemoteHost != "" {
 		sshTarget = sshTarget + "@" + dir.RemoteHost
 	}
+	if dir.RemotePort != "" && dir.RemotePort != "22" {
+		sshTarget = sshTarget + ":" + dir.RemotePort
+	}
 
 	// 构建 xw-sshpass 参数
 	newArgs := []string{xwBin}

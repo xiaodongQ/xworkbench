@@ -1828,6 +1828,7 @@ func (s *APIServer) handleDirShortcutCreate(w http.ResponseWriter, r *http.Reque
 		SortOrder:      req.SortOrder,
 		Type:           req.Type,
 		RemoteHost:     req.RemoteHost,
+		RemotePort:     req.RemotePort,
 		RemoteUser:     req.RemoteUser,
 		RemotePath:     req.RemotePath,
 		RemotePassword: req.RemotePassword,

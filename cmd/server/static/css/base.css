@@ -1305,6 +1305,27 @@ tr:last-child td { border-bottom: none; }
 .task-category-group:nth-of-type(6n+5) .task-category-header-row td { background: #efe3ff; }
 .task-category-group:nth-of-type(6n+6) .task-category-header-row td { background: #e3f5ff; }
 
+/* 快捷链接分类头部按位置轮换同款浅色背景 */
+.link-category-group:nth-of-type(6n+1) .link-category-header { background: #e3f0ff; }
+.link-category-group:nth-of-type(6n+2) .link-category-header { background: #e3ffe8; }
+.link-category-group:nth-of-type(6n+3) .link-category-header { background: #fff3e3; }
+.link-category-group:nth-of-type(6n+4) .link-category-header { background: #ffe3f0; }
+.link-category-group:nth-of-type(6n+5) .link-category-header { background: #efe3ff; }
+.link-category-group:nth-of-type(6n+6) .link-category-header { background: #e3f5ff; }
+
+/* 目录快捷方式分类头部按位置轮换同款浅色背景 */
+.dir-category-group:nth-of-type(6n+1) .dir-category-header { background: #e3f0ff; }
+.dir-category-group:nth-of-type(6n+2) .dir-category-header { background: #e3ffe8; }
+.dir-category-group:nth-of-type(6n+3) .dir-category-header { background: #fff3e3; }
+.dir-category-group:nth-of-type(6n+4) .dir-category-header { background: #ffe3f0; }
+.dir-category-group:nth-of-type(6n+5) .dir-category-header { background: #efe3ff; }
+.dir-category-group:nth-of-type(6n+6) .dir-category-header { background: #e3f5ff; }
+
+.link-category-group .link-category-header:hover,
+.dir-category-group .dir-category-header:hover {
+  filter: brightness(0.96);
+}
+
 .task-category-header-row:hover td {
   background: var(--hover);
 }

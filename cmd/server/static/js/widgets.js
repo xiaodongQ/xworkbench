@@ -198,6 +198,7 @@ async function showDirModal() {
   document.getElementById('dir-remote-host').value = '';
   document.getElementById('dir-remote-user').value = '';
   document.getElementById('dir-remote-path').value = '';
+  document.getElementById('dir-remote-port').value = '';
   document.getElementById('dir-auth-method').value = 'password';
   document.getElementById('dir-remote-password').value = '';
   document.getElementById('dir-key-path').value = '';
@@ -275,6 +276,7 @@ function showDirSettingsModal() {
 
 async function loadDirSettingsCategories() {
   const cats = await fetchJSON('/api/dir-categories') || [];
+  cats.forEach(c => { _catIconCache.dir[c.id] = c.icon || ''; });
   const list = document.getElementById('dir-settings-category-list');
   if (!list) return;
 
@@ -284,7 +286,7 @@ async function loadDirSettingsCategories() {
   }
 
   list.innerHTML = sortByOrder(cats).map(c => `
-    <div class="cat-row" draggable="true" data-id="${esc(c.id)}"
+    <div class="cat-row" draggable="true" data-id="${esc(c.id)}" data-icon="${esc(c.icon || '')}"
          ondragstart="catRowDragStart(event, 'dir')"
          ondragover="catRowDragOver(event)"
          ondragleave="catRowDragLeave(event)"
@@ -294,7 +296,8 @@ async function loadDirSettingsCategories() {
       <span>${esc(c.icon || '')} ${esc(c.name)}</span>
       <span style="flex:1"></span>
       ${c.is_default ? '<span style="color:var(--text-secondary)">默认</span>' :
-        `<button class="btn btn-small" onclick="event.stopPropagation(); void deleteDirCategory('${esc(c.id)}').then(() => loadDirSettingsCategories())">删除</button>`}
+        `<button class="btn btn-small" onclick="event.stopPropagation(); renameCategory('dir', {id:'${esc(c.id)}',name:'${esc(c.name)}',icon:'${esc(c.icon||'')}',sort_order:${c.sort_order||0}})">编辑</button>
+         <button class="btn btn-small" onclick="event.stopPropagation(); void deleteDirCategory('${esc(c.id)}').then(() => loadDirSettingsCategories())">删除</button>`}
     </div>
   `).join('');
 }
@@ -386,6 +389,7 @@ async function editDir(id) {
   document.getElementById('dir-remote-host').value = d.remote_host || '';
   document.getElementById('dir-remote-user').value = d.remote_user || '';
   document.getElementById('dir-remote-path').value = d.remote_path || '';
+  document.getElementById('dir-remote-port').value = d.remote_port || '';
   document.getElementById('dir-auth-method').value = d.auth_method || 'password';
   document.getElementById('dir-remote-password').value = d.remote_password || '';
   document.getElementById('dir-key-path').value = d.key_path || '';
@@ -409,12 +413,13 @@ async function submitDir() {
   const remote_host = document.getElementById('dir-remote-host').value.trim();
   const remote_user = document.getElementById('dir-remote-user').value.trim();
   const remote_path = document.getElementById('dir-remote-path').value.trim();
+  const remote_port = document.getElementById('dir-remote-port').value.trim();
   const auth_method = document.getElementById('dir-auth-method').value;
   const remote_password = document.getElementById('dir-remote-password').value;
   const key_path = document.getElementById('dir-key-path').value.trim();
   const category_id = document.getElementById('dir-category').value;
   if (!name) { alert('名称必填'); return; }
-  const payload = {name, type, path, remote_host, remote_user, remote_path, auth_method, remote_password, key_path, category_id};
+  const payload = {name, type, path, remote_host, remote_user, remote_port, remote_path, auth_method, remote_password, key_path, category_id};
   if (id) {
     await fetch('/api/dir-shortcuts/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
   } else {
@@ -1432,6 +1437,7 @@ async function loadLinks() {
   // 如果有其他分类，先渲染其他分类
   for (const cat of otherCats) {
     const items = byCat[cat.id] || [];
+    if (items.length === 0) continue; // 没有列表项的分类不展示
     const isExpanded = isLinkCategoryExpanded(cat.id);
     const arrow = isExpanded ? '▼' : '▶';
 
@@ -1482,7 +1488,7 @@ async function loadLinks() {
   }
 
   // 如果有其他分类，把默认分类放到「其他」分组下
-  if (defaultCat) {
+  if (defaultCat && (byCat[defaultCat.id] || []).length > 0) {
     const items = byCat[defaultCat.id] || [];
     const isExpanded = isLinkCategoryExpanded(defaultCat.id);
     const arrow = isExpanded ? '▼' : '▶';
@@ -1644,6 +1650,7 @@ function closeLinkSettingsModal() {
 
 async function loadLinkSettingsCategories() {
   const cats = await fetchJSON('/api/link-categories') || [];
+  cats.forEach(c => { _catIconCache.link[c.id] = c.icon || ''; });
   const list = document.getElementById('link-settings-category-list');
   if (!list) return;
 
@@ -1653,7 +1660,7 @@ async function loadLinkSettingsCategories() {
   }
 
   list.innerHTML = sortByOrder(cats).map(c => `
-    <div class="cat-row" draggable="true" data-id="${esc(c.id)}"
+    <div class="cat-row" draggable="true" data-id="${esc(c.id)}" data-icon="${esc(c.icon || '')}"
          ondragstart="catRowDragStart(event, 'link')"
          ondragover="catRowDragOver(event)"
          ondragleave="catRowDragLeave(event)"
@@ -1663,7 +1670,8 @@ async function loadLinkSettingsCategories() {
       <span>${esc(c.icon || '')} ${esc(c.name)}</span>
       <span style="flex:1"></span>
       ${c.is_default ? '<span style="color:var(--text-secondary)">默认</span>' :
-        `<button class="btn btn-small" onclick="event.stopPropagation(); void deleteLinkCategory('${esc(c.id)}').then(() => loadLinkSettingsCategories())">删除</button>`}
+        `<button class="btn btn-small" onclick="event.stopPropagation(); renameCategory('link', {id:'${esc(c.id)}',name:'${esc(c.name)}',icon:'${esc(c.icon||'')}',sort_order:${c.sort_order||0}})">编辑</button>
+         <button class="btn btn-small" onclick="event.stopPropagation(); void deleteLinkCategory('${esc(c.id)}').then(() => loadLinkSettingsCategories())">删除</button>`}
     </div>
   `).join('');
 }
@@ -1860,6 +1868,7 @@ async function loadDirs() {
   // 如果有其他分类，先渲染其他分类
   for (const cat of otherCats) {
     const items = byCat[cat.id] || [];
+    if (items.length === 0) continue; // 没有列表项的分类不展示
     const isExpanded = isDirCategoryExpanded(cat.id);
     const arrow = isExpanded ? '▼' : '▶';
 
@@ -1902,7 +1911,7 @@ async function loadDirs() {
   }
 
   // 如果有其他分类，把默认分类放到「其他」分组下
-  if (defaultCat) {
+  if (defaultCat && (byCat[defaultCat.id] || []).length > 0) {
     const items = byCat[defaultCat.id] || [];
     const isExpanded = isDirCategoryExpanded(defaultCat.id);
     const arrow = isExpanded ? '▼' : '▶';
@@ -2086,6 +2095,7 @@ async function showDirModal() {
   document.getElementById('dir-remote-host').value = '';
   document.getElementById('dir-remote-user').value = '';
   document.getElementById('dir-remote-path').value = '';
+  document.getElementById('dir-remote-port').value = '';
   document.getElementById('dir-auth-method').value = 'password';
   document.getElementById('dir-remote-password').value = '';
   document.getElementById('dir-key-path').value = '';
@@ -2112,6 +2122,7 @@ async function editDir(id) {
   document.getElementById('dir-remote-host').value = d.remote_host || '';
   document.getElementById('dir-remote-user').value = d.remote_user || '';
   document.getElementById('dir-remote-path').value = d.remote_path || '';
+  document.getElementById('dir-remote-port').value = d.remote_port || '';
   document.getElementById('dir-auth-method').value = d.auth_method || 'password';
   document.getElementById('dir-remote-password').value = d.remote_password || '';
   document.getElementById('dir-key-path').value = d.key_path || '';
@@ -2135,12 +2146,13 @@ async function submitDir() {
   const remote_host = document.getElementById('dir-remote-host').value.trim();
   const remote_user = document.getElementById('dir-remote-user').value.trim();
   const remote_path = document.getElementById('dir-remote-path').value.trim();
+  const remote_port = document.getElementById('dir-remote-port').value.trim();
   const auth_method = document.getElementById('dir-auth-method').value;
   const remote_password = document.getElementById('dir-remote-password').value;
   const key_path = document.getElementById('dir-key-path').value.trim();
   const category_id = document.getElementById('dir-category').value;
   if (!name) { alert('名称必填'); return; }
-  const payload = {name, type, path, remote_host, remote_user, remote_path, auth_method, remote_password, key_path, category_id};
+  const payload = {name, type, path, remote_host, remote_user, remote_port, remote_path, auth_method, remote_password, key_path, category_id};
   if (id) {
     await fetch('/api/dir-shortcuts/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
   } else {
@@ -2241,7 +2253,7 @@ async function onCategoryContextMenu(e, type, catId) {
   // 名称
   const itemName = document.createElement('div');
   itemName.className = 'menu-item';
-  itemName.textContent = isDefault ? '默认分类（不可重命名）' : '✎ 重命名';
+  itemName.textContent = isDefault ? '默认分类（不可编辑）' : '✎ 编辑';
   if (!isDefault) {
     itemName.onclick = async () => { hideCategoryContextMenu(); await renameCategory(type, cat); };
   } else {
@@ -2327,25 +2339,47 @@ function hideCategoryContextMenu() {
   document.querySelectorAll('.cat-context-menu').forEach(el => el.remove());
 }
 
-// ===== 重命名分类 =====
-async function renameCategory(type, cat) {
-  const apiPath = type === 'link' ? '/api/link-categories' : '/api/dir-categories';
-  const newName = prompt(`重命名分类 “${cat.name}” 为：`, cat.name || '');
-  if (newName === null) return;
-  const trimmed = newName.trim();
+// ===== 编辑分类（名称 + 图标） =====
+let _renameCatCtx = null;
+function renameCategory(type, cat) {
+  _renameCatCtx = { type, cat };
+  document.getElementById('rename-category-input').value = cat.name || '';
+  document.getElementById('rename-category-icon').value = cat.icon || '';
+  document.getElementById('rename-category-modal').classList.remove('hidden');
+  setTimeout(() => { const i = document.getElementById('rename-category-input'); i.focus(); i.select(); }, 30);
+}
+function closeRenameCategoryModal() {
+  document.getElementById('rename-category-modal').classList.add('hidden');
+  _renameCatCtx = null;
+}
+async function submitRenameCategory() {
+  const ctx = _renameCatCtx;
+  if (!ctx) return;
+  const nameInput = document.getElementById('rename-category-input');
+  const trimmed = nameInput.value.trim();
   if (!trimmed) { alert('分类名不能为空'); return; }
-  if (trimmed === cat.name) return;
-  const payload = { name: trimmed, icon: cat.icon || '', sort_order: cat.sort_order || 0 };
-  const resp = await fetch(`${apiPath}/${encodeURIComponent(cat.id)}`, {
+  const icon = document.getElementById('rename-category-icon').value.trim();
+  if (trimmed === ctx.cat.name && icon === (ctx.cat.icon || '')) { closeRenameCategoryModal(); return; }
+  const apiMap = {
+    link:  { path: '/api/link-categories',           refresh: loadLinks },
+    dir:   { path: '/api/dir-categories',            refresh: loadDirs },
+    sched: { path: '/api/scheduled-task-categories', refresh: () => { loadSchedCategoryList(); if (typeof updateSchedCategoryFilter === 'function') updateSchedCategoryFilter(); } },
+    task:  { path: '/api/task-categories',           refresh: () => { loadTaskCategoryList(); if (typeof updateTaskCategoryFilter === 'function') updateTaskCategoryFilter(); } },
+  };
+  const m = apiMap[ctx.type];
+  if (!m) { closeRenameCategoryModal(); return; }
+  const payload = { name: trimmed, icon: icon, sort_order: ctx.cat.sort_order || 0 };
+  const resp = await fetch(`${m.path}/${encodeURIComponent(ctx.cat.id)}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   if (!resp.ok) {
     const t = await resp.text().catch(() => '');
-    alert('重命名失败：' + (t || resp.statusText));
+    alert('保存失败：' + (t || resp.statusText));
     return;
   }
-  if (type === 'link') loadLinks(); else loadDirs();
+  closeRenameCategoryModal();
+  m.refresh();
 }
 
 // ===== 删除分类 =====
@@ -2402,14 +2436,17 @@ async function mergeCategoryInto(type, srcCat, tgtCat, count) {
 
 
 // ===== 分类排序（拖动重排） =====
+// 后端 Update 会无条件写入 icon，故重排时须带上当前图标，否则会清空图标
+const _catIconCache = { link: {}, dir: {} };
 async function saveCategoryOrder(type, ids) {
   // type: 'link' | 'dir'
   const endpoint = type === 'link' ? '/api/link-categories' : '/api/dir-categories';
+  const iconMap = _catIconCache[type] || {};
   for (let i = 0; i < ids.length; i++) {
     await fetch(endpoint + '/' + ids[i], {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({sort_order: i + 1})
+      body: JSON.stringify({ sort_order: i + 1, icon: iconMap[ids[i]] || '' })
     });
   }
   if (type === 'link') loadLinks(); else loadDirs();

@@ -47,8 +47,10 @@ function loadSchedCategoryList() {
       return `<div class="cat-row" data-cat-id="${c.id}" data-index="${i}" style="display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid var(--border);font-size:12px" ${dragAttrs}>
         ${dragHandle}
         <span>${esc((c.icon || '') + ' ' + c.name)}</span>
-        ${isDefault ? '<span style="font-size:10px;color:var(--text-secondary)">默认</span>' : ''}
-        <button class="btn btn-small btn-danger" style="margin-left:auto" onclick="deleteSchedCategory('${c.id}')" ${isDefault ? 'disabled' : ''}>删除</button>
+        <span style="flex:1"></span>
+        ${isDefault ? '<span style="font-size:10px;color:var(--text-secondary)">默认</span>' :
+          `<button class="btn btn-small" onclick="renameCategory('sched', {id:'${c.id}',name:'${esc(c.name)}',icon:'${esc(c.icon||'')}',sort_order:${c.sort_order||0}})">编辑</button>
+           <button class="btn btn-small btn-danger" onclick="deleteSchedCategory('${c.id}')">删除</button>`}
       </div>`;
     }).join('');
   });
