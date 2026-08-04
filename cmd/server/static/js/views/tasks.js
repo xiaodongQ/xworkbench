@@ -369,28 +369,54 @@ function renderTaskTable(list) {
 // 按状态返回操作按钮 HTML（返回按钮列表，td 本身已是 flex 容器）
 function taskOpsByStatus(t) {
   const id = t.id;
-  const runBtn = `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI 执行此任务">▶ 运行</button>`;
+  const runBtn = `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI 执行此任务（会根据运行结果更新任务状态）">▶ 运行</button>`;
+  // 运行一次：不论当前状态都能单次触发执行，且【不改变任务主状态】，仅新增一条执行记录
+  const runOnceBtn = `<button class="btn btn-small" style="flex-shrink:0" onclick="runTaskOnce('${id}', this)" title="不论当前状态，单次触发执行一次（不改变任务状态）">▶ 运行一次</button>`;
   switch (t.status) {
     case 'pending':
-      return runBtn +
+      return runBtn + runOnceBtn +
              `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="直接归档（不需执行）">归档</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'in_progress':
-      return `<button class="btn btn-small btn-primary" style="flex-shrink:0" onclick="runTask('${id}')" title="立即用 AI 执行此任务">▶ 运行</button>` +
+      return runBtn + runOnceBtn +
              `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="归档">归档</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'running':
-      return `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="cancelTask('${id}')" title="强制取消卡住的任务执行（将任务状态置为异常）">⚠ 取消</button>` +
+      return runOnceBtn +
+             `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="cancelTask('${id}')" title="强制取消卡住的任务执行（将任务状态置为异常）">⚠ 取消</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'archived':
-      return `<button class="btn btn-small" style="flex-shrink:0" onclick="reopenTask('${id}')" title="归档→重新打开回到 pending">↻ 重新打开</button>` +
+      return runOnceBtn +
+             `<button class="btn btn-small" style="flex-shrink:0" onclick="reopenTask('${id}')" title="归档→重新打开回到 pending">↻ 重新打开</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     case 'exception':
-      return `<button class="btn btn-small btn-warning" style="flex-shrink:0" onclick="reopenTask('${id}')" title="异常→重新打开回到 pending">↻ 重新打开</button>` +
+      return runOnceBtn +
+             `<button class="btn btn-small btn-warning" style="flex-shrink:0" onclick="reopenTask('${id}')" title="异常→重新打开回到 pending">↻ 重新打开</button>` +
              `<button class="btn btn-small" style="flex-shrink:0;background:#f59e0b;color:#fff" onclick="archiveTask('${id}')" title="归档">归档</button>` +
              `<button class="btn btn-small btn-danger" style="flex-shrink:0" onclick="deleteTask('${id}','${esc(t.title)}')" title="硬删任务">🗑 删除</button>`;
     default:
-      return `<button class="btn btn-small btn-secondary" style="flex-shrink:0" onclick="viewTask('${id}')">详情</button>`;
+      return runOnceBtn +
+             `<button class="btn btn-small btn-secondary" style="flex-shrink:0" onclick="viewTask('${id}')">详情</button>`;
+  }
+}
+
+// 单次触发运行：不论任务当前状态，触发一次执行且不改变任务主状态（keep_status）
+async function runTaskOnce(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '▶ 已触发'; btn.style.opacity = '0.5'; }
+  try {
+    const resp = await fetch(API + '/api/tasks/' + id + '/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ keep_status: true })
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      throw new Error(t || resp.statusText);
+    }
+    if (typeof reloadCurrentTab === 'function') reloadCurrentTab();
+  } catch (e) {
+    alert('触发运行失败：' + (e && e.message ? e.message : e));
+    if (btn) { btn.disabled = false; btn.textContent = '▶ 运行一次'; btn.style.opacity = ''; }
   }
 }
 

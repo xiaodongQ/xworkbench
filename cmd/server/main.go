@@ -766,8 +766,10 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		AgentID         string `json:"agent_id"`          // 指定远端 agent 走 SSH 执行（空 = 本机）
 		ResumeSessionID string `json:"resume_session_id"` // agent 模式下续传 claude 会话
 		GoalMode        bool   `json:"goal_mode"`         // Goal 目标模式（/goal 前缀）
+		KeepStatus      bool   `json:"keep_status"`       // 单次触发：不改任务主状态，仅落 executions 记录
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req) // body 可选
+	keepStatus := req.KeepStatus
 	// 请求体未传时用 task 创建时确定的默认值
 	if req.CommandType == "" {
 		req.CommandType = task.CommandType
@@ -865,6 +867,17 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 	// 会把临时脚本文件在 goroutine 跑命令前删除,导致 exit_code=127。
 	// 真正的 cleanup 放在下面 goroutine 的开头。
 
+	// 并发保护：同一任务正在执行则拒绝，避免 s.running[task_id] 互相覆盖导致取消/状态错乱
+	s.mu.Lock()
+	if _, exists := s.running[id]; exists {
+		s.mu.Unlock()
+		writeErr(w, http.StatusConflict, "任务正在运行中，请稍后再触发")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	s.running[id] = cancel
+	s.mu.Unlock()
+
 	// 写 executions 行
 	exec := &backend.Execution{
 		ID:        uuid.New().String(),
@@ -877,10 +890,16 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		StartedAt: time.Now(),
 	}
 	if err := s.execDB.Create(exec); err != nil {
+		s.mu.Lock()
+		delete(s.running, id)
+		s.mu.Unlock()
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.UpdateStatus(id, backend.TaskStatusRunning, "factory-agent")
+	// 单次触发（keep_status）：不把任务置为 running，保持其原状态（"不论什么状态单次触发"）
+	if !keepStatus {
+		_ = s.db.UpdateStatus(id, backend.TaskStatusRunning, "factory-agent")
+	}
 
 	logger.Infow("task run started",
 		"task_id", id,
@@ -904,11 +923,7 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		logger.Infow("task run command truncated", "cmd", fullCmd[:2048]+"...")
 	}
 
-	// 异步跑，10min 超时
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	s.mu.Lock()
-	s.running[id] = cancel
-	s.mu.Unlock()
+	// 异步跑，10min 超时（ctx/cancel 已在上面并发保护处创建并占用 s.running[id]）
 	go func() {
 		started := time.Now()
 		defer func() {
@@ -960,7 +975,8 @@ func (s *APIServer) handleTaskRun(w http.ResponseWriter, r *http.Request) {
 		resumeSessionID := extractResumeSessionID(out)
 		_ = s.execDB.Finish(exec.ID, out, errOut, exitCode, resumeSessionID)
 		// cancel 场景：handleTaskCancel 已标 task 为 failed，goroutine skip 重复更新
-		if runErr == nil || !strings.Contains(runErr.Error(), "context canceled") {
+		// keep_status：单次触发不改任务主状态，仅执行记录已在上面 Finish
+		if !keepStatus && (runErr == nil || !strings.Contains(runErr.Error(), "context canceled")) {
 			_ = s.db.UpdateStatus(id, status, "factory-agent")
 		}
 		s.hub.Broadcast(wsmsg.ChannelExec, map[string]any{
