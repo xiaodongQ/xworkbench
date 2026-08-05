@@ -119,16 +119,17 @@ func openRemoteDirShortcutImpl(ctx context.Context, dir *backend.DirShortcut, te
 		return fmt.Errorf("xw-sshpass not found, please build it first")
 	}
 
-	// 构建 ssh 命令基本参数
+	// 构建 ssh 命令基本参数。
+	// 注意：xw-sshpass 的 ParseSSHArgs 不会剥离 user@host:port 中的 port，
+	// 因此必须用其顶层 -P <port> flag 显式传端口，否则 ssh.Dial 会得到
+	// net.JoinHostPort("host:2222", "22") = "host:2222:22" 这种无效地址，
+	// 连接会失败或被默认端口 22 兜底。
 	sshTarget := dir.RemoteUser
 	if sshTarget == "" {
 		sshTarget = "root"
 	}
 	if dir.RemoteHost != "" {
 		sshTarget = sshTarget + "@" + dir.RemoteHost
-	}
-	if dir.RemotePort != "" && dir.RemotePort != "22" {
-		sshTarget = sshTarget + ":" + dir.RemotePort
 	}
 
 	// 构建 xw-sshpass 参数
@@ -145,6 +146,11 @@ func openRemoteDirShortcutImpl(ctx context.Context, dir *backend.DirShortcut, te
 		if keyPath != "" {
 			newArgs = append(newArgs, "-i", keyPath)
 		}
+	}
+
+	// 端口（非默认值才显式传，win-sshpass 内部默认 22）
+	if dir.RemotePort != "" && dir.RemotePort != "22" {
+		newArgs = append(newArgs, "-P", dir.RemotePort)
 	}
 
 	// 远程工作目录

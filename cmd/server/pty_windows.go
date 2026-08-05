@@ -322,18 +322,17 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 		return
 	}
 
-	// 构建 SSH 目标地址
-	port := dir.RemotePort
-	if port == "" {
-		port = "22"
-	}
+	// 构建 SSH 目标地址。
+	// 注意：xw-sshpass 的 ParseSSHArgs 不会剥离 user@host:port 中的 port，
+	// 必须用其顶层 -P <port> flag 显式传端口。
 	userHost := dir.RemoteUser
 	if userHost == "" {
 		userHost = "root"
 	}
 	userHost = userHost + "@" + dir.RemoteHost
-	if port != "22" {
-		userHost = userHost + ":" + port
+	port := dir.RemotePort
+	if port == "" {
+		port = "22"
 	}
 
 	// 解析 xw-sshpass 路径
@@ -360,6 +359,12 @@ func (s *APIServer) handlePtyRemote(w http.ResponseWriter, r *http.Request, conn
 		conn.WriteMessage(websocket.TextMessage,
 			[]byte("\r\n\x1b[31m[xworkbench] 无可用认证方式（未配置密钥也无密码）\x1b[0m\r\n"))
 		return
+	}
+
+	// 端口（非默认值才显式传，win-sshpass 内部默认 22）。
+	// 在 "ssh" 子命令之前插入 -P <port>，xw-sshpass 会把它作为 SSH 端口。
+	if port != "22" {
+		cmdStr = strings.Replace(cmdStr, " ssh ", " -P "+port+" ssh ", 1)
 	}
 
 	if dir.RemotePath != "" {

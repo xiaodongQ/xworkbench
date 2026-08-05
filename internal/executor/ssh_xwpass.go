@@ -72,9 +72,8 @@ func RunViaXwSshpass(ctx context.Context, ds *backend.DirShortcut, cmd []string,
 		userHost = "root"
 	}
 	userHost = userHost + "@" + ds.RemoteHost
-	if ds.RemotePort != "" && ds.RemotePort != "22" {
-		userHost = userHost + ":" + ds.RemotePort
-	}
+	// 注意：xw-sshpass 不会从 user@host:port 剥离 port，
+	// 必须用其顶层 -P <port> flag 显式传端口。
 
 	var args []string
 	if ds.AuthMethod == "key" {
@@ -88,6 +87,10 @@ func RunViaXwSshpass(ctx context.Context, ds *backend.DirShortcut, cmd []string,
 			return nil, fmt.Errorf("no password or key configured for %s", ds.Name)
 		}
 		args = append(args, "-p", ds.RemotePassword)
+	}
+	// 端口（非默认值才显式传，win-sshpass 内部默认 22）
+	if ds.RemotePort != "" && ds.RemotePort != "22" {
+		args = append(args, "-P", ds.RemotePort)
 	}
 	args = append(args, "ssh", userHost)
 	// Shell wrapper: mkdir xworkbench-task, cd, source rc files, zsh priority bash fallback
