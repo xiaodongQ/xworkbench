@@ -36,10 +36,33 @@ type ContentBlock struct {
 
 // ToolCall represents a tool call returned by the model.
 type ToolCall struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Args  string `json:"arguments"` // JSON string
-	Result string `json:"result,omitempty"` // filled after execution
+	ID    string `json:"-"`
+	Name  string `json:"-"`
+	Args  string `json:"-"` // JSON string
+	Result string `json:"-"` // filled after execution
+}
+
+// MarshalJSON serializes ToolCall in the OpenAI chat completions format,
+// which nests name/arguments under a "function" object and requires a
+// "type":"function" field. The plain {id,name,arguments} shape the struct
+// used to emit was not recognized by the model backend, causing the model
+// to return empty content after tool round-trips.
+func (tc ToolCall) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ID string `json:"id"`
+		Type string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	}{
+		ID: tc.ID,
+		Type: "function",
+		Function: struct {
+			Name string `json:"name"`
+			Arguments string `json:"arguments"`
+		}{Name: tc.Name, Arguments: tc.Args},
+	})
 }
 
 // Tool represents a function-calling tool definition.
