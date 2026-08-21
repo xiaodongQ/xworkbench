@@ -17,7 +17,7 @@ const httpTimeout = 30 * time.Second
 
 type apiResponse struct {
 	StatusCode int
-	Body       map[string]any
+	Body       any
 	RawBody    string
 }
 
@@ -48,7 +48,7 @@ func apiRequest(method, url string, data any) (*apiResponse, error) {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
-	var parsed map[string]any
+	var parsed any
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		parsed = map[string]any{"raw": string(respBody)}
 	}
@@ -533,10 +533,10 @@ func scheduledList(args []string) error {
 		printOK(resp.Body)
 		return nil
 	}
-	// 客户端过滤：手动(assigned_dir_shortcut_id 为空) vs 远程(非空)
-	tasks, ok := resp.Body["data"].([]any)
+	// /api/scheduled 返回 JSON 数组。客户端过滤：手动(assigned_dir_shortcut_id 为空) vs 远程(非空)
+	tasks, ok := resp.Body.([]any)
 	if !ok {
-		// 直接打印原始响应
+		// 非数组（如对象或 fallback 的 {"raw":...}），直接打印原始响应
 		printOK(resp.Body)
 		return nil
 	}
@@ -554,8 +554,7 @@ func scheduledList(args []string) error {
 			filtered = append(filtered, t)
 		}
 	}
-	resp.Body["data"] = filtered
-	printOK(resp.Body)
+	printOK(filtered)
 	return nil
 }
 

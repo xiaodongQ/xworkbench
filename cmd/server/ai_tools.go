@@ -38,15 +38,10 @@ func init() {
 	}
 }
 
-// osGetenv is a shim so this package doesn't need os import just for getenv.
+// osGetenv reads an environment variable.
 func osGetenv(k string) string {
-	return k // replaced by actual os.Getenv below
+	return os.Getenv(k)
 }
-
-func init() {}
-
-// osGetenv real implementation (overridden above for compile; actual use below).
-var _ = func() string { return "" }()
 
 // GetTools returns all available AI function-calling tools (Phase 1 + Phase 2).
 func GetTools() []Tool {
